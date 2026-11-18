@@ -16,6 +16,10 @@ lto = true
 [package.metadata.android]
 label = "Pixel Realm"
 fullscreen = true
+icon = "@mipmap/ic_launcher"
+res = "android_res"
+min_sdk_version = 24
+target_sdk_version = 34
 build_targets = ["aarch64-linux-android"]
 
 [package.metadata.android.activity_attributes]
