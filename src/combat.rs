@@ -13,10 +13,12 @@ pub const STAFF_N: [&str; 3] = ["-", "คทาเวทมนตร์", "ค�
 
 impl Player {
     pub fn reduction(&self) -> f32 {
-        self.armor.iter().map(|&t| AR_RED[t as usize]).sum()
+        let base: f32 = self.armor.iter().map(|&t| AR_RED[t as usize]).sum();
+        let plus: f32 = (0..3).filter(|&i| self.armor[i] > 0).map(|i| 0.015 * self.aplus[i] as f32).sum();
+        (base + plus).min(0.75)
     }
     pub fn speed_mul(&self) -> f32 {
-        1. + AR_SPD[self.armor[0] as usize] + AR_SPD[self.armor[1] as usize] + AR_SPD_BOOT[self.armor[2] as usize]
+        1. + AR_SPD[self.armor[0] as usize] + AR_SPD[self.armor[1] as usize] + AR_SPD_BOOT[self.armor[2] as usize] + 0.03 * self.st[2] as f32
     }
     pub fn has_weapon(&self, w: u8) -> bool {
         match w {
@@ -47,7 +49,7 @@ pub struct Proj {
     pub mine: bool,
     pub dead: bool,
 }
-pub const PR: [f32; 6] = [3., 3.5, 3., 5., 4., 2.5];
+pub const PR: [f32; 7] = [3., 3.5, 3., 5., 4., 2.5, 3.5];
 
 impl Game {
     /// หันตัวไปตามทิศที่เล็ง
@@ -111,24 +113,8 @@ impl Game {
         }
     }
     pub fn hit_enemy(&mut self, i: usize, dmg: i32, dx: f32, dy: f32) {
-        let (ex, ey);
-        {
-            let e = &mut self.en[i];
-            e.hp -= dmg as f32;
-            e.flash = 0.15;
-            e.kb = 0.15;
-            e.vx = dx * 140.;
-            e.vy = dy * 140.;
-            ex = e.x;
-            ey = e.y - if e.k == EK::Bat { 14. } else { 5. };
-        }
-        self.add_float(ex, ey - 8., format!("-{}", dmg), hx(0xffff55), None);
-        self.burst(ex, ey, WHITE, 4, 50.);
-        if self.en[i].hp <= 0. && !self.en[i].dead {
-            self.en[i].dead = true;
-            let e = self.en[i].clone();
-            self.kill(&e);
-        }
+        let (d, crit) = self.roll_dmg(dmg);
+        self.damage_enemy(i, d, crit, dx, dy);
     }
     pub fn upd_proj(&mut self, dt: f32) {
         let mut ps = std::mem::take(&mut self.proj);
@@ -143,7 +129,7 @@ impl Game {
             let (tx, ty) = (tfloor(p.x), tfloor(p.y + 5.));
             if OSOLID[self.w.obj_at(tx, ty) as usize] || self.w.tile_at(tx, ty) == 6 {
                 p.dead = true;
-                let c = if p.kind == 1 { hx(0x7ae8ff) } else if p.kind == 2 { hx(0x6cd06c) } else if p.kind >= 3 { hx(0x9a9aa6) } else { hx(0xd8d8e0) };
+                let c = if p.kind == 6 { hx(0xff9a30) } else if p.kind == 1 { hx(0x7ae8ff) } else if p.kind == 2 { hx(0x6cd06c) } else if p.kind >= 3 { hx(0x9a9aa6) } else { hx(0xd8d8e0) };
                 self.burst(p.x, p.y, c, 5, 40.);
                 continue;
             }
@@ -205,6 +191,11 @@ pub fn draw_proj(g: &Game, sp: &Sprites, v: &View) {
         let (w, h) = (r.w * v.s, r.h * v.s);
         let (px, py) = (sx * v.s - w / 2., sy * v.s - h / 2.);
         let rot = if p.kind == 0 { p.vy.atan2(p.vx) } else { 0. };
+        if p.mine && g.p.wplus[g.p.weapon as usize] > 0 {
+            let mut ac = hx(AURA[g.p.wplus[g.p.weapon as usize] as usize]);
+            ac.a = 0.35;
+            draw_circle(sx * v.s, sy * v.s, 5. * v.s, ac);
+        }
         draw_texture_ex(&sp.tex, px, py, WHITE, DrawTextureParams { source: Some(r), dest_size: Some(vec2(w, h)), rotation: rot, pivot: Some(vec2(px + w / 2., py + h / 2.)), ..Default::default() });
     }
 }
@@ -305,7 +296,7 @@ impl Game {
             Eff::Arrows(n) => self.p.inv[ARROW] += n,
             Eff::Armor(s, t) => self.p.armor[s] = t,
         }
-        play(&self.sfx.craft);
+        play(if matches!(r.eff, Eff::Sword(_) | Eff::Bow | Eff::Staff(_) | Eff::Armor(..)) { &self.sfx.upgrade } else { &self.sfx.craft });
         self.toast(format!("คราฟต์ {} สำเร็จ!", r.name));
         self.save();
     }

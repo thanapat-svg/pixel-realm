@@ -5,7 +5,7 @@ use super::*;
 
 pub const BOSS_R: f32 = 15.;
 pub const BNAME: [&str; 2] = ["ราชาสไลม์", "โกเลมหินยักษ์"];
-const BHP: [f32; 2] = [70., 110.];
+pub const BHP: [f32; 2] = [70., 110.];
 const DIR8: [(i32, i32); 8] = [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)];
 
 #[derive(Clone)]
@@ -35,11 +35,15 @@ impl Game {
     pub fn spawn_boss(&mut self, kind: u8, x: f32, y: f32) {
         let mul = 1. + (x - self.spawn.0).hypot(y - self.spawn.1) / 16. / 400.;
         let hp = (BHP[kind as usize] * mul).ceil();
+        self.spawn_boss_hp(kind, x, y, hp);
+    }
+    pub fn spawn_boss_hp(&mut self, kind: u8, x: f32, y: f32, hp: f32) {
         self.bosses.push(Boss {
             kind, x, y, hp, maxhp: hp, atk: 0, st: 0., st0: 1., cd: 1.5, tx: x, ty: y, dash: 0., dvx: 0., dvy: 0., flash: 0., anim: 0., ph2: false, dead: false,
         });
         self.toast(format!("{} ปรากฏตัว!", BNAME[kind as usize]));
-        play(&self.sfx.boom);
+        play(&self.sfx.roar);
+        self.shake(2.0, 0.35);
     }
 
     fn deep_ok(&self, tx: i32, ty: i32, kind: u8) -> bool {
@@ -77,7 +81,7 @@ impl Game {
     fn minion(&mut self, x: f32, y: f32) {
         self.en.push(Enemy {
             k: EK::Slime, x, y, hp: 3., spd: 26., dmg: 1, xp: 1, coin: 0, vx: 0., vy: 0., kb: 0., flash: 0., wt: 0., wdx: 0., wdy: 0.,
-            anim: gen_range(0., 5.), pal: 0, dead: false,
+            anim: gen_range(0., 5.), pal: 0, dead: false, night: false,
         });
     }
     fn aoe(&mut self, x: f32, y: f32, r: f32, dmg: i32) {
@@ -249,30 +253,18 @@ impl Game {
             }
         }
         let _ = d;
+        play(&self.sfx.battk);
+        self.shake(1.6, 0.18);
         b.atk = 0;
         b.cd = if b.ph2 { 1.0 } else { 1.7 } + gen_range(0., 0.8);
     }
 
     pub fn hit_boss(&mut self, i: usize, dmg: i32) {
-        let (x, y);
-        {
-            let b = &mut self.bosses[i];
-            b.hp -= dmg as f32;
-            b.flash = 0.12;
-            x = b.x;
-            y = b.y - 28.;
-        }
-        self.add_float(x, y, format!("-{}", dmg), hx(0xffff55), None);
-        self.burst(x, y + 12., WHITE, 4, 60.);
-        play(&self.sfx.hit);
-        if self.bosses[i].hp <= 0. && !self.bosses[i].dead {
-            self.bosses[i].dead = true;
-            let b = self.bosses[i].clone();
-            self.boss_die(&b);
-        }
+        let (d, crit) = self.roll_dmg(dmg);
+        self.damage_boss(i, d, crit);
     }
 
-    fn boss_die(&mut self, b: &Boss) {
+    pub fn boss_die(&mut self, b: &Boss) {
         let (x, y) = (b.x, b.y - 12.);
         let col = if b.kind == 0 { hx(0x6cd06c) } else { hx(0x9a9aa6) };
         self.burst(x, y, col, 44, 150.);
@@ -291,6 +283,10 @@ impl Game {
         self.p.kills += 1;
         self.check_lv();
         self.boss_cd = 240.;
+        self.shake(3.5, 0.5);
+        if self.w.dun.is_some() {
+            self.dungeon_boss_down();
+        }
         self.toast(format!("ปราบ{}ได้แล้ว! ได้ของหายาก", BNAME[b.kind as usize]));
         play(&self.sfx.lvl);
         self.save();
@@ -355,10 +351,10 @@ pub fn draw_boss_bar(g: &Game, font: &Font) {
     };
     let u = ui_scale();
     let sw = screen_width();
-    let (w, h) = ((sw * 0.4).min(340. * u), 14. * u);
+    let (w, h) = ((sw * 0.5).min(420. * u), 18. * u);
     let (x, y) = (sw / 2. - w / 2., 12. * u);
-    text_c(font, BNAME[b.kind as usize], sw / 2., y + 2. * u, 14. * u, hx(0xffcc66));
-    let y = y + 8. * u;
+    text_c(font, BNAME[b.kind as usize], sw / 2., y + 4. * u, 17. * u, hx(0xffcc66));
+    let y = y + 10. * u;
     draw_rectangle(x, y, w, h, hx(0x2a0e0e));
     draw_rectangle(x, y, w * (b.hp / b.maxhp).clamp(0., 1.), h, if b.ph2 { hx(0xff5a1a) } else { hx(0xcc2222) });
     draw_rectangle_lines(x, y, w, h, 2., BLACK);

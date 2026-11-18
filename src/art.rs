@@ -8,11 +8,29 @@ pub struct Extras {
     pub golem: [Rect; 2], // [ปกติ, ยกแขน]
     pub merchant: [Rect; 2],
     /// เรียงตาม kind ของ Proj: 0 ธนู, 1 เวท, 2 เมือก, 3 ก้อนหิน, 4 เวทราชา, 5 เศษหิน
-    pub proj: [Rect; 6],
+    pub proj: [Rect; 7],
+    /// ผู้ติดตาม: [หมาป่า เฟรม0,1, อัศวิน เฟรม0,1]
+    pub comp: [Rect; 4],
+    /// ภาพเงาขาว (แฟลชตอนโดนตี): สไลม์ x4, โครงกระดูก, ค้างคาว x2
+    pub flash_slime: [Rect; 4],
+    pub flash_skel: Rect,
+    pub flash_bat: [Rect; 2],
 }
 
 fn blank(w: u16, h: u16) -> Image {
     Image::gen_image_color(w, h, BLANK)
+}
+/// ภาพเงาสีขาว (ใช้แฟลชตอนโดนตี)
+pub fn white_of(im: &Image) -> Image {
+    let mut o = im.clone();
+    for y in 0..im.height as u32 {
+        for x in 0..im.width as u32 {
+            if im.get_pixel(x, y).a > 0. {
+                o.set_pixel(x, y, Color::new(1., 1., 1., 1.));
+            }
+        }
+    }
+    o
 }
 fn px(im: &mut Image, x: i32, y: i32, c: u32) {
     if x >= 0 && y >= 0 && (x as u32) < im.width as u32 && (y as u32) < im.height as u32 {
@@ -304,6 +322,19 @@ pub fn build_extra(at: &mut Atlas, obj: &mut Vec<Rect>, icons: &mut Vec<Rect>) -
     obj[15] = merch[0];
     obj[16] = at.add(&tent());
 
+    obj[17] = at.add(&spr(&["................", "................", "................", "................", "..kkkkkkkkkkkk..", ".kLLLLLLLLLLLLk.", "kLllLLLLLLLLLDDk", "kkLLLLLLLLLLDDkk", "..kkLLLLLLDDkk..", "....kLLLLDDk....", "....kLLLLDDk....", "....kLLLLDDk....", "...kkLLLLDDkk...", "..kLLLLLLLLDDk..", "..kkkkkkkkkkkk..", "................"], &[('k', 0x2a2a32), ('L', 0x8a909c), ('l', 0xc8ced8), ('D', 0x5a6070)]));
+    obj[18] = at.add(&spr(&["................", "................", ".......y........", "......yoy.......", ".....yoroy......", ".....yorRy......", "......orro......", ".......rr.......", "......tTTt......", ".......TT.......", ".......TT.......", ".......Tt.......", ".......TT.......", ".......TT.......", "......tTTt......", "................"], &[('y', 0xffe680), ('o', 0xffa630), ('r', 0xff5a1a), ('R', 0xfff2a0), ('T', 0x8a5a32), ('t', 0x5a3418)]));
+    obj[19] = at.add(&spr(&["................", "................", "....kkkkkkkk....", "..kkssssssssskk.", ".kssbbbbbbbbbssk", ".ksbbbbbbbbbbbsk", "ksbbbppbbppbbbsk", "ksbbbbbbbbbbbbsk", "ksbbppbbbbppbbsk", "ksbbbbbbbbbbbbsk", "kssbbbbbbbbbbssk", ".kssssbbbbssssk.", "..kkssssssssskk.", "....kkkkkkkk....", "................", "................"], &[('k', 0x1a1a22), ('s', 0x7a7a88), ('b', 0x0a0a12), ('p', 0x7a4aff)]));
+    obj[20] = at.add(&spr(&[".......yy.......", "......yyyy......", "....wwwwwwww....", "...wkkkkkkkkw...", "...wwwwwwwwww...", "..wkkkkkkkkkkw..", "..wwwwwwwwwwww..", ".wkkkkkkkkkkkkw.", ".wwwwwwwwwwwwww.", "wkkkkkkkkkkkkkkw", "wwwwwwwwwwwwwwww", "................", "................", "................", "................", "................"], &[('w', 0xa0a0b0), ('k', 0x40404c), ('y', 0xffd84a)]));
+    let sp_pal: &[(char, u32)] = &[('k', 0x2a2a32), ('d', 0x55555f), ('S', 0xd8dce8), ('T', 0xffffff)];
+    obj[21] = at.add(&spr(&["................", "................", "................", "................", "................", "..kkkkkkkkkkkk..", "..kddddddddddk..", "..kdkdddddkddk..", "..kddddddddddk..", "..kdkdddddkddk..", "..kddddddddddk..", "..kkkkkkkkkkkk..", "................", "................", "................", "................"], sp_pal));
+    obj[22] = at.add(&spr(&["................", "................", "....T.....T.....", "...SSS...SSS....", "...SSS...SSS....", "..kkkkkkkkkkkk..", "..kddddddddddk..", "..kdSdddddSddk..", "..kddddddddddk..", "..kdSdddddSddk..", "..kddddddddddk..", "..kkkkkkkkkkkk..", "................", "................", "................", "................"], sp_pal));
+    obj[23] = at.add(&spr(&["................", "................", "....kkkkkkkk....", "...kssssssssk...", "..kssLLLLLLssk..", "..ksLrLLLLrLsk..", "..ksLLLLLLLLsk..", "..kssLooooLssk..", "..kssLLLLLLssk..", "...kssssssssk...", "...kDDDDDDDDk...", "..kDDDDDDDDDDk..", "..kDDDDDDDDDDk..", "..kkkkkkkkkkkk..", "................", "................"], &[('k', 0x1e1e26), ('s', 0x7a7a88), ('L', 0xa4a4b4), ('D', 0x55556a), ('r', 0xff3030), ('o', 0xff9a20)]));
+    obj[24] = at.add(&spr(&["................", "................", "................", "................", "...oooooooooo...", "..oyyyyyyyyyyo..", "..oyYYYYYYYYyo..", "..oyyyyyyyyyyo..", "..oooooGGooooo..", "..oyyyyGGyyyyo..", "..oyyyyyyyyyyo..", "..oyyyyyyyyyyo..", "..oyyyyyyyyyyo..", "..oooooooooooo..", "................", "................"], &[('o', 0x2a0f4a), ('y', 0x6a3aa8), ('Y', 0xa070e8), ('G', 0xffd84a)]));
+    let cp: &[(char, u32)] = &[('g', 0x8e949e), ('G', 0xc8ccd6), ('d', 0x4e5460), ('e', 0x151515), ('n', 0x151515)];
+    let kp: &[(char, u32)] = &[('r', 0xd04040), ('h', 0xc8ccd8), ('k', 0x222222), ('b', 0x3a6fd8), ('B', 0xbcd4ff), ('s', 0xe8e8f0), ('d', 0x5a3a1e)];
+    let comp = [at.add(&spr(&[".........d.d", ".gg.....dgdg", "ggggggggggge", ".gGGgggggggn", ".ggGGGGgggg.", "..ggggggggg.", "..g.g..g.g..", "..d.d..d.d.."], cp)), at.add(&spr(&[".........d.d", ".gg.....dgdg", "ggggggggggge", ".gGGgggggggn", ".ggGGGGgggg.", "..ggggggggg.", "..gg..g..gg.", "..dd..d..dd."], cp)), at.add(&spr(&["...rr...", "..hhhh..", ".hhhhhh.", ".hkkkkh.", ".hhhhhh.", "..bbbb.s", ".bBbbbbs", ".bBbbbbs", ".bbbbbb.", "..b..b..", "..d..d..", "..d..d.."], kp)), at.add(&spr(&["...rr...", "..hhhh..", ".hhhhhh.", ".hkkkkh.", ".hhhhhh.", "..bbbb.s", ".bBbbbbs", ".bBbbbbs", ".bbbbbb.", "...bb...", "...dd...", "...dd..."], kp))];
+
     // ไอคอน 8x8: ต่อจากไอคอนเดิม (0..5) ตามดัชนีไอเทมและค่าคงที่ IC_*
     let mut ic = |rows: &[&str], pal: &[(char, u32)]| {
         let r = at.add(&spr(rows, pal));
@@ -321,7 +352,9 @@ pub fn build_extra(at: &mut Atlas, obj: &mut Vec<Rect>, icons: &mut Vec<Rect>) -
     ic(&["kkkkkkkk", "kbbbbbbk", "kbwwwwbk", "kbwbbwbk", "kbwwwwbk", "kbbwwbbk", "kbbbbbbk", "kkkkkkkk"], &[('k', 0x14246a), ('b', 0x2a4aa8), ('w', 0xcfe0ff)]);
     // 11 พิมพ์เขียวอาวุธ
     ic(&["kkkkkkkk", "kbbbbbwk", "kbbbbwbk", "kbbbwbbk", "kbwwwbbk", "kbwbbbbk", "kbbbbbbk", "kkkkkkkk"], &[('k', 0x14246a), ('b', 0x2a4aa8), ('w', 0xcfe0ff)]);
-    // 12 ดาบ
+    // 12 เศษดาว (ดรอปจากมอนสเตอร์กลางคืน / หีบดันเจี้ยน)
+    ic(&["...y....", "..yYy...", "..yYy...", ".yYYYy..", "yYYwYYy.", ".yYYYy..", "..yYy...", "...y...."], &[('y', 0x8a5ad8), ('Y', 0xc8a0ff), ('w', 0xffffff)]);
+    // 13 ดาบ
     ic(&[".......w", "......wW", ".....wW.", "....wW..", ".t.wW...", "..tw....", ".t.t....", "t......."], &[('w', 0xd8d8e0), ('W', 0xffffff), ('t', 0x8a5a32)]);
     // 13 ธนู
     ic(&["sttt....", "s...tt..", "s.....t.", "s.....t.", "s.....t.", "s...tt..", "sttt....", "........"], &[('s', 0xe8e8e8), ('t', 0x9a6a38)]);
@@ -338,6 +371,10 @@ pub fn build_extra(at: &mut Atlas, obj: &mut Vec<Rect>, icons: &mut Vec<Rect>) -
     ic(&["kkkkkkkk", "kTTTTTTk", "kTTTTTTk", "kTTTTTTk", "kTTTTyTk", "kTTTTTTk", "kTTTTTTk", "kkkkkkkk"], &[('k', 0x3a2410), ('T', 0xa06a30), ('y', 0xffd84a)]);
     ic(&["kkkkkkkk", "kTTTTTTk", "kbbbbbbk", "kTTyyTTk", "kTTyyTTk", "kbbbbbbk", "kTTTTTTk", "kkkkkkkk"], &[('k', 0x3a2010), ('T', 0xa87a3a), ('b', 0x8a96b0), ('y', 0xffd84a)]);
 
+    // 23 โต๊ะตีเหล็ก / 24 คบเพลิง
+    ic(&["........", ".kkkkkk.", "kLLLLLLk", ".kkLLkk.", "...kk...", "..kLLk..", ".kkkkkk.", "........"], &[('k', 0x2a2a32), ('L', 0x9aa0ac)]);
+    ic(&["...y....", "..yoy...", "..yry...", "...r....", "...T....", "...T....", "...T....", "..tTt..."], &[('y', 0xffe680), ('o', 0xffa630), ('r', 0xff5a1a), ('T', 0x8a5a32), ('t', 0x5a3418)]);
+
     // โปรเจกไทล์
     let arrow = spr(&["r......s.", "rttttttss", "r......s."], &[('r', 0xe05050), ('t', 0x9a6a38), ('s', 0xe8e8f0)]);
     let mut shard = orb(4, 0xb4b4c2, 0x8a8a96, 0x4a4a56);
@@ -353,6 +390,8 @@ pub fn build_extra(at: &mut Atlas, obj: &mut Vec<Rect>, icons: &mut Vec<Rect>) -
         at.add(&boulder),
         at.add(&orb(7, 0xffffff, 0x9aff7a, 0x2aa040)),
         at.add(&shard),
+        at.add(&orb(7, 0xfff2a0, 0xff9a30, 0xd0401a)),
     ];
-    Extras { king: at.add(&king()), golem: [at.add(&golem(false)), at.add(&golem(true))], merchant: merch, proj }
+    let z = Rect::new(0., 0., 1., 1.);
+    Extras { king: at.add(&king()), golem: [at.add(&golem(false)), at.add(&golem(true))], merchant: merch, proj, comp, flash_slime: [z; 4], flash_skel: z, flash_bat: [z; 2] }
 }

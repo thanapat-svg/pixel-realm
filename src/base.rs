@@ -9,11 +9,13 @@ pub struct Piece {
     pub icon: usize,
     pub cost: &'static [(usize, i32)],
 }
-pub const PIECES: [Piece; 4] = [
+pub const PIECES: [Piece; 6] = [
     Piece { name: "กำแพงไม้", desc: "กั้นทางได้ ตีพังได้ (ได้ไม้คืน)", obj: 10, icon: IC_WWALL, cost: &[(WOOD, 2)] },
     Piece { name: "กำแพงหิน", desc: "แข็งแรงกว่ากำแพงไม้", obj: 11, icon: IC_SWALL, cost: &[(STONE, 3)] },
     Piece { name: "ประตู", desc: "กด Q หรือปุ่ม \"ใช้\" เพื่อเปิด-ปิด", obj: 12, icon: IC_DOOR, cost: &[(WOOD, 4)] },
     Piece { name: "กล่องเก็บของ", desc: "เปิดแล้วย้ายไอเทมเข้า-ออกได้ บันทึกลงเซฟ", obj: 14, icon: IC_BOX, cost: &[(WOOD, 8), (STONE, 2)] },
+    Piece { name: "ทั่งตีบวก", desc: "ตีบวกอาวุธ/เกราะ +1..+5 ด้วยแร่และชิ้นส่วนบอส", obj: 17, icon: IC_ANVIL, cost: &[(STONE, 12), (WOOD, 4)] },
+    Piece { name: "คบเพลิง", desc: "ให้แสงสว่างรอบฐานตอนกลางคืน", obj: 18, icon: IC_TORCH, cost: &[(WOOD, 1), (STONE, 1)] },
 ];
 
 /// สิ่งที่ Game ขอให้ UI เปิด
@@ -21,6 +23,7 @@ pub const PIECES: [Piece; 4] = [
 pub enum Req {
     Chest((i32, i32)),
     Shop,
+    Forge,
 }
 
 impl Game {
@@ -38,6 +41,10 @@ impl Game {
         !SOLIDT[self.w.tile_at(tx, ty) as usize] && (o == 0 || o == 3) && !self.player_in_tile(tx, ty)
     }
     pub fn place_piece(&mut self) {
+        if self.w.dun.is_some() {
+            self.toast("สร้างในดันเจี้ยนไม่ได้");
+            return;
+        }
         let Some(sel) = self.build_sel else {
             self.toast("เลือกสิ่งปลูกสร้างจากเมนูสร้าง (B) ก่อน");
             return;
@@ -72,7 +79,7 @@ impl Game {
         for ty in pty - 2..=pty + 2 {
             for tx in ptx - 2..=ptx + 2 {
                 let o = self.w.obj_at(tx, ty);
-                if !matches!(o, 12 | 13 | 14 | 15) {
+                if !matches!(o, 12 | 13 | 14 | 15 | 17 | 19 | 20 | 24) {
                     continue;
                 }
                 let d = (tx as f32 * 16. + 8. - self.p.x).hypot(ty as f32 * 16. + 8. - (self.p.y - 3.));
@@ -108,8 +115,16 @@ impl Game {
                 play(&self.sfx.chest);
                 self.req = Some(Req::Chest(k));
             }
+            17 => {
+                play(&self.sfx.click);
+                self.req = Some(Req::Forge);
+            }
+            19 => self.enter_dungeon(k),
+            20 => self.exit_dungeon(),
+            24 => self.open_rare_chest(k),
             _ => {
                 play(&self.sfx.buy);
+                self.shop_camp = Some(k);
                 self.req = Some(Req::Shop);
             }
         }
@@ -137,6 +152,10 @@ pub fn interact_hint(o: u8, touch: bool) -> String {
         12 => format!("{}: เปิดประตู", key),
         13 => format!("{}: ปิดประตู", key),
         14 => format!("{}: เปิดกล่องเก็บของ", key),
+        17 => format!("{}: ใช้ทั่งตีบวก", key),
+        19 => format!("{}: เข้าดันเจี้ยนลับ (อันตราย!)", key),
+        20 => format!("{}: ออกจากดันเจี้ยน", key),
+        24 => format!("{}: เปิดหีบหายาก", key),
         _ => format!("{}: คุยกับพ่อค้า", key),
     }
 }

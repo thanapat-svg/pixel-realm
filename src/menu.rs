@@ -9,6 +9,7 @@ pub struct UiState {
     pub max_scroll: f32,
     pub chest: Option<(i32, i32)>,
     pub shop: bool,
+    pub forge: bool,
     pub greet: usize,
     press: Option<Vec2>,
     last: Vec2,
@@ -19,7 +20,7 @@ pub struct UiState {
 }
 impl UiState {
     pub fn new() -> Self {
-        UiState { tab: 0, scroll: 0., max_scroll: 0., chest: None, shop: false, greet: 0, press: None, last: Vec2::ZERO, drag: 0., click: None, clip: Rect::new(0., 0., 1., 1.), close: false }
+        UiState { tab: 0, scroll: 0., max_scroll: 0., chest: None, shop: false, forge: false, greet: 0, press: None, last: Vec2::ZERO, drag: 0., click: None, clip: Rect::new(0., 0., 1., 1.), close: false }
     }
     pub fn open(&mut self, tab: usize) {
         self.tab = tab;
@@ -30,6 +31,7 @@ impl UiState {
     pub fn reset_context(&mut self) {
         self.chest = None;
         self.shop = false;
+        self.forge = false;
         self.close = false;
     }
 }
@@ -300,6 +302,63 @@ fn tab_shop(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
     }
     y += 76. * u;
     let rh = 58. * u;
+    // ---- เควสต์ย่อย
+    header(font, c, y, "เควสต์ของแคมป์นี้", u);
+    y += 28. * u;
+    let mut qact = 0u8;
+    if visible(y, 70. * u, c) {
+        match g.quest.clone() {
+            Some(q) => {
+                text(font, &quest_title(&q), c.x + 8. * u, y + 18. * u, 14. * u, hx(0xffcc66));
+                text(font, &format!("ความคืบหน้า {}/{} · รางวัล: {}", q.prog, q.goal, quest_reward_text(&q)), c.x + 8. * u, y + 36. * u, 11. * u, hx(0xaaaaaa));
+                let done = q.prog >= q.goal;
+                if btn(ui, font, Rect::new(c.x + c.w - 210. * u, y + 40. * u, 98. * u, 26. * u), "ส่งเควสต์", done && g.shop_camp == Some(q.camp), u) { qact = 2; }
+                if btn(ui, font, Rect::new(c.x + c.w - 106. * u, y + 40. * u, 98. * u, 26. * u), "ยกเลิก", true, u) { qact = 3; }
+                if done && g.shop_camp != Some(q.camp) {
+                    text(font, "ต้องส่งที่แคมป์ที่รับเควสต์", c.x + 8. * u, y + 56. * u, 11. * u, hx(0xff9988));
+                }
+            }
+            None => match g.shop_camp {
+                Some(k) => {
+                    let q = g.offered_quest(k);
+                    text(font, &quest_title(&q), c.x + 8. * u, y + 18. * u, 14. * u, hx(0xffcc66));
+                    text(font, &format!("รางวัล: {}", quest_reward_text(&q)), c.x + 8. * u, y + 36. * u, 11. * u, hx(0xaaffaa));
+                    if btn(ui, font, Rect::new(c.x + c.w - 106. * u, y + 40. * u, 98. * u, 26. * u), "รับเควสต์", true, u) { qact = 1; }
+                }
+                None => text(font, "ไม่มีเควสต์", c.x + 8. * u, y + 24. * u, 13. * u, hx(0x888899)),
+            },
+        }
+    }
+    y += 72. * u;
+    match qact {
+        1 => { if let Some(k) = g.shop_camp { g.accept_quest(k); } }
+        2 => g.claim_quest(),
+        3 => g.abandon_quest(),
+        _ => {}
+    }
+    // ---- จ้างผู้ติดตาม
+    header(font, c, y, "จ้างผู้ติดตาม (สู้ + เก็บของ)", u);
+    y += 28. * u;
+    let mut hire: Option<u8> = None;
+    for k in 0..2u8 {
+        if visible(y, rh, c) {
+            let cur = g.comp.as_ref().map_or(false, |c| c.kind == k);
+            let r = sp.ex.comp[k as usize * 2];
+            draw_texture_ex(&sp.tex, c.x + 8. * u, y + 8. * u, WHITE, DrawTextureParams { source: Some(r), dest_size: Some(vec2(r.w * 2.2 * u, r.h * 2.2 * u)), ..Default::default() });
+            text(font, COMP_N[k as usize], c.x + 52. * u, y + 20. * u, 14. * u, hx(0xffcc66));
+            text(font, COMP_D[k as usize], c.x + 52. * u, y + 36. * u, 11. * u, hx(0xaaaaaa));
+            icon_c(sp, COIN, c.x + 52. * u, y + 40. * u, 11. * u, WHITE);
+            text(font, &format!("{}", COMP_PRICE[k as usize]), c.x + 66. * u, y + 50. * u, 11. * u, if g.p.inv[COIN] >= COMP_PRICE[k as usize] { hx(0xaaffaa) } else { hx(0xff8888) });
+            if btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 10. * u, 92. * u, 32. * u), if cur { "จ้างอยู่" } else { "จ้าง" }, !cur && g.p.inv[COIN] >= COMP_PRICE[k as usize], u) {
+                hire = Some(k);
+            }
+            sep(c, y + rh - 2.);
+        }
+        y += rh;
+    }
+    if let Some(k) = hire { g.hire(k); }
+    header(font, c, y, "สินค้า", u);
+    y += 28. * u;
     let mut buy: Option<usize> = None;
     for (i, of) in OFFERS.iter().enumerate() {
         if visible(y, rh, c) {
@@ -318,6 +377,102 @@ fn tab_shop(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
     }
     if let Some(i) = buy {
         g.buy(i);
+    }
+    y - top
+}
+
+fn tab_forge(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32 {
+    let top = c.y - ui.scroll;
+    let mut y = top;
+    let rh = 66. * u;
+    header(font, c, y, "ทั่งตีบวก — ใช้แร่/เศษดาว/ชิ้นส่วนบอส (ออร่าอาวุธเปลี่ยนสีตามระดับ)", u);
+    y += 28. * u;
+    let mut act: Option<usize> = None;
+    for t in 0..6usize {
+        if !visible(y, rh, c) { y += rh; continue; }
+        let own = g.p.forge_owned(t);
+        let pl = g.p.forge_plus(t);
+        let ic = [ICON_SWORD, IC_BOW, IC_STAFF, IC_HELM, IC_CHEST, IC_BOOT][t];
+        icon_c(sp, ic, c.x + 8. * u, y + 8. * u, 28. * u, if own { WHITE } else { Color::new(1., 1., 1., 0.3) });
+        let nm = g.p.forge_name(t);
+        text(font, &format!("{} +{}", nm, pl), c.x + 44. * u, y + 18. * u, 14. * u, if own { hx(AURA[pl as usize]) } else { hx(0x777777) });
+        let eff = if t < 3 { format!("ดาเมจ x{:.1}", 1. + 0.2 * pl as f32) } else { format!("ลดดาเมจ +{:.1}%", 1.5 * pl as f32) };
+        text(font, &eff, c.x + 44. * u, y + 33. * u, 11. * u, hx(0xaaaaaa));
+        if own && pl < PLUS_MAX {
+            costs(g, sp, font, forge_cost(pl + 1), None, c.x + 44. * u, y + 40. * u, u);
+            if btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 16. * u, 92. * u, 32. * u), &format!("ตีเป็น +{}", pl + 1), can_pay(&g.p, forge_cost(pl + 1)), u) { act = Some(t); }
+        } else {
+            text(font, if !own { "ยังไม่มีไอเทมนี้" } else { "สูงสุดแล้ว" }, c.x + 44. * u, y + 52. * u, 11. * u, hx(0x888899));
+        }
+        sep(c, y + rh - 2.);
+        y += rh;
+    }
+    if let Some(t) = act { g.forge(t); }
+    y - top
+}
+
+fn tab_stats(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32 {
+    let top = c.y - ui.scroll;
+    let mut y = top;
+    let rh = 56. * u;
+    text(font, &format!("เลเวล {} · แต้มคงเหลือ {} (ได้ {} แต้มต่อเลเวล)", g.p.lvl, g.p.sp, SP_PER_LV), c.x + 8. * u, y + 20. * u, 14. * u, if g.p.sp > 0 { hx(0x88ff88) } else { hx(0xdddddd) });
+    y += 30. * u;
+    let mut act: Option<usize> = None;
+    for i in 0..4usize {
+        if visible(y, rh, c) {
+            text(font, &format!("{} ({}/{})", STN[i], g.p.st[i], ST_MAX), c.x + 8. * u, y + 20. * u, 15. * u, hx(0xffcc66));
+            text(font, STD[i], c.x + 8. * u, y + 36. * u, 11. * u, hx(0xaaaaaa));
+            for k in 0..ST_MAX {
+                let on = k < g.p.st[i];
+                draw_rectangle(c.x + 8. * u + k as f32 * 11. * u, y + 41. * u, 9. * u, 7. * u, if on { hx(0xffcc66) } else { hx(0x333344) });
+            }
+            if btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 10. * u, 92. * u, 32. * u), "+1", g.p.sp > 0 && g.p.st[i] < ST_MAX, u) { act = Some(i); }
+            sep(c, y + rh - 2.);
+        }
+        y += rh;
+    }
+    if visible(y, 60. * u, c) {
+        text(font, &format!("คริติคอล {:.0}% · ดาเมจ ดาบ x{:.2} · เลือด {}", g.p.crit_rate() * 100., g.p.atk_mul(0), g.p.maxhp), c.x + 8. * u, y + 22. * u, 12. * u, hx(0x88ff88));
+    }
+    y += 40. * u;
+    if let Some(i) = act { g.spend_stat(i); }
+    y - top
+}
+
+fn tab_settings(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32 {
+    let top = c.y - ui.scroll;
+    let mut y = top;
+    let rh = 50. * u;
+    let mut flip = 0;
+    let rows: [(&str, &str, bool); 3] = [
+        ("เสียงเอฟเฟกต์", "ดาบ ธนู โดนตี เก็บของ ฯลฯ", g.sfx_on),
+        ("เพลงประกอบ", "เปลี่ยนตามฉาก: สำรวจ · แคมป์ · บอส · ดันเจี้ยน/กลางคืน", g.bgm_on),
+        ("เล็งอัตโนมัติ", "แตะโจมตี = ยิง/ฟันมอนสเตอร์ใกล้สุด (ลากเล็งเองได้เหมือนเดิม)", g.auto_aim),
+    ];
+    for (i, (n, d, on)) in rows.iter().enumerate() {
+        if visible(y, rh, c) {
+            text(font, n, c.x + 8. * u, y + 20. * u, 15. * u, hx(0xffcc66));
+            text(font, d, c.x + 8. * u, y + 38. * u, 11. * u, hx(0xaaaaaa));
+            if btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 9. * u, 92. * u, 32. * u), if *on { "เปิด" } else { "ปิด" }, true, u) { flip = i + 1; }
+            sep(c, y + rh - 2.);
+        }
+        y += rh;
+    }
+    if visible(y, rh, c) {
+        let n = g.comp.as_ref().map(|c| COMP_N[c.kind as usize]).unwrap_or("ไม่มี");
+        text(font, &format!("ผู้ติดตาม: {}", n), c.x + 8. * u, y + 28. * u, 14. * u, hx(0xdddddd));
+        if btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 9. * u, 92. * u, 32. * u), "ปล่อย", g.comp.is_some(), u) { g.dismiss_comp(); }
+    }
+    y += rh;
+    if visible(y, rh, c) {
+        text(font, "คีย์บอร์ด: Shift/K = พุ่ง · P = สเตตัส · O = ตั้งค่า", c.x + 8. * u, y + 24. * u, 11. * u, hx(0x888899));
+    }
+    y += 30. * u;
+    match flip {
+        1 => { g.sfx_on = !g.sfx_on; SFX_ON.store(g.sfx_on, std::sync::atomic::Ordering::Relaxed); g.save(); }
+        2 => { g.bgm_on = !g.bgm_on; g.save(); }
+        3 => { g.auto_aim = !g.auto_aim; g.save(); }
+        _ => {}
     }
     y - top
 }
@@ -370,18 +525,24 @@ pub fn draw_menu(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState) -> b
     if ui.shop {
         tabs.push((4, "ร้านค้า"));
     }
+    if ui.forge {
+        tabs.push((5, "ตีบวก"));
+    }
+    tabs.push((6, "สเตตัส"));
+    tabs.push((7, "ตั้งค่า"));
     if !tabs.iter().any(|t| t.0 == ui.tab) {
         ui.tab = 0;
     }
     ui.clip = Rect::new(0., 0., sw, sh);
     let tw = (w - 16. * u) / tabs.len() as f32;
+    let tfs = if tabs.len() > 5 { 12. } else { 15. };
     for (i, &(id, name)) in tabs.iter().enumerate() {
         let r = Rect::new(x + 8. * u + i as f32 * tw, y + 10. * u, tw - 4. * u, tabs_h);
         let on = ui.tab == id;
         draw_rectangle(r.x, r.y, r.w, r.h, if on { hx(0xffcc66) } else { hx(0x2e3144) });
         draw_rectangle_lines(r.x, r.y, r.w, r.h, 2., if on { BLACK } else { hx(0x555a70) });
         let label = &thai(name);
-        let fs = (15. * u) as u16;
+        let fs = (tfs * u) as u16;
         let d = measure_text(label, Some(font), fs, 1.);
         draw_text_ex(label, r.x + r.w / 2. - d.width / 2., r.y + r.h / 2. + 5. * u, TextParams { font: Some(font), font_size: fs, color: if on { hx(0x222222) } else { hx(0xdddddd) }, ..Default::default() });
         if ui.click.map_or(false, |p| r.contains(p)) && !on {
@@ -399,6 +560,9 @@ pub fn draw_menu(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState) -> b
         1 => tab_build(g, sp, font, ui, c, u),
         2 => tab_gear(g, sp, font, ui, c, u),
         3 => tab_chest(g, sp, font, ui, c, u),
+        5 => tab_forge(g, sp, font, ui, c, u),
+        6 => tab_stats(g, sp, font, ui, c, u),
+        7 => tab_settings(g, sp, font, ui, c, u),
         _ => tab_shop(g, sp, font, ui, c, u),
     };
     set_clip(None);

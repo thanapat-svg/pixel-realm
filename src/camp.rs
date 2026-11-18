@@ -32,6 +32,9 @@ pub const GREETS: [&str; 4] = [
 impl World {
     /// ศูนย์กลางแคมป์ในเซลล์ (จำผลไว้ใน memo)
     pub fn camp_in_cell(&self, cx: i32, cy: i32) -> Option<(i32, i32)> {
+        if self.dun.is_some() {
+            return None;
+        }
         if let Some(&r) = self.camps.borrow().get(&(cx, cy)) {
             return r;
         }
@@ -87,6 +90,9 @@ impl World {
 impl Game {
     /// ค้นพบแคมป์เมื่อเดินเข้าใกล้ -> แสดงสัญลักษณ์ M บนแผนที่
     pub fn discover_camps(&mut self) {
+        if self.w.dun.is_some() {
+            return;
+        }
         let (tx, ty) = (tfloor(self.p.x), tfloor(self.p.y));
         if let Some(c) = self.w.camp_near(tx, ty, 34) {
             if self.camps_found.insert(c) {
