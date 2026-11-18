@@ -10,6 +10,7 @@ pub struct UiState {
     pub chest: Option<(i32, i32)>,
     pub shop: bool,
     pub forge: bool,
+    pub cook: bool,
     pub greet: usize,
     press: Option<Vec2>,
     last: Vec2,
@@ -20,7 +21,7 @@ pub struct UiState {
 }
 impl UiState {
     pub fn new() -> Self {
-        UiState { tab: 0, scroll: 0., max_scroll: 0., chest: None, shop: false, forge: false, greet: 0, press: None, last: Vec2::ZERO, drag: 0., click: None, clip: Rect::new(0., 0., 1., 1.), close: false }
+        UiState { tab: 0, scroll: 0., max_scroll: 0., chest: None, shop: false, forge: false, cook: false, greet: 0, press: None, last: Vec2::ZERO, drag: 0., click: None, clip: Rect::new(0., 0., 1., 1.), close: false }
     }
     pub fn open(&mut self, tab: usize) {
         self.tab = tab;
@@ -32,6 +33,7 @@ impl UiState {
         self.chest = None;
         self.shop = false;
         self.forge = false;
+        self.cook = false;
         self.close = false;
     }
 }
@@ -209,6 +211,7 @@ fn tab_gear(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
     header(font, c, y, "กระเป๋า", u);
     y += 28. * u;
     let mut drink = false;
+    let mut dish: Option<usize> = None;
     for i in 0..NI {
         let rh2 = 30. * u;
         if visible(y, rh2, c) {
@@ -218,11 +221,17 @@ fn tab_gear(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
             if i == POTION && btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 2. * u, 92. * u, 26. * u), "ใช้ยา", g.p.inv[POTION] > 0, u) {
                 drink = true;
             }
+            if (DISH_STEW..=DISH_CRIT).contains(&i) && btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 2. * u, 92. * u, 26. * u), "กิน", g.p.inv[i] > 0, u) {
+                dish = Some(i);
+            }
         }
         y += rh2;
     }
     if drink {
         g.drink();
+    }
+    if let Some(i) = dish {
+        g.use_dish(i);
     }
     y - top
 }
@@ -411,6 +420,32 @@ fn tab_forge(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect,
     y - top
 }
 
+fn tab_cook(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32 {
+    let top = c.y - ui.scroll;
+    let mut y = top;
+    let rh = 62. * u;
+    header(font, c, y, "หม้อทำอาหาร — วัตถุดิบดรอปจากมอนสเตอร์ (ค้างคาว=เนื้อ · สไลม์=เห็ด · โครงกระดูก=สมุนไพร)", u);
+    y += 28. * u;
+    let mut act: Option<usize> = None;
+    for (i, d) in DISHES.iter().enumerate() {
+        if visible(y, rh, c) {
+            icon_c(sp, d.item, c.x + 8. * u, y + 10. * u, 28. * u, WHITE);
+            text(font, d.name, c.x + 44. * u, y + 18. * u, 14. * u, hx(0xffcc66));
+            text(font, d.desc, c.x + 44. * u, y + 33. * u, 11. * u, hx(0xaaaaaa));
+            costs(g, sp, font, d.cost, None, c.x + 44. * u, y + 40. * u, u);
+            if btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 14. * u, 92. * u, 32. * u), "ทำ", can_pay(&g.p, d.cost), u) { act = Some(i); }
+            sep(c, y + rh - 2.);
+        }
+        y += rh;
+    }
+    if visible(y, 60. * u, c) {
+        text(font, "ใช้อาหารจากแท็บ \"ชุด/ของ\" หรือกด 1 สเต็ก · 2 ซุป · 3 ชา", c.x + 8. * u, y + 22. * u, 11. * u, hx(0x888899));
+    }
+    y += 40. * u;
+    if let Some(i) = act { g.cook(i); }
+    y - top
+}
+
 fn tab_stats(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32 {
     let top = c.y - ui.scroll;
     let mut y = top;
@@ -528,6 +563,9 @@ pub fn draw_menu(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState) -> b
     if ui.forge {
         tabs.push((5, "ตีบวก"));
     }
+    if ui.cook {
+        tabs.push((8, "ทำอาหาร"));
+    }
     tabs.push((6, "สเตตัส"));
     tabs.push((7, "ตั้งค่า"));
     if !tabs.iter().any(|t| t.0 == ui.tab) {
@@ -561,6 +599,7 @@ pub fn draw_menu(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState) -> b
         2 => tab_gear(g, sp, font, ui, c, u),
         3 => tab_chest(g, sp, font, ui, c, u),
         5 => tab_forge(g, sp, font, ui, c, u),
+        8 => tab_cook(g, sp, font, ui, c, u),
         6 => tab_stats(g, sp, font, ui, c, u),
         7 => tab_settings(g, sp, font, ui, c, u),
         _ => tab_shop(g, sp, font, ui, c, u),

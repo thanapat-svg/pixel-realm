@@ -330,6 +330,8 @@ pub fn build_extra(at: &mut Atlas, obj: &mut Vec<Rect>, icons: &mut Vec<Rect>) -
     obj[21] = at.add(&spr(&["................", "................", "................", "................", "................", "..kkkkkkkkkkkk..", "..kddddddddddk..", "..kdkdddddkddk..", "..kddddddddddk..", "..kdkdddddkddk..", "..kddddddddddk..", "..kkkkkkkkkkkk..", "................", "................", "................", "................"], sp_pal));
     obj[22] = at.add(&spr(&["................", "................", "....T.....T.....", "...SSS...SSS....", "...SSS...SSS....", "..kkkkkkkkkkkk..", "..kddddddddddk..", "..kdSdddddSddk..", "..kddddddddddk..", "..kdSdddddSddk..", "..kddddddddddk..", "..kkkkkkkkkkkk..", "................", "................", "................", "................"], sp_pal));
     obj[23] = at.add(&spr(&["................", "................", "....kkkkkkkk....", "...kssssssssk...", "..kssLLLLLLssk..", "..ksLrLLLLrLsk..", "..ksLLLLLLLLsk..", "..kssLooooLssk..", "..kssLLLLLLssk..", "...kssssssssk...", "...kDDDDDDDDk...", "..kDDDDDDDDDDk..", "..kDDDDDDDDDDk..", "..kkkkkkkkkkkk..", "................", "................"], &[('k', 0x1e1e26), ('s', 0x7a7a88), ('L', 0xa4a4b4), ('D', 0x55556a), ('r', 0xff3030), ('o', 0xff9a20)]));
+    obj[25] = at.add(&spr(&["................", "......cc........", ".....cCCc.......", ".....cCwc.......", "......cc........", "..kkkkkkkkkk....", "..ksssssssSk....", "...ksSsssSk.....", "...ksssssSk.....", "...ksSsssSk.....", "...ksssssSk.....", "..kksssssSkk....", ".kssssssssSsk...", ".kkkkkkkkkkkk...", "................", "................"], &[('k', 0x2a2a3a), ('s', 0x8a8ea0), ('S', 0xc0c4d4), ('c', 0x3ad0f0), ('C', 0xa0f0ff), ('w', 0xffffff)]));
+    obj[26] = at.add(&spr(&["................", "................", "................", "....y..y..y.....", "...y..y..y......", "..kkkkkkkkkk....", ".kKKKKKKKKKKk...", "kKKrrrrrrrrKKk..", "kKKKKKKKKKKKKk..", "kKKKKKKKKKKKKk..", ".kKKKKKKKKKKk...", "..kkkkkkkkkk....", "..t.t....t.t....", ".tFtFt..tFtFt...", "................", "................"], &[('k', 0x22222a), ('K', 0x5a5a68), ('r', 0xc86a2a), ('y', 0xe8e8e8), ('t', 0x5a3418), ('F', 0xff7a1a)]));
     obj[24] = at.add(&spr(&["................", "................", "................", "................", "...oooooooooo...", "..oyyyyyyyyyyo..", "..oyYYYYYYYYyo..", "..oyyyyyyyyyyo..", "..oooooGGooooo..", "..oyyyyGGyyyyo..", "..oyyyyyyyyyyo..", "..oyyyyyyyyyyo..", "..oyyyyyyyyyyo..", "..oooooooooooo..", "................", "................"], &[('o', 0x2a0f4a), ('y', 0x6a3aa8), ('Y', 0xa070e8), ('G', 0xffd84a)]));
     let cp: &[(char, u32)] = &[('g', 0x8e949e), ('G', 0xc8ccd6), ('d', 0x4e5460), ('e', 0x151515), ('n', 0x151515)];
     let kp: &[(char, u32)] = &[('r', 0xd04040), ('h', 0xc8ccd8), ('k', 0x222222), ('b', 0x3a6fd8), ('B', 0xbcd4ff), ('s', 0xe8e8f0), ('d', 0x5a3a1e)];
@@ -354,6 +356,13 @@ pub fn build_extra(at: &mut Atlas, obj: &mut Vec<Rect>, icons: &mut Vec<Rect>) -
     ic(&["kkkkkkkk", "kbbbbbwk", "kbbbbwbk", "kbbbwbbk", "kbwwwbbk", "kbwbbbbk", "kbbbbbbk", "kkkkkkkk"], &[('k', 0x14246a), ('b', 0x2a4aa8), ('w', 0xcfe0ff)]);
     // 12 เศษดาว (ดรอปจากมอนสเตอร์กลางคืน / หีบดันเจี้ยน)
     ic(&["...y....", "..yYy...", "..yYy...", ".yYYYy..", "yYYwYYy.", ".yYYYy..", "..yYy...", "...y...."], &[('y', 0x8a5ad8), ('Y', 0xc8a0ff), ('w', 0xffffff)]);
+    // 13 เนื้อสัตว์ / 14 เห็ด / 15 สมุนไพร / 16 สเต็ก / 17 ซุปเห็ด / 18 ชา
+    ic(&["........", "..rrr...", ".rRRrr..", "rRRRRrw.", "rRRRRrww", ".rrrrr.w", "........", "........"], &[('r', 0xb83a3a), ('R', 0xe86a6a), ('w', 0xf0e8d8)]);
+    ic(&["........", "..rrrr..", ".rwrrwr.", "rrrrrrrr", "..ssss..", "..ssss..", "..ssss..", "........"], &[('r', 0xc8602a), ('w', 0xfff0d8), ('s', 0xe8dcc0)]);
+    ic(&["...g....", "..ggg.g.", ".gGgggg.", "..gGgg..", "g.gggG..", "ggg.g...", ".gg.g...", "....g..."], &[('g', 0x3a9a3a), ('G', 0x8aea6a)]);
+    ic(&["........", "........", ".bbbbbb.", "bBBBBBBb", "bBrrRBBb", "bBRrrBBb", ".bbbbbb.", "........"], &[('b', 0x8a5a32), ('B', 0xd8a060), ('r', 0xa83a2a), ('R', 0xe87a5a)]);
+    ic(&["........", "..y..y..", ".kkkkkk.", "kkwwwwkk", "kwBBBBwk", ".kBBBBk.", "..kkkk..", "........"], &[('k', 0x3a3a44), ('w', 0xd8d8e0), ('B', 0xc8602a), ('y', 0xffffff)]);
+    ic(&["........", "..y..y..", "..tttt..", ".tGGGGt.", ".tGGGGt.", ".tGGGGt.", "..tttt..", "........"], &[('t', 0xe8e8e8), ('G', 0x6ad06a), ('y', 0xffffff)]);
     // 13 ดาบ
     ic(&[".......w", "......wW", ".....wW.", "....wW..", ".t.wW...", "..tw....", ".t.t....", "t......."], &[('w', 0xd8d8e0), ('W', 0xffffff), ('t', 0x8a5a32)]);
     // 13 ธนู
@@ -374,6 +383,9 @@ pub fn build_extra(at: &mut Atlas, obj: &mut Vec<Rect>, icons: &mut Vec<Rect>) -
     // 23 โต๊ะตีเหล็ก / 24 คบเพลิง
     ic(&["........", ".kkkkkk.", "kLLLLLLk", ".kkLLkk.", "...kk...", "..kLLk..", ".kkkkkk.", "........"], &[('k', 0x2a2a32), ('L', 0x9aa0ac)]);
     ic(&["...y....", "..yoy...", "..yry...", "...r....", "...T....", "...T....", "...T....", "..tTt..."], &[('y', 0xffe680), ('o', 0xffa630), ('r', 0xff5a1a), ('T', 0x8a5a32), ('t', 0x5a3418)]);
+
+    // 31 หม้อทำอาหาร
+    ic(&["........", "..yyyy..", ".kkkkkk.", "kKKKKKKk", "kKrrrrKk", "kKKKKKKk", ".kkkkkk.", "..t..t.."], &[('k', 0x2a2a32), ('K', 0x5a5a68), ('r', 0xff9a30), ('y', 0xffffff), ('t', 0x8a5a32)]);
 
     // โปรเจกไทล์
     let arrow = spr(&["r......s.", "rttttttss", "r......s."], &[('r', 0xe05050), ('t', 0x9a6a38), ('s', 0xe8e8f0)]);

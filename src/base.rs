@@ -9,13 +9,14 @@ pub struct Piece {
     pub icon: usize,
     pub cost: &'static [(usize, i32)],
 }
-pub const PIECES: [Piece; 6] = [
+pub const PIECES: [Piece; 7] = [
     Piece { name: "กำแพงไม้", desc: "กั้นทางได้ ตีพังได้ (ได้ไม้คืน)", obj: 10, icon: IC_WWALL, cost: &[(WOOD, 2)] },
     Piece { name: "กำแพงหิน", desc: "แข็งแรงกว่ากำแพงไม้", obj: 11, icon: IC_SWALL, cost: &[(STONE, 3)] },
     Piece { name: "ประตู", desc: "กด Q หรือปุ่ม \"ใช้\" เพื่อเปิด-ปิด", obj: 12, icon: IC_DOOR, cost: &[(WOOD, 4)] },
     Piece { name: "กล่องเก็บของ", desc: "เปิดแล้วย้ายไอเทมเข้า-ออกได้ บันทึกลงเซฟ", obj: 14, icon: IC_BOX, cost: &[(WOOD, 8), (STONE, 2)] },
     Piece { name: "ทั่งตีบวก", desc: "ตีบวกอาวุธ/เกราะ +1..+5 ด้วยแร่และชิ้นส่วนบอส", obj: 17, icon: IC_ANVIL, cost: &[(STONE, 12), (WOOD, 4)] },
     Piece { name: "คบเพลิง", desc: "ให้แสงสว่างรอบฐานตอนกลางคืน", obj: 18, icon: IC_TORCH, cost: &[(WOOD, 1), (STONE, 1)] },
+    Piece { name: "หม้อทำอาหาร", desc: "ทำอาหาร/ปรุงยา จากเนื้อ เห็ด สมุนไพร (ได้บัฟชั่วคราว)", obj: 26, icon: IC_POT, cost: &[(STONE, 6), (WOOD, 4)] },
 ];
 
 /// สิ่งที่ Game ขอให้ UI เปิด
@@ -24,6 +25,7 @@ pub enum Req {
     Chest((i32, i32)),
     Shop,
     Forge,
+    Cook,
 }
 
 impl Game {
@@ -79,7 +81,7 @@ impl Game {
         for ty in pty - 2..=pty + 2 {
             for tx in ptx - 2..=ptx + 2 {
                 let o = self.w.obj_at(tx, ty);
-                if !matches!(o, 12 | 13 | 14 | 15 | 17 | 19 | 20 | 24) {
+                if !matches!(o, 12 | 13 | 14 | 15 | 17 | 19 | 20 | 24 | 25 | 26) {
                     continue;
                 }
                 let d = (tx as f32 * 16. + 8. - self.p.x).hypot(ty as f32 * 16. + 8. - (self.p.y - 3.));
@@ -119,6 +121,15 @@ impl Game {
                 play(&self.sfx.click);
                 self.req = Some(Req::Forge);
             }
+            25 => {
+                self.big_map = true;
+                self.mini_t = 99.;
+                self.toast("แตะสัญลักษณ์ W บนแผนที่เพื่อวาร์ป");
+            }
+            26 => {
+                play(&self.sfx.click);
+                self.req = Some(Req::Cook);
+            }
             19 => self.enter_dungeon(k),
             20 => self.exit_dungeon(),
             24 => self.open_rare_chest(k),
@@ -153,6 +164,8 @@ pub fn interact_hint(o: u8, touch: bool) -> String {
         13 => format!("{}: ปิดประตู", key),
         14 => format!("{}: เปิดกล่องเก็บของ", key),
         17 => format!("{}: ใช้ทั่งตีบวก", key),
+        25 => format!("{}: เปิดแผนที่วาร์ป", key),
+        26 => format!("{}: ทำอาหาร / ปรุงยา", key),
         19 => format!("{}: เข้าดันเจี้ยนลับ (อันตราย!)", key),
         20 => format!("{}: ออกจากดันเจี้ยน", key),
         24 => format!("{}: เปิดหีบหายาก", key),

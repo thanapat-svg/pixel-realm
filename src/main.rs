@@ -9,6 +9,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 mod art;
+mod extra;
 mod audio;
 mod base;
 mod boss;
@@ -17,6 +18,7 @@ mod combat;
 mod dungeon;
 mod menu;
 mod rpg;
+use extra::*;
 use audio::*;
 use base::*;
 use boss::*;
@@ -39,8 +41,8 @@ const SOLIDT: [bool; 11] = [true, true, false, false, false, false, true, false,
 // objects: 1 tree,2 bush,3 flower,4 rock,5 ore,6 chest,7 cactus,8 pine,9 campfire,
 //   10 กำแพงไม้,11 กำแพงหิน,12 ประตูปิด,13 ประตูเปิด,14 กล่องเก็บของ,15 พ่อค้า,16 เต็นท์
 //   17 โต๊ะตีเหล็ก,18 คบเพลิง,19 ทางเข้าดันเจี้ยน,20 ทางออกดันเจี้ยน,21 หนามหุบ,22 หนามโผล่,23 ป้อมลูกไฟ,24 หีบสมบัติหายาก
-const OSOLID: [bool; 25] = [false, true, true, false, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, false, false, false, false, true, true];
-const OHP: [i32; 25] = [0, 3, 1, 0, 3, 4, 1, 2, 3, 2, 5, 8, 4, 4, 5, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0];
+const OSOLID: [bool; 27] = [false, true, true, false, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, false, false, false, false, true, true, true, true];
+const OHP: [i32; 27] = [0, 3, 1, 0, 3, 4, 1, 2, 3, 2, 5, 8, 4, 4, 5, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 0, 5];
 
 const WOOD: usize = 0;
 const STONE: usize = 1;
@@ -55,21 +57,28 @@ const POTION: usize = 9;
 const BP_ARM: usize = 10;
 const BP_WPN: usize = 11;
 const SHARD: usize = 12;
-const NI: usize = 13;
+const MEAT: usize = 13;
+const SHROOM: usize = 14;
+const HERB: usize = 15;
+const DISH_STEW: usize = 16;
+const DISH_SPEED: usize = 17;
+const DISH_CRIT: usize = 18;
+const NI: usize = 19;
 // ดัชนีไอคอน (0..11 ตรงกับไอเทม)
-const ICON_SWORD: usize = 13;
-const IC_BOW: usize = 14;
-const IC_STAFF: usize = 15;
-const IC_HELM: usize = 16;
-const IC_CHEST: usize = 17;
-const IC_BOOT: usize = 18;
-const IC_WWALL: usize = 19;
-const IC_SWALL: usize = 20;
-const IC_DOOR: usize = 21;
-const IC_BOX: usize = 22;
-const IC_ANVIL: usize = 23;
-const IC_TORCH: usize = 24;
-const INAME: [&str; NI] = ["ไม้", "หิน", "เบอร์รี่", "อัญมณี", "เหรียญ", "กองไฟ", "ลูกธนู", "เจลราชาสไลม์", "แกนโกเลม", "ยาฟื้นฟู", "พิมพ์เขียวเกราะ", "พิมพ์เขียวอาวุธ", "เศษดาว"];
+const ICON_SWORD: usize = 19;
+const IC_BOW: usize = 20;
+const IC_STAFF: usize = 21;
+const IC_HELM: usize = 22;
+const IC_CHEST: usize = 23;
+const IC_BOOT: usize = 24;
+const IC_WWALL: usize = 25;
+const IC_SWALL: usize = 26;
+const IC_DOOR: usize = 27;
+const IC_BOX: usize = 28;
+const IC_ANVIL: usize = 29;
+const IC_TORCH: usize = 30;
+const IC_POT: usize = 31;
+const INAME: [&str; NI] = ["ไม้", "หิน", "เบอร์รี่", "อัญมณี", "เหรียญ", "กองไฟ", "ลูกธนู", "เจลราชาสไลม์", "แกนโกเลม", "ยาฟื้นฟู", "พิมพ์เขียวเกราะ", "พิมพ์เขียวอาวุธ", "เศษดาว", "เนื้อสัตว์", "เห็ด", "สมุนไพร", "สเต็กเนื้อย่าง", "ซุปเห็ดสายลม", "ชาสมุนไพรคมเขี้ยว"];
 
 const SWN: [&str; 5] = ["มือเปล่า", "ดาบไม้", "ดาบหิน", "ดาบอัญมณี", "ดาบแกนโกเลม"];
 const SWD: [i32; 5] = [1, 2, 3, 5, 8];
@@ -124,11 +133,12 @@ struct World {
     placed: HashMap<(i32, i32), u8>,
     camps: RefCell<HashMap<(i32, i32), Option<(i32, i32)>>>,
     duns: RefCell<HashMap<(i32, i32), Option<(i32, i32)>>>,
+    wps: RefCell<HashMap<(i32, i32), Option<(i32, i32)>>>,
     dun: Option<Box<Dungeon>>,
 }
 impl World {
     fn new(seed: i32) -> Self {
-        World { seed, chunks: RefCell::new(HashMap::new()), tmod: HashMap::new(), removed: HashSet::new(), placed: HashMap::new(), camps: RefCell::new(HashMap::new()), duns: RefCell::new(HashMap::new()), dun: None }
+        World { seed, chunks: RefCell::new(HashMap::new()), tmod: HashMap::new(), removed: HashSet::new(), placed: HashMap::new(), camps: RefCell::new(HashMap::new()), duns: RefCell::new(HashMap::new()), wps: RefCell::new(HashMap::new()), dun: None }
     }
     fn gen_tile(&self, x: i32, y: i32) -> u8 {
         let s = self.seed;
@@ -168,6 +178,7 @@ impl World {
     fn nat_obj(&self, tx: i32, ty: i32) -> u8 {
         if let Some(o) = self.camp_obj(tx, ty) { return o; }
         if self.dun_in_cell(tx.div_euclid(DCELL), ty.div_euclid(DCELL)) == Some((tx, ty)) { return 19; }
+        if self.wp_in_cell(tx.div_euclid(WPC), ty.div_euclid(WPC)) == Some((tx, ty)) { return 25; }
         let t = self.tile_at(tx, ty);
         let r = hash(tx, ty, self.seed.wrapping_add(5));
         match t {
@@ -345,7 +356,7 @@ fn build_sprites() -> Sprites {
     let fl_bat = [at.add(&art::white_of(&bat_img[0])), at.add(&art::white_of(&bat_img[1]))];
     // ---- objects
     let rp: &[(char, u32)] = &[('k', 0x3a3a40), ('L', 0x9a9aa4), ('l', 0xc8c8d0), ('D', 0x6a6a74), ('c', 0x4ef0ff), ('C', 0xb0ffff)];
-    let mut obj = vec![Rect::new(0., 0., 1., 1.); 25];
+    let mut obj = vec![Rect::new(0., 0., 1., 1.); 27];
     obj[1] = at.add(&spr(&["......gggg......", "....gGGGGGGg....", "...GGGgGGGGGG...", "..GGGGGGGgGGGG..", ".GGgGGGGGGGGGGG.", ".GGGGGGGGGGgGGG.", "GGGGGgGGGGGGGGGG", "GGGGGGGGGGGGgGGG", "GGgGGGGGGGGGGGGG", "GGGGGGGGgGGGGGGd", ".GGGGGGGGGGGGGd.", ".dGGGgGGGGGGGdd.", "..ddGGGGGGGGdd..", "...dddGGGGddd...", ".....ddTTdd.....", "......TTTT......", "......TTtT......", "......TTTT......", "......TtTT......", "......TTTT......", ".....TTTTTT.....", "....tt....tt...."],
         &[('g', 0x7cd06a), ('G', 0x3f9a3f), ('d', 0x2a6a2a), ('T', 0x7a4a24), ('t', 0x5a3418)]));
     obj[2] = at.add(&spr(&["................", "................", "................", "................", "................", "................", "......gggg......", "....gggggggg....", "...ggrgggggrg...", "..gggggggggggg..", "..ggggrggggggg..", ".gggggggggrgggg.", ".ggrgggggggggg..", "..dgggggggggd...", "...dddddddddd...", "................"], &[('g', 0x3d9440), ('r', 0xe8344a), ('d', 0x2a6a2a)]));
@@ -381,10 +392,10 @@ enum EK { Slime, Skel, Bat }
 struct Enemy { k: EK, x: f32, y: f32, hp: f32, spd: f32, dmg: i32, xp: i32, coin: i32, vx: f32, vy: f32, kb: f32, flash: f32, wt: f32, wdx: f32, wdy: f32, anim: f32, pal: usize, dead: bool, night: bool }
 struct Particle { x: f32, y: f32, vx: f32, vy: f32, l: f32, c: Color }
 struct Float { x: f32, y: f32, t: String, c: Color, l: f32, icon: Option<usize>, sz: f32 }
-struct Player { x: f32, y: f32, dir: usize, flip: bool, hp: i32, maxhp: i32, xp: i32, lvl: i32, sword: usize, pick: bool, inv: [i32; NI], invul: f32, kbx: f32, kby: f32, kbt: f32, atk_t: f32, atk_cd: f32, anim: f32, moving: bool, regen: f32, last_hit: f32, kills: i32, weapon: u8, bow: bool, staff: u8, armor: [u8; 3], sp: i32, st: [u8; 4], wplus: [u8; 3], aplus: [u8; 3], dash_t: f32, dash_cd: f32, dash_dir: Vec2, ghost_t: f32 }
+struct Player { x: f32, y: f32, dir: usize, flip: bool, hp: i32, maxhp: i32, xp: i32, lvl: i32, sword: usize, pick: bool, inv: [i32; NI], invul: f32, kbx: f32, kby: f32, kbt: f32, atk_t: f32, atk_cd: f32, anim: f32, moving: bool, regen: f32, last_hit: f32, kills: i32, weapon: u8, bow: bool, staff: u8, armor: [u8; 3], sp: i32, st: [u8; 4], wplus: [u8; 3], aplus: [u8; 3], dash_t: f32, dash_cd: f32, dash_dir: Vec2, ghost_t: f32, buff_spd: f32, buff_crit: f32 }
 impl Player {
     fn new(x: f32, y: f32) -> Self {
-        Player { x, y, dir: 0, flip: false, hp: 10, maxhp: 10, xp: 0, lvl: 1, sword: 0, pick: false, inv: [0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0], invul: 0., kbx: 0., kby: 0., kbt: 0., atk_t: 0., atk_cd: 0., anim: 0., moving: false, regen: 0., last_hit: 0., kills: 0, weapon: 0, bow: false, staff: 0, armor: [0; 3], sp: 0, st: [0; 4], wplus: [0; 3], aplus: [0; 3], dash_t: 0., dash_cd: 0., dash_dir: Vec2::ZERO, ghost_t: 0. }
+        Player { x, y, dir: 0, flip: false, hp: 10, maxhp: 10, xp: 0, lvl: 1, sword: 0, pick: false, inv: [0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], invul: 0., kbx: 0., kby: 0., kbt: 0., atk_t: 0., atk_cd: 0., anim: 0., moving: false, regen: 0., last_hit: 0., kills: 0, weapon: 0, bow: false, staff: 0, armor: [0; 3], sp: 0, st: [0; 4], wplus: [0; 3], aplus: [0; 3], dash_t: 0., dash_cd: 0., dash_dir: Vec2::ZERO, ghost_t: 0., buff_spd: 0., buff_crit: 0. }
     }
     fn facing(&self) -> (f32, f32) {
         DV[if self.dir == 2 && self.flip { 3 } else { self.dir }]
@@ -433,6 +444,7 @@ struct Game {
     qn: HashMap<(i32, i32), i32>,
     shop_camp: Option<(i32, i32)>,
     dun_found: HashSet<(i32, i32)>,
+    wp_found: HashSet<(i32, i32)>,
     dun_clear: HashSet<(i32, i32)>,
     dun_chests: HashSet<(i32, i32, i32)>,
     dun_ret: (f32, f32),
@@ -487,7 +499,7 @@ impl Game {
             proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), camp_t: 0.,
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None,
-            dun_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
+            dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
             rain: 0., rain_on: false, rain_t: 90., thunder: 0., cshake: (0., 0.), bgm_on: true, bgm_cur: -1, sfx_on: true,
             auto_aim: true, pick_cd: 0.,
         }
@@ -520,7 +532,10 @@ impl Game {
         s += &format!("rpg {} {} {} {} {} {} {} {} {} {}\n", p.sp, p.st[0], p.st[1], p.st[2], p.st[3], p.wplus[0], p.wplus[1], p.wplus[2], p.aplus[0], p.aplus[1]);
         s += &format!("rpg2 {}\n", p.aplus[2]);
         if let Some(q) = &self.quest { s += &format!("quest {} {} {} {} {} {} {} {}\n", q.camp.0, q.camp.1, q.kind, q.goal, q.prog, q.coin, q.shard, q.bp); }
-        s += "qn";
+        s += &format!("buff {} {}\n", p.buff_spd, p.buff_crit);
+        s += "wps";
+        for (x, y) in &self.wp_found { s += &format!(" {},{}", x, y); }
+        s += "\nqn";
         for ((x, y), n) in &self.qn { s += &format!(" {},{},{}", x, y, n); }
         s += "\n";
         if let Some(c) = &self.comp { s += &format!("comp {}\n", c.kind); }
@@ -595,6 +610,7 @@ impl Game {
                     for i in 0..3 { p.wplus[i] = (f(5 + i) as u8).min(PLUS_MAX); }
                     for i in 0..2 { p.aplus[i] = (f(8 + i) as u8).min(PLUS_MAX); }
                 }
+                "buff" => { g.p.buff_spd = f(0); g.p.buff_crit = f(1); }
                 "rpg2" => g.p.aplus[2] = (f(0) as u8).min(PLUS_MAX),
                 "quest" => {
                     g.quest = Some(Quest { camp: (f(0) as i32, f(1) as i32), kind: f(2) as u8, goal: f(3) as i32, prog: f(4) as i32, coin: f(5) as i32, shard: f(6) as i32, bp: f(7) as u8 });
@@ -603,11 +619,12 @@ impl Game {
                     let k = (f(0) as u8).min(1);
                     g.comp = Some(Comp { kind: k, x: 0., y: 0., atk_cd: 0., anim: 0., left: false });
                 }
-                "qn" | "dunfound" | "dunclr" | "dunchest" => {
+                "qn" | "dunfound" | "dunclr" | "dunchest" | "wps" => {
                     for v in &rest {
                         let n: Vec<i32> = v.split(',').filter_map(|x| x.parse().ok()).collect();
                         match (tag, n.len()) {
                             ("qn", 3) => { g.qn.insert((n[0], n[1]), n[2]); }
+                            ("wps", 2) => { g.wp_found.insert((n[0], n[1])); }
                             ("dunfound", 2) => { g.dun_found.insert((n[0], n[1])); }
                             ("dunclr", 2) => { g.dun_clear.insert((n[0], n[1])); }
                             ("dunchest", 3) => { g.dun_chests.insert((n[0], n[1], n[2])); }
@@ -722,7 +739,7 @@ impl Game {
         let k = (tx, ty);
         if self.w.dun.is_some() { return false; }
         let o = self.w.obj_at(tx, ty);
-        if (19..=24).contains(&o) { return true; }
+        if (19..=25).contains(&o) { return true; }
         if o == 0 || o == 3 {
             if self.w.tile_at(tx, ty) == 6 {
                 if !self.p.pick { self.toast("ต้องมีอีเต้อถึงจะขุดภูเขาได้"); return true; }
@@ -748,10 +765,10 @@ impl Game {
         }
         let h = self.obj_dmg.get(&k).copied().unwrap_or(0) + dmg;
         self.shake = (k, 0.2);
-        let col = hx(match o { 1 => 0x3f9a3f, 2 => 0x3d9440, 4 => 0x9a9aa4, 5 => 0x4ef0ff, 6 => 0xc88a40, 7 => 0x3c9a4a, 8 => 0x2f6b4f, 10 => 0x9a6a38, 11 => 0x9a9aa6, 12 | 13 => 0xa06a30, 14 => 0xc88a40, 17 => 0x8a909c, _ => 0xffa630 });
+        let col = hx(match o { 1 => 0x3f9a3f, 2 => 0x3d9440, 4 => 0x9a9aa4, 5 => 0x4ef0ff, 6 => 0xc88a40, 7 => 0x3c9a4a, 8 => 0x2f6b4f, 10 => 0x9a6a38, 11 => 0x9a9aa6, 12 | 13 => 0xa06a30, 14 => 0xc88a40, 17 => 0x8a909c, 26 => 0x6a6a74, _ => 0xffa630 });
         let (x, y) = (tx as f32 * 16. + 8., ty as f32 * 16.);
         self.burst(x, y + 6., col, 5, 50.);
-        if o == 4 || o == 5 || o == 11 || o == 17 { play(&self.sfx.rock) } else { play(&self.sfx.chop) }
+        if o == 4 || o == 5 || o == 11 || o == 17 || o == 26 { play(&self.sfx.rock) } else { play(&self.sfx.chop) }
         if h < OHP[o as usize] { self.obj_dmg.insert(k, h); return true; }
         self.obj_dmg.remove(&k);
         if self.w.placed.remove(&k).is_none() { self.w.removed.insert(k); }
@@ -765,6 +782,7 @@ impl Game {
             5 => { self.gain(STONE, 1, x, y); self.gain(GEM, 1, x, y - 8.); play(&self.sfx.gem); }
             9 => self.gain(FIRE, 1, x, y),
             17 => self.gain(STONE, 5, x, y),
+            26 => self.gain(STONE, 3, x, y),
             18 => self.gain(WOOD, 1, x, y),
             10 => self.gain(WOOD, 1, x, y),
             11 => self.gain(STONE, 2, x, y),
@@ -795,6 +813,10 @@ impl Game {
         if e.k == EK::Bat && gen_range(0., 1.) < 0.3 { self.spawn_loot(lx, ly, BERRY, 1); }
         if e.k == EK::Skel && gen_range(0., 1.) < 0.25 { self.spawn_loot(lx, ly, GEM, 1); }
         if e.k == EK::Skel && self.p.bow && gen_range(0., 1.) < 0.4 { self.spawn_loot(lx, ly, ARROW, rnd(2, 4)); }
+        if e.k == EK::Bat && gen_range(0., 1.) < 0.45 { self.spawn_loot(lx, ly, MEAT, 1); }
+        if e.k == EK::Slime && gen_range(0., 1.) < 0.35 { self.spawn_loot(lx, ly, SHROOM, 1); }
+        if e.k == EK::Skel && gen_range(0., 1.) < 0.35 { self.spawn_loot(lx, ly, HERB, 1); }
+        if e.night && gen_range(0., 1.) < 0.3 { self.spawn_loot(lx, ly, [MEAT, SHROOM, HERB][rnd(0, 2) as usize], 1); }
         if e.night && gen_range(0., 1.) < 0.65 { self.spawn_loot(lx, ly, SHARD, rnd(1, 2)); }
         if e.night && gen_range(0., 1.) < 0.2 { self.spawn_loot(lx, ly, GEM, 1); }
         self.quest_kill(e.k, e.night);
@@ -1022,6 +1044,7 @@ impl Game {
         self.spawn_t -= dt;
         if self.spawn_t <= 0. { self.spawn_t = 1.; self.try_spawn(); }
         self.pick_cd -= dt;
+        self.upd_buffs(dt);
         self.upd_dash(dt);
         self.upd_weather(dt);
         self.upd_traps(dt);
@@ -1036,7 +1059,7 @@ impl Game {
         self.upd_drops(dt);
         self.upd_comp(dt);
         self.dun_t -= dt;
-        if self.dun_t <= 0. { self.dun_t = 1.; self.discover_duns(); }
+        if self.dun_t <= 0. { self.dun_t = 1.; self.discover_duns(); self.discover_wps(); }
         self.upd_bgm();
         // fx
         for p in self.parts.iter_mut() { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 120. * dt; p.l -= dt; }
@@ -1118,6 +1141,10 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                 lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 6. - v.cy, 66. + (t_now * 13. + tx as f32).sin() * 3., true));
             } else if o == 19 || o == 20 {
                 lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 8. - v.cy, 40., false));
+            } else if o == 25 {
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 6. - v.cy, 46. + (t_now * 3. + tx as f32).sin() * 4., false));
+            } else if o == 26 {
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 8. - v.cy, 44., true));
             } else if o == 24 || o == 23 {
                 lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 8. - v.cy, 26., false));
             }
@@ -1392,8 +1419,8 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
     text(font, &format!("{} วันที่ {} · {:02}:{:02} · {}", if night { "กลางคืน" } else { "กลางวัน" }, day, hr as i32, ((hr.fract()) * 60.) as i32, TN[g.w.tile_at(tfloor(p.x), tfloor(p.y)) as usize]), x, y + 13. * u, 13. * u, if night { hx(0xaabbff) } else { hx(0xffee99) });
     y += 20. * u;
     let mut ix = x;
-    for &i in &[WOOD, STONE, BERRY, GEM, COIN, FIRE, ARROW, POTION, SHARD] {
-        if (i == POTION || i == SHARD) && p.inv[i] == 0 { continue; }
+    for &i in &[WOOD, STONE, BERRY, GEM, COIN, FIRE, ARROW, POTION, SHARD, MEAT, SHROOM, HERB, DISH_STEW, DISH_SPEED, DISH_CRIT] {
+        if (i == POTION || i >= SHARD) && p.inv[i] == 0 { continue; }
         if i == ARROW && !p.bow && p.inv[i] == 0 { continue; }
         let s = format!("{}", p.inv[i]);
         let d = measure_text(&s, Some(font), (13. * u) as u16, 1.);
@@ -1414,6 +1441,13 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
     if let Some(q) = &g.quest {
         let done = q.prog >= q.goal;
         text(font, &format!("เควสต์: {} ({}/{}){}", quest_title(q), q.prog, q.goal, if done { " — ส่งที่แคมป์" } else { "" }), x, y + 26. * u, 12. * u, if done { hx(0x88ff88) } else { hx(0xffdd88) });
+        y += 16. * u;
+    }
+    if p.buff_spd > 0. || p.buff_crit > 0. {
+        let mut t = String::from("บัฟ:");
+        if p.buff_spd > 0. { t += &format!(" วิ่งเร็ว {}:{:02}", p.buff_spd as i32 / 60, p.buff_spd as i32 % 60); }
+        if p.buff_crit > 0. { t += &format!(" คริ+20% {}:{:02}", p.buff_crit as i32 / 60, p.buff_crit as i32 % 60); }
+        text(font, &t, x, y + 26. * u, 12. * u, hx(0x88e0ff));
         y += 16. * u;
     }
     if g.w.dun.is_some() {
@@ -1458,6 +1492,11 @@ fn minimap_rect(big: bool) -> Rect {
         Rect::new(sw - s - 10. * u, 10. * u, s, s)
     }
 }
+fn map_pt(tx: i32, ty: i32, ctr: (i32, i32), sc: i32, mr: Rect) -> (f32, f32, bool) {
+    let i = 60. + (tx - ctr.0) as f32 / sc as f32;
+    let j = 60. + (ty - ctr.1) as f32 / sc as f32;
+    (mr.x + i / 120. * mr.w, mr.y + j / 120. * mr.h, (3.0..117.0).contains(&i) && (3.0..117.0).contains(&j))
+}
 fn mm_sc(g: &Game) -> i32 { if g.w.dun.is_some() { 1 } else if g.big_map { 4 } else { 2 } }
 fn update_minimap(g: &Game, img: &mut Image, tex: &Texture2D) {
     let sc = mm_sc(g);
@@ -1488,6 +1527,13 @@ fn update_minimap(g: &Game, img: &mut Image, tex: &Texture2D) {
         for dy in -2..=2 { for dx in -2..=2 {
             let (a, b) = (i + dx, j + dy);
             if (0..120).contains(&a) && (0..120).contains(&b) { img.set_pixel(a as u32, b as u32, hx(0xb060ff)); }
+        } }
+    }
+    for (wx, wy, _) in g.wp_list().into_iter().filter(|_| !indun) {
+        let (i, j) = (60 + (wx - ptx) / sc, 60 + (wy - pty) / sc);
+        for dy in -2..=2 { for dx in -2..=2 {
+            let (a, b) = (i + dx, j + dy);
+            if (0..120).contains(&a) && (0..120).contains(&b) && (dx.abs() + dy.abs() < 4) { img.set_pixel(a as u32, b as u32, hx(0x6ae8ff)); }
         } }
     }
     for b in &g.bosses {
@@ -1665,7 +1711,7 @@ fn debug_keys(g: &mut Game) {
     if is_key_pressed(KeyCode::F4) { let (x, y) = (g.p.x + 90., g.p.y); g.spawn_boss(1, x, y); }
     if is_key_pressed(KeyCode::F5) { g.time = DAYLEN * 0.7; }
     if is_key_pressed(KeyCode::F7) {
-        g.p.inv[SHARD] += 30; g.p.sp += 6; g.p.inv[COIN] += 500;
+        g.p.inv[SHARD] += 30; g.p.sp += 6; for i in [MEAT, SHROOM, HERB] { g.p.inv[i] += 10; } g.p.inv[COIN] += 500;
         for i in [WOOD, STONE, GEM, GEL, CORE] { g.p.inv[i] += 50; }
         g.toast("[debug] เศษดาว+แต้ม");
     }
@@ -1678,6 +1724,19 @@ fn debug_keys(g: &mut Game) {
                     g.p.x = e.0 as f32 * 16. + 8.; g.p.y = (e.1 + 2) as f32 * 16.;
                     g.toast("[debug] วาร์ปไปทางเข้าดันเจี้ยน");
                     break 'f8;
+                }
+            } }
+        }
+    }
+    if is_key_pressed(KeyCode::F10) {
+        let (tx, ty) = (tfloor(g.p.x), tfloor(g.p.y));
+        'f10: for r in 0..30i32 {
+            for cy in -r..=r { for cx in -r..=r {
+                if cx.abs().max(cy.abs()) != r { continue; }
+                if let Some(e) = g.w.wp_in_cell(tx.div_euclid(WPC) + cx, ty.div_euclid(WPC) + cy) {
+                    g.p.x = e.0 as f32 * 16. + 8.; g.p.y = (e.1 + 3) as f32 * 16.;
+                    g.toast("[debug] วาร์ปไปเสาวาร์ปใกล้สุด");
+                    break 'f10;
                 }
             } }
         }
@@ -1789,6 +1848,7 @@ async fn main() {
                     inp.swap = is_key_pressed(KeyCode::Tab);
                     inp.dash = is_key_pressed(KeyCode::LeftShift) || is_key_pressed(KeyCode::K);
                     inp.potion = is_key_pressed(KeyCode::H);
+                    for (kc, di) in [(KeyCode::Key1, DISH_STEW), (KeyCode::Key2, DISH_SPEED), (KeyCode::Key3, DISH_CRIT)] { if is_key_pressed(kc) { g.use_dish(di); } }
                     inp.cancel = is_key_pressed(KeyCode::T) || (is_key_pressed(KeyCode::Escape) && g.build_sel.is_some());
                     inp.menu = if is_key_pressed(KeyCode::C) { Some(0) } else if is_key_pressed(KeyCode::B) { Some(1) } else if is_key_pressed(KeyCode::I) { Some(2) } else if is_key_pressed(KeyCode::P) { Some(6) } else if is_key_pressed(KeyCode::O) { Some(7) } else { None };
                     #[cfg(debug_assertions)]
@@ -1798,7 +1858,26 @@ async fn main() {
                     let mp: Vec2 = mouse_position().into();
                     if !is_mouse_button_down(MouseButton::Left) { mouse_armed = true; }
                     let over_map = minimap_rect(g.big_map).contains(mp);
-                    if !tu.active {
+                    let mut tap_used = false;
+                    let tap: Option<Vec2> = if tu.active { touches().iter().find(|t| t.phase == TouchPhase::Started).map(|t| t.position) } else if is_mouse_button_pressed(MouseButton::Left) { Some(mp) } else { None };
+                    if let (Some(tp), true) = (tap, g.big_map) {
+                        let mr = minimap_rect(true);
+                        let uu = ui_scale();
+                        let mut hit = None;
+                        for (tx, ty, spn) in g.wp_list() {
+                            let (mx, my, ok) = map_pt(tx, ty, map_ctr, map_sc, mr);
+                            if ok && (tp.x - mx).hypot(tp.y - my) < 16. * uu { hit = Some((tx, ty, spn)); break; }
+                        }
+                        if let Some((tx, ty, spn)) = hit {
+                            g.warp_to(tx, ty, spn);
+                            g.big_map = false;
+                            g.mini_t = 99.;
+                            tap_used = true;
+                        } else if tu.active && mr.contains(tp) {
+                            inp.map = true;
+                        }
+                    }
+                    if !tu.active && !tap_used {
                         if is_mouse_button_pressed(MouseButton::Left) && over_map {
                             inp.map = true;
                         } else if mouse_armed && !over_map && is_mouse_button_down(MouseButton::Left) {
@@ -1814,6 +1893,7 @@ async fn main() {
                             Req::Chest(k) => { ui.chest = Some(k); ui.open(3); }
                             Req::Shop => { ui.shop = true; ui.greet = rnd(0, 3) as usize; ui.open(4); }
                             Req::Forge => { ui.forge = true; ui.open(5); }
+                            Req::Cook => { ui.cook = true; ui.open(8); }
                         }
                         state = State::Menu;
                     } else if let Some(t) = inp.menu {
@@ -1859,8 +1939,18 @@ async fn main() {
                         text_c(&font, "M", mx, my + rr * 0.5, rr * 1.5, hx(0xffd84a));
                     }
                 }
+                if g.w.dun.is_none() {
+                    for (tx, ty, spn) in g.wp_list() {
+                        let (mx, my, ok) = map_pt(tx, ty, map_ctr, map_sc, mr);
+                        if !ok { continue; }
+                        let rr = if g.big_map { 11. * u } else { 6. * u };
+                        draw_circle(mx, my, rr, hx(0x10202b));
+                        draw_circle_lines(mx, my, rr, 2., if spn { hx(0xffffff) } else { hx(0x6ae8ff) });
+                        text_c(&font, if spn { "บ" } else { "W" }, mx, my + rr * 0.5, rr * 1.4, if spn { hx(0xffffff) } else { hx(0x6ae8ff) });
+                    }
+                }
                 if g.big_map {
-                    text_c(&font, "M = แคมป์ · ม่วง = ดันเจี้ยน · แดงเล็ก = บอส · ฟ้า/ส้ม = ทั่ง/คบเพลิง · จุดแดงใหญ่ = คุณ", sw / 2., mr.y + mr.h + 18. * u, 13. * u, WHITE);
+                    text_c(&font, "M = แคมป์ · W = เสาวาร์ป (แตะเพื่อวาร์ป) · บ = จุดเกิด · ม่วง = ดันเจี้ยน · แดงเล็ก = บอส · จุดแดงใหญ่ = คุณ", sw / 2., mr.y + mr.h + 18. * u, 13. * u, WHITE);
                 }
                 if in_play {
                     draw_touch(&tu, &sp, &font, g.build_sel.is_some(), g.p.weapon, g.p.dash_cd);
@@ -2213,5 +2303,52 @@ mod tests {
         // แดช: มีอมตะและคูลดาวน์
         g.try_dash(vec2(1., 0.));
         assert!(g.p.dash_t > 0. && g.p.invul > 0. && g.p.dash_cd > 0.);
+    }
+
+    #[test]
+    fn waypoints_discover_and_warp() {
+        let mut g = game(2024);
+        let mut found = vec![];
+        for cy in -4..4 { for cx in -4..4 { if let Some(e) = g.w.wp_in_cell(cx, cy) { found.push(e); } } }
+        assert!(found.len() >= 8, "เสาวาร์ปน้อยเกินไป {}", found.len());
+        let e = found[0];
+        assert_eq!(g.w.obj_at(e.0, e.1), 25);
+        assert!(!SOLIDT[g.w.tile_at(e.0, e.1) as usize]);
+        g.p.x = e.0 as f32 * 16. + 8.; g.p.y = (e.1 + 3) as f32 * 16.;
+        g.discover_wps();
+        assert!(g.wp_found.contains(&e));
+        g.p.x = 5000.; g.p.y = 5000.;
+        g.warp_to(e.0, e.1, false);
+        assert!((tfloor(g.p.x) - e.0).abs() <= 2 && (tfloor(g.p.y) - e.1).abs() <= 2);
+        assert!(!g.w.solid_at(tfloor(g.p.x), tfloor(g.p.y)));
+        g.warp_to(0, 0, true);
+        assert_eq!((g.p.x, g.p.y), g.spawn);
+        let s = g.save_string();
+        let h = Game::load_str(&s, Sfx::default()).ok().expect("load");
+        assert!(h.wp_found.contains(&e));
+    }
+
+    #[test]
+    fn cooking_and_buffs() {
+        let mut g = game(3);
+        g.cook(0);
+        assert_eq!(g.p.inv[DISH_STEW], 0, "ไม่มีวัตถุดิบต้องทำไม่ได้");
+        for i in [MEAT, SHROOM, HERB, BERRY] { g.p.inv[i] = 6; }
+        for i in 0..4 { g.cook(i); }
+        assert_eq!((g.p.inv[DISH_STEW], g.p.inv[DISH_SPEED], g.p.inv[DISH_CRIT]), (1, 1, 1));
+        let sp0 = g.p.speed_mul();
+        let cr0 = g.p.crit_rate();
+        g.use_dish(DISH_SPEED);
+        g.use_dish(DISH_CRIT);
+        assert!((g.p.speed_mul() - sp0 - 0.25).abs() < 1e-4);
+        assert!((g.p.crit_rate() - cr0 - 0.2).abs() < 1e-4);
+        g.p.hp = 3;
+        g.use_dish(DISH_STEW);
+        assert_eq!(g.p.hp, g.p.maxhp.min(17));
+        let s = g.save_string();
+        let h = Game::load_str(&s, Sfx::default()).ok().expect("load");
+        assert!(h.p.buff_spd > 100. && h.p.buff_crit > 100.);
+        g.upd_buffs(200.);
+        assert_eq!(g.p.speed_mul(), sp0);
     }
 }
