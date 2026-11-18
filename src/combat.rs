@@ -31,7 +31,7 @@ impl Player {
         match self.weapon {
             0 => SWN[self.sword].to_string(),
             1 => "ธนู".to_string(),
-            _ => STAFF_N[self.staff as usize].to_string(),
+            _ => format!("{} ({})", STAFF_N[self.staff as usize], ELEM_N[self.elem as usize]),
         }
     }
 }
@@ -49,7 +49,9 @@ pub struct Proj {
     pub mine: bool,
     pub dead: bool,
 }
-pub const PR: [f32; 7] = [3., 3.5, 3., 5., 4., 2.5, 3.5];
+pub const PR: [f32; 10] = [3., 3.5, 3., 5., 4., 2.5, 3.5, 3.5, 3.5, 3.5];
+pub const ELEM_N: [&str; 3] = ["ไฟ", "น้ำแข็ง", "สายฟ้า"];
+pub const ELEM_C: [u32; 3] = [0xff8a30, 0x7ad0ff, 0xfff060];
 
 impl Game {
     /// หันตัวไปตามทิศที่เล็ง
@@ -63,6 +65,15 @@ impl Game {
     }
     pub fn swap_weapon(&mut self) {
         let cur = self.p.weapon;
+        if cur == 2 {
+            if let Some(e) = (self.p.elem + 1..3).find(|&e| self.p.elems & (1 << e) != 0) {
+                self.p.elem = e;
+                let n = self.p.weapon_name();
+                self.toast(format!("ถือ: {}", n));
+                return;
+            }
+            self.p.elem = 0;
+        }
         for k in 1..=3u8 {
             let w = (cur + k) % 3;
             if self.p.has_weapon(w) {
@@ -104,10 +115,11 @@ impl Game {
             self.p.atk_cd = 0.55;
             self.p.atk_t = 0.1;
             let (n, dmg) = if self.p.staff >= 2 { (3, 6 + bonus) } else { (1, 4 + bonus) };
+            let mk = [7u8, 8, 9][self.p.elem as usize];
             let base = a.y.atan2(a.x);
             for i in 0..n {
                 let ang = base + (i as f32 - (n as f32 - 1.) / 2.) * 0.26;
-                self.proj.push(Proj { x: ox, y: oy, vx: ang.cos() * 170., vy: ang.sin() * 170., kind: 1, dmg, life: 1.1, mine: true, dead: false });
+                self.proj.push(Proj { x: ox, y: oy, vx: ang.cos() * 170., vy: ang.sin() * 170., kind: mk, dmg, life: 1.1, mine: true, dead: false });
             }
             play(&self.sfx.shoot);
         }
@@ -129,12 +141,12 @@ impl Game {
             let (tx, ty) = (tfloor(p.x), tfloor(p.y + 5.));
             if OSOLID[self.w.obj_at(tx, ty) as usize] || self.w.tile_at(tx, ty) == 6 {
                 p.dead = true;
-                let c = if p.kind == 6 { hx(0xff9a30) } else if p.kind == 1 { hx(0x7ae8ff) } else if p.kind == 2 { hx(0x6cd06c) } else if p.kind >= 3 { hx(0x9a9aa6) } else { hx(0xd8d8e0) };
+                let c = if p.kind == 6 { hx(0xff9a30) } else if matches!(p.kind, 1 | 7 | 8 | 9) { hx(match p.kind { 7 => 0xff8a30, 9 => 0xfff060, _ => 0x7ae8ff }) } else if p.kind == 2 { hx(0x6cd06c) } else if p.kind >= 3 { hx(0x9a9aa6) } else { hx(0xd8d8e0) };
                 self.burst(p.x, p.y, c, 5, 40.);
                 continue;
             }
-            if p.kind == 1 && gen_range(0., 1.) < 0.6 {
-                self.parts.push(Particle { x: p.x, y: p.y, vx: 0., vy: -6., l: 0.3, c: hx(0x7ae8ff) });
+            if matches!(p.kind, 1 | 7 | 8 | 9) && gen_range(0., 1.) < 0.6 {
+                self.parts.push(Particle { x: p.x, y: p.y, vx: 0., vy: -6., l: 0.3, c: hx(match p.kind { 7 => 0xff8a30, 9 => 0xfff060, _ => 0x7ae8ff }) });
             }
             let r = PR[p.kind as usize];
             if p.mine {
@@ -153,6 +165,21 @@ impl Game {
                     p.dead = true;
                     let l = p.vx.hypot(p.vy).max(0.001);
                     self.hit_enemy(i, p.dmg, p.vx / l, p.vy / l);
+                    let (ex, ey) = (self.en[i].x, self.en[i].y - 8.);
+                    if !self.en[i].dead {
+                        match p.kind {
+                            7 => { self.en[i].burn = 3.2; self.burst(ex, ey, hx(0xff8a30), 6, 50.); }
+                            8 => { self.en[i].slow = 3.5; self.burst(ex, ey, hx(0xa0e8ff), 6, 50.); }
+                            9 => {
+                                if gen_range(0., 1.) < 0.3 {
+                                    self.en[i].stun = 1.2;
+                                    self.add_float(ex, ey - 14., "สตัน!", hx(0xfff060), None);
+                                    self.burst(ex, ey, hx(0xfff060), 10, 70.);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
                     continue;
                 }
                 let mut bh: Option<usize> = None;
@@ -165,6 +192,12 @@ impl Game {
                 if let Some(i) = bh {
                     p.dead = true;
                     self.hit_boss(i, p.dmg);
+                    match p.kind {
+                        7 => { if let Some(b) = self.bosses.get_mut(i) { b.burn = 3.2; } }
+                        8 => { if let Some(b) = self.bosses.get_mut(i) { b.slow = 3.; } }
+                        9 => { if gen_range(0., 1.) < 0.3 { self.hit_boss(i, (p.dmg / 2).max(1)); self.burst(p.x, p.y, hx(0xfff060), 8, 60.); } }
+                        _ => {}
+                    }
                 }
             } else {
                 let (dx, dy) = (self.p.x - p.x, self.p.y - 6. - p.y);
@@ -210,6 +243,8 @@ pub enum Eff {
     Bow,
     Staff(u8),
     Arrows(i32),
+    Elem(u8),
+    Rod,
     Armor(usize, u8),
 }
 pub struct Recipe {
@@ -220,7 +255,7 @@ pub struct Recipe {
     pub need: Option<usize>,
     pub eff: Eff,
 }
-pub const RECIPES: [Recipe; 20] = [
+pub const RECIPES: [Recipe; 23] = [
     Recipe { name: "ดาบไม้", desc: "พลังโจมตี 2", cost: &[(WOOD, 5)], need: None, eff: Eff::Sword(1) },
     Recipe { name: "อีเต้อหิน", desc: "ขุดภูเขาเปิดทางได้", cost: &[(WOOD, 4), (STONE, 4)], need: None, eff: Eff::Pick },
     Recipe { name: "ดาบหิน", desc: "พลังโจมตี 3 (ต้องมีดาบไม้)", cost: &[(WOOD, 3), (STONE, 6)], need: None, eff: Eff::Sword(2) },
@@ -241,6 +276,9 @@ pub const RECIPES: [Recipe; 20] = [
     Recipe { name: "หมวกราชาสไลม์", desc: "ลดดาเมจ 18% · เดินเร็ว +5% · ต้องมีพิมพ์เขียวเกราะ", cost: &[(GEL, 3), (CORE, 1)], need: Some(BP_ARM), eff: Eff::Armor(0, 3) },
     Recipe { name: "เกราะอกโกเลม", desc: "ลดดาเมจ 18% · เดินเร็ว +5% · ต้องมีพิมพ์เขียวเกราะ", cost: &[(CORE, 3), (GEL, 2)], need: Some(BP_ARM), eff: Eff::Armor(1, 3) },
     Recipe { name: "รองเท้าราชาสไลม์", desc: "ลดดาเมจ 18% · เดินเร็ว +12% · ต้องมีพิมพ์เขียวเกราะ", cost: &[(GEL, 3), (CORE, 1)], need: Some(BP_ARM), eff: Eff::Armor(2, 3) },
+    Recipe { name: "ธาตุน้ำแข็ง (คทา)", desc: "เวทน้ำแข็ง ศัตรูเดินช้าลง · ต้องมีคทา", cost: &[(GEM, 4), (GEL, 2)], need: None, eff: Eff::Elem(1) },
+    Recipe { name: "ธาตุสายฟ้า (คทา)", desc: "เวทสายฟ้า โอกาสทำให้สตัน · ต้องมีคทา", cost: &[(GEM, 4), (SHARD, 3)], need: None, eff: Eff::Elem(2) },
+    Recipe { name: "คันเบ็ด", desc: "ตกปลาที่แหล่งน้ำ (ใช้ Q / ปุ่ม \"ใช้\") — ได้ปลาไว้ทำอาหารหรือขาย", cost: &[(WOOD, 8), (STONE, 2)], need: None, eff: Eff::Rod },
 ];
 
 pub fn can_pay(p: &Player, c: &[(usize, i32)]) -> bool {
@@ -254,6 +292,7 @@ pub fn recipe_state(p: &Player, r: &Recipe) -> u8 {
             if p.sword >= t { 1 } else if p.sword + 1 < t || locked { 2 } else { 0 }
         }
         Eff::Pick => if p.pick { 1 } else { 0 },
+        Eff::Rod => if p.rod { 1 } else { 0 },
         Eff::Bow => if p.bow { 1 } else { 0 },
         Eff::Staff(t) => {
             if p.staff >= t { 1 } else if p.staff + 1 < t || locked { 2 } else { 0 }
@@ -261,6 +300,7 @@ pub fn recipe_state(p: &Player, r: &Recipe) -> u8 {
         Eff::Armor(s, t) => {
             if p.armor[s] >= t { 1 } else if locked { 2 } else { 0 }
         }
+        Eff::Elem(e) => if p.staff == 0 { 2 } else if p.elems & (1 << e) != 0 { 1 } else { 0 },
         _ => if locked { 2 } else { 0 },
     }
 }
@@ -280,6 +320,7 @@ impl Game {
                 self.p.weapon = 0;
             }
             Eff::Pick => self.p.pick = true,
+            Eff::Rod => self.p.rod = true,
             Eff::Fire => self.p.inv[FIRE] += 1,
             Eff::Heart => {
                 self.p.maxhp += 4;
@@ -294,9 +335,14 @@ impl Game {
                 self.p.weapon = 2;
             }
             Eff::Arrows(n) => self.p.inv[ARROW] += n,
+            Eff::Elem(e) => {
+                self.p.elems |= 1 << e;
+                self.p.elem = e;
+                self.p.weapon = 2;
+            }
             Eff::Armor(s, t) => self.p.armor[s] = t,
         }
-        play(if matches!(r.eff, Eff::Sword(_) | Eff::Bow | Eff::Staff(_) | Eff::Armor(..)) { &self.sfx.upgrade } else { &self.sfx.craft });
+        play(if matches!(r.eff, Eff::Sword(_) | Eff::Bow | Eff::Staff(_) | Eff::Armor(..) | Eff::Elem(_)) { &self.sfx.upgrade } else { &self.sfx.craft });
         self.toast(format!("คราฟต์ {} สำเร็จ!", r.name));
         self.save();
     }

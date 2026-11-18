@@ -93,8 +93,14 @@ impl Game {
         best.map(|b| (b.1, b.2))
     }
     pub fn interact(&mut self) {
+        if self.fish.is_some() {
+            self.fish_press();
+            return;
+        }
         let Some((k, o)) = self.interact_target() else {
-            self.toast("ไม่มีอะไรให้ใช้ตรงนี้");
+            if !self.start_fish() {
+                self.toast("ไม่มีอะไรให้ใช้ตรงนี้");
+            }
             return;
         };
         match o {

@@ -169,6 +169,7 @@ fn tab_gear(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
     header(font, c, y, "อาวุธ (กด Tab เพื่อสลับ)", u);
     y += 28. * u;
     let mut equip: Option<u8> = None;
+    let mut elem_pick: Option<usize> = None;
     for w in 0..3u8 {
         if visible(y, rh, c) {
             let (ic, name, desc) = match w {
@@ -190,6 +191,22 @@ fn tab_gear(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
     }
     if let Some(w) = equip {
         g.p.weapon = w;
+    }
+    if let Some(e) = elem_pick {
+        g.p.elem = e as u8;
+    }
+    if g.p.staff > 0 {
+        if visible(y, rh, c) {
+            text(font, "ธาตุคทา (แตะ Tab ตอนถือคทาเพื่อสลับ)", c.x + 8. * u, y + 28. * u, 12. * u, hx(0xaaaaaa));
+            for e in 0..3usize {
+                let r = Rect::new(c.x + c.w - (3 - e) as f32 * 100. * u, y + 7. * u, 94. * u, 32. * u);
+                let own = g.p.elems & (1 << e) != 0;
+                let cur = g.p.elem as usize == e;
+                if btn(ui, font, r, if cur { "ใช้อยู่" } else if own { ELEM_N[e] } else { "ล็อก" }, own && !cur, u) { elem_pick = Some(e); }
+            }
+            sep(c, y + rh - 2.);
+        }
+        y += rh;
     }
     header(font, c, y, "ชุดเกราะ", u);
     y += 28. * u;
@@ -221,7 +238,7 @@ fn tab_gear(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
             if i == POTION && btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 2. * u, 92. * u, 26. * u), "ใช้ยา", g.p.inv[POTION] > 0, u) {
                 drink = true;
             }
-            if (DISH_STEW..=DISH_CRIT).contains(&i) && btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 2. * u, 92. * u, 26. * u), "กิน", g.p.inv[i] > 0, u) {
+            if (DISH_STEW..=DISH_FISH).contains(&i) && btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 2. * u, 92. * u, 26. * u), "กิน", g.p.inv[i] > 0, u) {
                 dish = Some(i);
             }
         }
@@ -366,6 +383,14 @@ fn tab_shop(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
         y += rh;
     }
     if let Some(k) = hire { g.hire(k); }
+    if visible(y, 50. * u, c) {
+        icon_c(sp, FISH, c.x + 8. * u, y + 8. * u, 26. * u, WHITE);
+        text(font, &format!("รับซื้อปลา ตัวละ {} เหรียญ", FISH_PRICE), c.x + 44. * u, y + 20. * u, 14. * u, hx(0xffcc66));
+        text(font, &format!("ปลาในกระเป๋า {} ตัว", g.p.inv[FISH]), c.x + 44. * u, y + 36. * u, 11. * u, hx(0xaaaaaa));
+        if btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 8. * u, 92. * u, 32. * u), "ขายทั้งหมด", g.p.inv[FISH] > 0, u) { g.sell_fish(); }
+        sep(c, y + 48. * u);
+    }
+    y += 52. * u;
     header(font, c, y, "สินค้า", u);
     y += 28. * u;
     let mut buy: Option<usize> = None;

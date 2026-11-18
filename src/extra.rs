@@ -115,10 +115,11 @@ pub struct Dish {
     pub item: usize,
     pub cost: &'static [(usize, i32)],
 }
-pub const DISHES: [Dish; 4] = [
+pub const DISHES: [Dish; 5] = [
     Dish { name: "สเต็กเนื้อย่าง", desc: "ฟื้นเลือด 14 หน่วย", item: DISH_STEW, cost: &[(MEAT, 2), (HERB, 1)] },
     Dish { name: "ซุปเห็ดสายลม", desc: "วิ่งเร็วขึ้น +25% นาน 2 นาที", item: DISH_SPEED, cost: &[(SHROOM, 2), (BERRY, 1)] },
     Dish { name: "ชาสมุนไพรคมเขี้ยว", desc: "คริติคอล +20% นาน 2 นาที", item: DISH_CRIT, cost: &[(HERB, 2), (SHROOM, 1)] },
+    Dish { name: "ปลาย่าง", desc: "ฟื้นเลือด 10 หน่วย (ใช้ปลา 2 ตัว)", item: DISH_FISH, cost: &[(FISH, 2)] },
     Dish { name: "ปรุงยาฟื้นฟู", desc: "ยาฟื้นเลือด 8 หน่วย (กด H)", item: POTION, cost: &[(HERB, 2), (BERRY, 1)] },
 ];
 pub const BUFF_T: f32 = 120.;
@@ -142,7 +143,7 @@ impl Game {
         self.save();
     }
     pub fn use_dish(&mut self, item: usize) {
-        if !(DISH_STEW..=DISH_CRIT).contains(&item) || self.p.inv[item] <= 0 {
+        if !(DISH_STEW..=DISH_FISH).contains(&item) || self.p.inv[item] <= 0 {
             return;
         }
         let (x, y) = (self.p.x, self.p.y - 18.);
@@ -154,6 +155,14 @@ impl Game {
                 }
                 self.p.hp = (self.p.hp + 14).min(self.p.maxhp);
                 self.add_float(x, y, "+14 HP", hx(0xff6666), None);
+            }
+            DISH_FISH => {
+                if self.p.hp >= self.p.maxhp {
+                    self.toast("เลือดเต็มแล้ว");
+                    return;
+                }
+                self.p.hp = (self.p.hp + 10).min(self.p.maxhp);
+                self.add_float(x, y, "+10 HP", hx(0xff6666), None);
             }
             DISH_SPEED => {
                 self.p.buff_spd = BUFF_T;
@@ -170,5 +179,133 @@ impl Game {
     pub fn upd_buffs(&mut self, dt: f32) {
         self.p.buff_spd = (self.p.buff_spd - dt).max(0.);
         self.p.buff_crit = (self.p.buff_crit - dt).max(0.);
+    }
+}
+
+// ======================= ตกปลา =======================
+pub struct Fishing {
+    pub tx: i32,
+    pub ty: i32,
+    pub t: f32,
+    pub bite_at: f32,
+    /// > 0 = ปลากินเบ็ดอยู่ (เวลาที่เหลือให้ดึง)
+    pub bite_t: f32,
+    pub spot: bool,
+    pub px: f32,
+    pub py: f32,
+}
+pub const FISH_PRICE: i32 = 7;
+
+/// จุดตกปลาพิเศษ (ผิวน้ำเป็นระลอก) — ปลาติดไวและมีโอกาสได้ของดี
+pub fn fish_spot(seed: i32, tx: i32, ty: i32) -> bool {
+    hash(tx, ty, seed.wrapping_add(777)) > 0.985
+}
+
+impl Game {
+    pub fn water_ahead(&self) -> Option<(i32, i32)> {
+        if self.w.dun.is_some() {
+            return None;
+        }
+        let (dx, dy) = self.p.facing();
+        for d in [10., 18., 26., 34., 42.] {
+            let (tx, ty) = (tfloor(self.p.x + dx * d), tfloor(self.p.y - 3. + dy * d));
+            let t = self.w.tile_at(tx, ty);
+            if t < 2 {
+                return Some((tx, ty));
+            }
+            if SOLIDT[t as usize] || OSOLID[self.w.obj_at(tx, ty) as usize] {
+                return None;
+            }
+        }
+        None
+    }
+    pub fn start_fish(&mut self) -> bool {
+        let Some((tx, ty)) = self.water_ahead() else { return false };
+        if !self.p.rod {
+            self.toast("ต้องมีคันเบ็ดก่อน — คราฟต์ได้ที่เมนู (C)");
+            return true;
+        }
+        let spot = fish_spot(self.w.seed, tx, ty);
+        let wait = if spot { gen_range(1.2, 2.6) } else { gen_range(2.2, 5.5) };
+        self.fish = Some(Fishing { tx, ty, t: 0., bite_at: wait, bite_t: 0., spot, px: self.p.x, py: self.p.y });
+        play(&self.sfx.click);
+        true
+    }
+    pub fn fish_press(&mut self) {
+        let Some(f) = self.fish.take() else { return };
+        if f.bite_t <= 0. {
+            self.toast("ดึงเร็วไป ปลายังไม่กินเบ็ด");
+            return;
+        }
+        let (x, y) = (f.tx as f32 * 16. + 8., f.ty as f32 * 16. + 4.);
+        let r = gen_range(0., 1.);
+        self.burst(x, y, hx(0xbfe8ff), 12, 60.);
+        if f.spot && r < 0.12 {
+            self.gain(GEM, rnd(1, 2), x, y);
+            self.toast("ตกได้อัญมณีจากก้นบ่อ!");
+        } else if f.spot && r < 0.22 {
+            self.gain(COIN, rnd(12, 30), x, y);
+            self.toast("ตกได้ถุงเหรียญ!");
+        } else if !f.spot && r < 0.07 {
+            self.gain(COIN, rnd(4, 10), x, y);
+            self.toast("ตกได้เหรียญเก่า");
+        } else {
+            let n = if f.spot { rnd(1, 2) } else { 1 };
+            self.gain(FISH, n, x, y);
+            self.toast("ตกปลาได้!");
+        }
+        self.p.xp += 2;
+        self.check_lv();
+        play(&self.sfx.upgrade);
+    }
+    pub fn upd_fish(&mut self, dt: f32) {
+        let Some(f) = self.fish.as_mut() else { return };
+        f.t += dt;
+        let moved = (self.p.x - f.px).hypot(self.p.y - f.py) > 6.;
+        if moved || self.p.last_hit < 0.2 || self.w.dun.is_some() {
+            self.fish = None;
+            self.toast("เลิกตกปลา");
+            return;
+        }
+        if f.bite_t <= 0. && f.t >= f.bite_at {
+            f.bite_t = 1.0;
+            play(&self.sfx.pickup);
+            self.shake(0.5, 0.1);
+        } else if f.bite_t > 0. {
+            f.bite_t -= dt;
+            if f.bite_t <= 0. {
+                self.fish = None;
+                self.toast("ปลาหลุดไปแล้ว!");
+            }
+        }
+    }
+    pub fn sell_fish(&mut self) {
+        let n = self.p.inv[FISH];
+        if n <= 0 {
+            self.toast("ไม่มีปลาจะขาย");
+            return;
+        }
+        self.p.inv[FISH] = 0;
+        self.p.inv[COIN] += n * FISH_PRICE;
+        play(&self.sfx.buy);
+        self.toast(format!("ขายปลา {} ตัว ได้ {} เหรียญ", n, n * FISH_PRICE));
+        self.save();
+    }
+}
+
+// ======================= เขตปลอดภัย (คบเพลิงในฐาน) =======================
+/// รัศมีเขตปลอดภัยรอบคบเพลิงที่วางเอง (พิกเซล) — มอนสเตอร์ไม่เกิดและถูกผลักออก
+pub const SAFE_R: f32 = 84.;
+
+pub fn torch_near(ts: &[(f32, f32)], x: f32, y: f32) -> Option<(f32, f32)> {
+    ts.iter().copied().find(|&(tx, ty)| (tx - x).hypot(ty - y) < SAFE_R)
+}
+
+impl Game {
+    pub fn refresh_torches(&mut self) {
+        self.torches = self.w.placed.iter().filter(|(_, &v)| v == 18).map(|(&(x, y), _)| (x as f32 * 16. + 8., y as f32 * 16. + 8.)).collect();
+    }
+    pub fn in_safe(&self, x: f32, y: f32) -> bool {
+        self.w.dun.is_none() && torch_near(&self.torches, x, y).is_some()
     }
 }

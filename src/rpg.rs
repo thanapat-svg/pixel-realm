@@ -216,7 +216,7 @@ impl Game {
         self.en.push(Enemy {
             k, x, y, hp: (hp * mul * hm).ceil(), spd: spd * (0.9 + mul * 0.1).min(1.5) * sm, dmg: (dmg * mul.min(3.) * dm).ceil() as i32,
             xp: (xp * mul * xm).ceil() as i32, coin: (coin * mul).ceil() as i32, vx: 0., vy: 0., kb: 0., flash: 0., wt: 0., wdx: 0., wdy: 0.,
-            anim: gen_range(0., 5.), pal, dead: false, night,
+            anim: gen_range(0., 5.), pal, dead: false, night, burn: 0., slow: 0., stun: 0., btick: 0.,
         });
     }
 }

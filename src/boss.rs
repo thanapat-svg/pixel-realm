@@ -29,6 +29,9 @@ pub struct Boss {
     pub anim: f32,
     pub ph2: bool,
     pub dead: bool,
+    pub burn: f32,
+    pub slow: f32,
+    pub btick: f32,
 }
 
 impl Game {
@@ -39,7 +42,7 @@ impl Game {
     }
     pub fn spawn_boss_hp(&mut self, kind: u8, x: f32, y: f32, hp: f32) {
         self.bosses.push(Boss {
-            kind, x, y, hp, maxhp: hp, atk: 0, st: 0., st0: 1., cd: 1.5, tx: x, ty: y, dash: 0., dvx: 0., dvy: 0., flash: 0., anim: 0., ph2: false, dead: false,
+            kind, x, y, hp, maxhp: hp, atk: 0, st: 0., st0: 1., cd: 1.5, tx: x, ty: y, dash: 0., dvx: 0., dvy: 0., flash: 0., anim: 0., ph2: false, dead: false, burn: 0., slow: 0., btick: 0.,
         });
         self.toast(format!("{} ปรากฏตัว!", BNAME[kind as usize]));
         play(&self.sfx.roar);
@@ -81,7 +84,7 @@ impl Game {
     fn minion(&mut self, x: f32, y: f32) {
         self.en.push(Enemy {
             k: EK::Slime, x, y, hp: 3., spd: 26., dmg: 1, xp: 1, coin: 0, vx: 0., vy: 0., kb: 0., flash: 0., wt: 0., wdx: 0., wdy: 0.,
-            anim: gen_range(0., 5.), pal: 0, dead: false, night: false,
+            anim: gen_range(0., 5.), pal: 0, dead: false, night: false, burn: 0., slow: 0., stun: 0., btick: 0.,
         });
     }
     fn aoe(&mut self, x: f32, y: f32, r: f32, dmg: i32) {
@@ -130,7 +133,13 @@ impl Game {
             self.toast(format!("{} โกรธจัด!", BNAME[b.kind as usize]));
         }
         let king = b.kind == 0;
-        let fast = if b.ph2 { 1.35 } else { 1.0 };
+        if b.slow > 0. { b.slow -= dt; }
+        if b.burn > 0. {
+            b.burn -= dt;
+            b.hp = (b.hp - dt * 3.).max(1.);
+            if gen_range(0., 1.) < dt * 14. { self.parts.push(Particle { x: b.x + gen_range(-8., 8.), y: b.y - gen_range(4., 20.), vx: 0., vy: -24., l: 0.4, c: hx(0xff8a20) }); }
+        }
+        let fast = (if b.ph2 { 1.35 } else { 1.0 }) * if b.slow > 0. { 0.55 } else { 1. };
         // โกเลมพุ่งชน
         if b.dash > 0. {
             b.dash -= dt;

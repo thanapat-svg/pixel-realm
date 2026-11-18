@@ -8,7 +8,7 @@ pub struct Extras {
     pub golem: [Rect; 2], // [ปกติ, ยกแขน]
     pub merchant: [Rect; 2],
     /// เรียงตาม kind ของ Proj: 0 ธนู, 1 เวท, 2 เมือก, 3 ก้อนหิน, 4 เวทราชา, 5 เศษหิน
-    pub proj: [Rect; 7],
+    pub proj: [Rect; 10],
     /// ผู้ติดตาม: [หมาป่า เฟรม0,1, อัศวิน เฟรม0,1]
     pub comp: [Rect; 4],
     /// ภาพเงาขาว (แฟลชตอนโดนตี): สไลม์ x4, โครงกระดูก, ค้างคาว x2
@@ -363,6 +363,9 @@ pub fn build_extra(at: &mut Atlas, obj: &mut Vec<Rect>, icons: &mut Vec<Rect>) -
     ic(&["........", "........", ".bbbbbb.", "bBBBBBBb", "bBrrRBBb", "bBRrrBBb", ".bbbbbb.", "........"], &[('b', 0x8a5a32), ('B', 0xd8a060), ('r', 0xa83a2a), ('R', 0xe87a5a)]);
     ic(&["........", "..y..y..", ".kkkkkk.", "kkwwwwkk", "kwBBBBwk", ".kBBBBk.", "..kkkk..", "........"], &[('k', 0x3a3a44), ('w', 0xd8d8e0), ('B', 0xc8602a), ('y', 0xffffff)]);
     ic(&["........", "..y..y..", "..tttt..", ".tGGGGt.", ".tGGGGt.", ".tGGGGt.", "..tttt..", "........"], &[('t', 0xe8e8e8), ('G', 0x6ad06a), ('y', 0xffffff)]);
+    // 19 ปลาย่าง / 20 ปลา
+    ic(&["........", "........", ".bbbbbb.", "bBBBBBBb", "bBwBBBBb", ".bbbbbbb", "..t..t..", "........"], &[('b', 0x8a5a32), ('B', 0xd8a060), ('w', 0xfff0d8), ('t', 0x5a3418)]);
+    ic(&["........", "..b.....", ".bbbb.bb", "bwbbbbbb", ".bbbb.bb", "..b.....", "........", "........"], &[('b', 0x4a90d0), ('w', 0xffffff)]);
     // 13 ดาบ
     ic(&[".......w", "......wW", ".....wW.", "....wW..", ".t.wW...", "..tw....", ".t.t....", "t......."], &[('w', 0xd8d8e0), ('W', 0xffffff), ('t', 0x8a5a32)]);
     // 13 ธนู
@@ -403,6 +406,9 @@ pub fn build_extra(at: &mut Atlas, obj: &mut Vec<Rect>, icons: &mut Vec<Rect>) -
         at.add(&orb(7, 0xffffff, 0x9aff7a, 0x2aa040)),
         at.add(&shard),
         at.add(&orb(7, 0xfff2a0, 0xff9a30, 0xd0401a)),
+        at.add(&orb(7, 0xfff2a0, 0xff8a20, 0xc83010)),
+        at.add(&orb(7, 0xffffff, 0xa0e8ff, 0x4a90e0)),
+        at.add(&orb(7, 0xffffff, 0xfff060, 0xd0a000)),
     ];
     let z = Rect::new(0., 0., 1., 1.);
     Extras { king: at.add(&king()), golem: [at.add(&golem(false)), at.add(&golem(true))], merchant: merch, proj, comp, flash_slime: [z; 4], flash_skel: z, flash_bat: [z; 2] }
