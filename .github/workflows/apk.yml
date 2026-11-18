@@ -3,6 +3,8 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+permissions:
+  contents: write
 jobs:
   apk:
     runs-on: ubuntu-latest
@@ -22,3 +24,13 @@ jobs:
         with:
           name: pixel_realm-apk
           path: target/android-artifacts/release/apk/pixel_realm.apk
+      - name: Publish APK (release + apk branch)
+        run: |
+          cp target/android-artifacts/release/apk/pixel_realm.apk /tmp/pixel_realm.apk
+          gh release delete latest-apk --yes --cleanup-tag 2>/dev/null || true
+          gh release create latest-apk /tmp/pixel_realm.apk --title "Pixel Realm APK" --notes "Auto-built from ${GITHUB_SHA}"
+          git config user.name github-actions; git config user.email actions@github.com
+          git checkout --orphan apk; git rm -rfq . ; cp /tmp/pixel_realm.apk .
+          git add pixel_realm.apk; git commit -qm "APK ${GITHUB_SHA}"; git push -f origin apk
+        env:
+          GH_TOKEN: ${{ github.token }}
