@@ -11,7 +11,7 @@ jobs:
       - name: Build release APK
         run: |
           set +e
-          docker run --rm -v "$PWD":/root/src -w /root/src notfl3/cargo-apk cargo quad-apk build --release 2>&1 | tee build.log
+          docker run --rm -v "$PWD":/root/src -w /root/src notfl3/cargo-apk sh -c "rustup toolchain install stable --profile minimal && rustup default stable && rustup target add aarch64-linux-android && rustc --version && cargo quad-apk build --release" 2>&1 | tee build.log
           rc=${PIPESTATUS[0]}
           if [ $rc -ne 0 ]; then
             msg=$(grep -v '^\s*\(Compiling\|Downloaded\|Downloading\)' build.log | tail -n 60 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
