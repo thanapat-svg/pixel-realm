@@ -9,7 +9,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build release APK
-        run: docker run --rm -v "$PWD":/root/src -w /root/src notfl3/cargo-apk cargo quad-apk build --release
+        run: |
+          set +e
+          docker run --rm -v "$PWD":/root/src -w /root/src notfl3/cargo-apk cargo quad-apk build --release 2>&1 | tee build.log
+          rc=${PIPESTATUS[0]}
+          if [ $rc -ne 0 ]; then
+            msg=$(grep -v '^\s*\(Compiling\|Downloaded\|Downloading\)' build.log | tail -n 60 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=build-log::$msg"
+          fi
+          exit $rc
       - uses: actions/upload-artifact@v4
         with:
           name: pixel_realm-apk
