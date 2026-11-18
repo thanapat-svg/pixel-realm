@@ -1,0 +1,1938 @@
+//! Pixel Realm — เกม open world 2D pixel (Rust + macroquad)
+//! รันได้บน Windows / Linux / macOS และ build เป็น Android APK ได้
+
+use macroquad::audio::{load_sound_from_bytes, play_sound, PlaySoundParams, Sound};
+use macroquad::prelude::*;
+use macroquad::rand::gen_range;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+
+mod art;
+mod base;
+mod boss;
+mod camp;
+mod combat;
+mod menu;
+use base::*;
+use boss::*;
+use camp::*;
+use combat::*;
+use menu::*;
+
+// ======================= ค่าคงที่ =======================
+const DAYLEN: f32 = 240.0;
+const TN: [&str; 9] = [
+    "ทะเลลึก", "แหล่งน้ำ", "ชายหาด", "ทุ่งหญ้า", "ป่าทึบ", "เขตหินผา", "ภูเขา", "ดินแดนหิมะ", "ทะเลทราย",
+];
+const TCOL: [u32; 9] = [
+    0x1d4f91, 0x2f7fd0, 0xe6d29a, 0x5fae4a, 0x3f8a3a, 0x8a8a8a, 0x5c5450, 0xeef4f8, 0xe8b86a,
+];
+// tiles: 0 deep,1 water,2 sand,3 grass,4 forest,5 stone,6 mountain,7 snow,8 desert
+const SOLIDT: [bool; 9] = [true, true, false, false, false, false, true, false, false];
+// objects: 1 tree,2 bush,3 flower,4 rock,5 ore,6 chest,7 cactus,8 pine,9 campfire,
+//   10 กำแพงไม้,11 กำแพงหิน,12 ประตูปิด,13 ประตูเปิด,14 กล่องเก็บของ,15 พ่อค้า,16 เต็นท์
+const OSOLID: [bool; 17] = [false, true, true, false, true, true, true, true, true, true, true, true, true, false, true, true, true];
+const OHP: [i32; 17] = [0, 3, 1, 0, 3, 4, 1, 2, 3, 2, 5, 8, 4, 4, 5, 0, 0];
+
+const WOOD: usize = 0;
+const STONE: usize = 1;
+const BERRY: usize = 2;
+const GEM: usize = 3;
+const COIN: usize = 4;
+const FIRE: usize = 5;
+const ARROW: usize = 6;
+const GEL: usize = 7;
+const CORE: usize = 8;
+const POTION: usize = 9;
+const BP_ARM: usize = 10;
+const BP_WPN: usize = 11;
+const NI: usize = 12;
+// ดัชนีไอคอน (0..11 ตรงกับไอเทม)
+const ICON_SWORD: usize = 12;
+const IC_BOW: usize = 13;
+const IC_STAFF: usize = 14;
+const IC_HELM: usize = 15;
+const IC_CHEST: usize = 16;
+const IC_BOOT: usize = 17;
+const IC_WWALL: usize = 18;
+const IC_SWALL: usize = 19;
+const IC_DOOR: usize = 20;
+const IC_BOX: usize = 21;
+const INAME: [&str; NI] = ["ไม้", "หิน", "เบอร์รี่", "อัญมณี", "เหรียญ", "กองไฟ", "ลูกธนู", "เจลราชาสไลม์", "แกนโกเลม", "ยาฟื้นฟู", "พิมพ์เขียวเกราะ", "พิมพ์เขียวอาวุธ"];
+
+const SWN: [&str; 5] = ["มือเปล่า", "ดาบไม้", "ดาบหิน", "ดาบอัญมณี", "ดาบแกนโกเลม"];
+const SWD: [i32; 5] = [1, 2, 3, 5, 8];
+const SWC: [u32; 5] = [0xffffff, 0xd8a060, 0xd8d8e0, 0x6ff8ff, 0xff9a40];
+const DV: [(f32, f32); 4] = [(0., 1.), (0., -1.), (1., 0.), (-1., 0.)];
+
+// ======================= noise =======================
+fn hash(x: i32, y: i32, s: i32) -> f64 {
+    let mut h = x
+        .wrapping_mul(374761393)
+        .wrapping_add(y.wrapping_mul(668265263))
+        .wrapping_add(s.wrapping_mul(982451653));
+    h = (h ^ ((h as u32) >> 13) as i32).wrapping_mul(1274126177);
+    h ^= ((h as u32) >> 16) as i32;
+    (h as u32) as f64 / 4294967296.0
+}
+fn vnoise(x: f64, y: f64, s: i32) -> f64 {
+    let (xf0, yf0) = (x.floor(), y.floor());
+    let (xf, yf) = (x - xf0, y - yf0);
+    let (xi, yi) = (xf0 as i32, yf0 as i32);
+    let u = xf * xf * (3. - 2. * xf);
+    let v = yf * yf * (3. - 2. * yf);
+    let a = hash(xi, yi, s);
+    let b = hash(xi + 1, yi, s);
+    let c = hash(xi, yi + 1, s);
+    let d = hash(xi + 1, yi + 1, s);
+    a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v
+}
+fn fbm(x: f64, y: f64, s: i32) -> f64 {
+    let (mut t, mut a, mut f, mut n) = (0., 1., 1., 0.);
+    for i in 0..5 {
+        t += vnoise(x * f, y * f, s.wrapping_add(i * 131)) * a;
+        n += a;
+        a *= 0.5;
+        f *= 2.;
+    }
+    t / n
+}
+fn rnd(a: i32, b: i32) -> i32 {
+    gen_range(a, b + 1)
+}
+fn hx(c: u32) -> Color {
+    Color::from_hex(c)
+}
+
+// ======================= world =======================
+struct World {
+    seed: i32,
+    chunks: RefCell<HashMap<(i32, i32), Box<[u8; 1024]>>>,
+    tmod: HashMap<(i32, i32), u8>,
+    removed: HashSet<(i32, i32)>,
+    placed: HashMap<(i32, i32), u8>,
+    camps: RefCell<HashMap<(i32, i32), Option<(i32, i32)>>>,
+}
+impl World {
+    fn new(seed: i32) -> Self {
+        World { seed, chunks: RefCell::new(HashMap::new()), tmod: HashMap::new(), removed: HashSet::new(), placed: HashMap::new(), camps: RefCell::new(HashMap::new()) }
+    }
+    fn gen_tile(&self, x: i32, y: i32) -> u8 {
+        let s = self.seed;
+        let e = fbm(x as f64 / 48., y as f64 / 48., s);
+        let m = fbm(x as f64 / 70. + 500., y as f64 / 70. + 500., s.wrapping_add(77));
+        if e < 0.36 { return 0; }
+        if e < 0.42 { return 1; }
+        if e < 0.445 { return 2; }
+        if e < 0.60 {
+            if m < 0.38 { return 8; }
+            if m > 0.56 { return 4; }
+            return 3;
+        }
+        if e < 0.655 { return 5; }
+        if e < 0.685 { return if hash(x, y, s.wrapping_add(3)) < 0.18 { 5 } else { 6 }; }
+        7
+    }
+    fn tile_at(&self, x: i32, y: i32) -> u8 {
+        if !self.tmod.is_empty() {
+            if let Some(&m) = self.tmod.get(&(x, y)) { return m; }
+        }
+        let (cx, cy) = (x >> 5, y >> 5);
+        let mut ch = self.chunks.borrow_mut();
+        if !ch.contains_key(&(cx, cy)) {
+            if ch.len() > 500 { ch.clear(); }
+            let mut c = Box::new([0u8; 1024]);
+            for j in 0..32 {
+                for i in 0..32 {
+                    c[(j * 32 + i) as usize] = self.gen_tile(cx * 32 + i, cy * 32 + j);
+                }
+            }
+            ch.insert((cx, cy), c);
+        }
+        ch[&(cx, cy)][(((y - (cy << 5)) << 5) + (x - (cx << 5))) as usize]
+    }
+    fn nat_obj(&self, tx: i32, ty: i32) -> u8 {
+        if let Some(o) = self.camp_obj(tx, ty) { return o; }
+        let t = self.tile_at(tx, ty);
+        let r = hash(tx, ty, self.seed.wrapping_add(5));
+        match t {
+            3 => if r < 0.035 { 1 } else if r < 0.05 { 2 } else if r < 0.13 { 3 } else if r > 0.9993 { 6 } else { 0 },
+            4 => if r < 0.27 { 1 } else if r < 0.32 { 2 } else if r < 0.35 { 3 } else if r > 0.998 { 6 } else { 0 },
+            2 => if r > 0.9985 { 6 } else { 0 },
+            8 => if r < 0.025 { 7 } else if r > 0.998 { 6 } else { 0 },
+            5 => if r < 0.10 { 4 } else if r < 0.125 { 5 } else if r > 0.997 { 6 } else { 0 },
+            7 => if r < 0.06 { 8 } else if r < 0.075 { 5 } else if r > 0.996 { 6 } else { 0 },
+            _ => 0,
+        }
+    }
+    fn obj_at(&self, tx: i32, ty: i32) -> u8 {
+        if let Some(&p) = self.placed.get(&(tx, ty)) { return p; }
+        if self.removed.contains(&(tx, ty)) { return 0; }
+        self.nat_obj(tx, ty)
+    }
+    fn solid_at(&self, tx: i32, ty: i32) -> bool {
+        SOLIDT[self.tile_at(tx, ty) as usize] || OSOLID[self.obj_at(tx, ty) as usize]
+    }
+    fn near_fire(&self, tx: i32, ty: i32, r: i32) -> Option<(i32, i32)> {
+        self.placed.iter().find(|(k, &v)| v == 9 && (k.0 - tx).abs() <= r && (k.1 - ty).abs() <= r).map(|(k, _)| *k)
+    }
+}
+fn tfloor(v: f32) -> i32 {
+    (v / 16.).floor() as i32
+}
+fn collide(w: &World, x: f32, y: f32) -> bool {
+    let (l, r, t, b) = (tfloor(x - 4.), tfloor(x + 4.), tfloor(y - 4.), tfloor(y));
+    w.solid_at(l, t) || w.solid_at(r, t) || w.solid_at(l, b) || w.solid_at(r, b)
+}
+
+// ======================= sprites / atlas =======================
+fn spr(rows: &[&str], pal: &[(char, u32)]) -> Image {
+    let w = rows.iter().map(|r| r.chars().count()).max().unwrap_or(1);
+    let mut im = Image::gen_image_color(w as u16, rows.len() as u16, BLANK);
+    for (y, r) in rows.iter().enumerate() {
+        for (x, ch) in r.chars().enumerate() {
+            if let Some(&(_, c)) = pal.iter().find(|p| p.0 == ch) {
+                im.set_pixel(x as u32, y as u32, hx(c));
+            }
+        }
+    }
+    im
+}
+enum Extra { None, Waves(u32, i32), Tufts(u32), Mountain }
+fn mk_tex(base: u32, specks: &[u32], n: i32, s: i32, ex: Extra) -> Image {
+    let mut im = Image::gen_image_color(16, 16, hx(base));
+    for i in 0..n {
+        let px = (hash(i, s, 11) * 16.) as u32;
+        let py = (hash(s, i, 23) * 16.) as u32;
+        im.set_pixel(px, py, hx(specks[i as usize % specks.len()]));
+    }
+    match ex {
+        Extra::None => {}
+        Extra::Waves(c, f) => {
+            for i in 0..3 {
+                let px = ((hash(i, s, 5) * 12.) as i32 + f * 2) % 14;
+                let py = (hash(s, i, 7) * 14.) as i32 + 1;
+                for k in 0..3 { im.set_pixel((px + k) as u32, py as u32, hx(c)); }
+            }
+        }
+        Extra::Tufts(c) => {
+            for i in 0..3 {
+                let px = (hash(i, s, 3) * 13.) as u32 + 1;
+                let py = (hash(s, i, 9) * 12.) as u32 + 2;
+                for (dx, dy) in [(0, 0), (0, 1), (2, 0), (2, 1), (1, 1), (1, 2)] {
+                    im.set_pixel(px + dx, py + dy, hx(c));
+                }
+            }
+        }
+        Extra::Mountain => {
+            for x in 0..16 {
+                im.set_pixel(x, 7, hx(0x4a423e));
+                im.set_pixel(x, 0, hx(0x857b73));
+                im.set_pixel(x, 8, hx(0x857b73));
+            }
+            for y in 0..7 { im.set_pixel(5, y, hx(0x4a423e)); }
+            for y in 8..16 { im.set_pixel(11, y, hx(0x4a423e)); }
+        }
+    }
+    im
+}
+struct Atlas { img: Image, cx: u16, cy: u16, rowh: u16 }
+impl Atlas {
+    fn add(&mut self, src: &Image) -> Rect {
+        let (w, h) = (src.width, src.height);
+        if self.cx + w + 1 > self.img.width {
+            self.cx = 0;
+            self.cy += self.rowh + 1;
+            self.rowh = 0;
+        }
+        for y in 0..h {
+            for x in 0..w {
+                self.img.set_pixel((self.cx + x) as u32, (self.cy + y) as u32, src.get_pixel(x as u32, y as u32));
+            }
+        }
+        let r = Rect::new(self.cx as f32, self.cy as f32, w as f32, h as f32);
+        self.cx += w + 1;
+        self.rowh = self.rowh.max(h);
+        r
+    }
+}
+struct Sprites {
+    tex: Texture2D,
+    tiles: Vec<Vec<Rect>>,
+    player: Vec<Vec<Rect>>, // [dir 0 down,1 up,2 side][frame]
+    slime: Vec<Rect>,
+    skel: Rect,
+    bat: [Rect; 2],
+    obj: Vec<Rect>,
+    icons: Vec<Rect>,
+    ex: art::Extras,
+}
+fn build_sprites() -> Sprites {
+    let mut at = Atlas { img: Image::gen_image_color(512, 512, BLANK), cx: 0, cy: 0, rowh: 0 };
+    // ---- tiles
+    let mut tiles = vec![];
+    let defs: Vec<Box<dyn Fn(i32) -> Image>> = vec![
+        Box::new(|i| mk_tex(0x1d4f91, &[0x22579f, 0x1a4884], 10, i >> 1, Extra::Waves(0x3a70b8, i & 1))),
+        Box::new(|i| mk_tex(0x2f7fd0, &[0x3588d8, 0x2a76c4], 10, 10 + (i >> 1), Extra::Waves(0x7ab8f0, i & 1))),
+        Box::new(|i| mk_tex(0xe6d29a, &[0xd4bd80, 0xf2e2b2, 0xcdb478], 14, 20 + i, Extra::None)),
+        Box::new(|i| mk_tex(0x5fae4a, &[0x529e40, 0x6dbc56], 16, 30 + i, if i < 2 { Extra::Tufts(0x4a9439) } else { Extra::None })),
+        Box::new(|i| mk_tex(0x3f8a3a, &[0x357a30, 0x4a9644, 0x2f6e2b], 18, 40 + i, Extra::Tufts(0x2f6e2b))),
+        Box::new(|i| mk_tex(0x8a8a8a, &[0x777777, 0x9a9a9a, 0x6e6e6e], 22, 50 + i, Extra::None)),
+        Box::new(|i| mk_tex(0x6b625c, &[0x5a524c, 0x7a716a], 20, 60 + i, Extra::Mountain)),
+        Box::new(|i| mk_tex(0xeef4f8, &[0xd8e6ef, 0xffffff, 0xcfdfea], 14, 70 + i, Extra::None)),
+        Box::new(|i| mk_tex(0xe8b86a, &[0xd9a456, 0xf2c87e, 0xcf9a4c], 16, 80 + i, Extra::None)),
+    ];
+    for d in &defs {
+        tiles.push((0..4).map(|i| at.add(&d(i))).collect::<Vec<_>>());
+    }
+    // ---- player
+    let pp: &[(char, u32)] = &[('h', 0x5a3a1e), ('s', 0xf2c79a), ('e', 0x222222), ('m', 0xc9705a), ('r', 0x3a6fd8), ('R', 0xbcd4ff), ('b', 0x5a3a1e), ('p', 0x34405a), ('k', 0x1d1d22)];
+    let pd = ["...hhhhhh...", "..hhhhhhhh..", "..hhhhhhhh..", "..hssssssh..", "..sessssess.", "..ssssssss..", "...ssmmss...", "..rrrrrrrr..", ".srrrRRrrrs.", ".srrrrrrrrs.", ".s.rrrrrr.s.", "...bbbbbb..."];
+    let pu = ["...hhhhhh...", "..hhhhhhhh..", "..hhhhhhhh..", "..hhhhhhhh..", "..hhhhhhhh..", "..shhhhhhs..", "...ssssss...", "..rrrrrrrr..", ".srrrrrrrrs.", ".srrrrrrrrs.", ".s.rrrrrr.s.", "...bbbbbb..."];
+    let pr = ["...hhhhhh...", "..hhhhhhhh..", "..hhhhhhhh..", "..hhhsssss..", "..hhhssses..", "..hhssssss..", "...sssss....", "...rrrrrr...", "...rrrsrr...", "...rrrsrr...", "...rrrsrr...", "...bbbbbb..."];
+    let lf = [["...pp..pp...", "...pp..pp...", "...kk..kk..."], ["...pp..pp...", "...kk..pp...", ".......kk..."], ["...pp..pp...", "...pp..kk...", "...kk......."]];
+    let ls = [["....pppp....", "....pppp....", "....kkkk...."], ["...pp..pp...", "..pp....pp..", "..kk....kk.."], ["....pppp....", "....pp.pp...", "....kk.kk..."]];
+    let mut player = vec![vec![], vec![], vec![]];
+    for f in 0..3 {
+        let mk = |body: &[&str; 12], legs: &[&str; 3]| {
+            let mut v: Vec<&str> = body.to_vec();
+            v.extend_from_slice(legs);
+            spr(&v, pp)
+        };
+        player[0].push(at.add(&mk(&pd, &lf[f])));
+        player[1].push(at.add(&mk(&pu, &lf[f])));
+        player[2].push(at.add(&mk(&pr, &ls[f])));
+    }
+    // ---- enemies
+    let sl = ["....gggg....", "..gggggggg..", ".gglggggggg.", ".glggggggggg", "ggggeggggegg", "ggggeggggegg", "gggggggggggg", "gggggmmggggg", ".gggggggggg.", "..dddddddd.."];
+    let slp: [[u32; 5]; 4] = [
+        [0x66cc66, 0xccffcc, 0x112233, 0x338833, 0x33aa33],
+        [0xf0a040, 0xffe0a0, 0x332211, 0xaa5522, 0xbb6633],
+        [0x7cc8f0, 0xe8f8ff, 0x112233, 0x336688, 0x4488aa],
+        [0x4aa86a, 0xaaeeee, 0x001122, 0x226644, 0x227755],
+    ];
+    let slime = slp.iter().map(|p| at.add(&spr(&sl, &[('g', p[0]), ('l', p[1]), ('e', p[2]), ('m', p[3]), ('d', p[4])]))).collect();
+    let skel = at.add(&spr(&["...wwww...", "..wwwwww..", "..wkwwkw..", "..wwwwww..", "...wkkw...", "....ww....", ".wwwwwwww.", "w..wkkw..w", "w.wwwwww.w", "...wkkw...", "....ww....", "...wwww...", "...w..w...", "...w..w...", "..ww..ww.."], &[('w', 0xe8e8d8), ('k', 0x333333)]));
+    let bp: &[(char, u32)] = &[('w', 0x5a4670), ('k', 0x2a1f33), ('r', 0xff4444)];
+    let bat = [
+        at.add(&spr(&["w..........w", "ww..k..k..ww", "wwwkkkkkkwww", ".wwkrkkrkww.", "..wkkkkkkw..", "....k..k....", "............"], bp)),
+        at.add(&spr(&["............", "....k..k....", "...kkkkkk...", "..wkrkkrkw..", ".wwwkkkkwww.", "ww........ww", "w..........w"], bp)),
+    ];
+    // ---- objects
+    let rp: &[(char, u32)] = &[('k', 0x3a3a40), ('L', 0x9a9aa4), ('l', 0xc8c8d0), ('D', 0x6a6a74), ('c', 0x4ef0ff), ('C', 0xb0ffff)];
+    let mut obj = vec![Rect::new(0., 0., 1., 1.); 17];
+    obj[1] = at.add(&spr(&["......gggg......", "....gGGGGGGg....", "...GGGgGGGGGG...", "..GGGGGGGgGGGG..", ".GGgGGGGGGGGGGG.", ".GGGGGGGGGGgGGG.", "GGGGGgGGGGGGGGGG", "GGGGGGGGGGGGgGGG", "GGgGGGGGGGGGGGGG", "GGGGGGGGgGGGGGGd", ".GGGGGGGGGGGGGd.", ".dGGGgGGGGGGGdd.", "..ddGGGGGGGGdd..", "...dddGGGGddd...", ".....ddTTdd.....", "......TTTT......", "......TTtT......", "......TTTT......", "......TtTT......", "......TTTT......", ".....TTTTTT.....", "....tt....tt...."],
+        &[('g', 0x7cd06a), ('G', 0x3f9a3f), ('d', 0x2a6a2a), ('T', 0x7a4a24), ('t', 0x5a3418)]));
+    obj[2] = at.add(&spr(&["................", "................", "................", "................", "................", "................", "......gggg......", "....gggggggg....", "...ggrgggggrg...", "..gggggggggggg..", "..ggggrggggggg..", ".gggggggggrgggg.", ".ggrgggggggggg..", "..dgggggggggd...", "...dddddddddd...", "................"], &[('g', 0x3d9440), ('r', 0xe8344a), ('d', 0x2a6a2a)]));
+    obj[4] = at.add(&spr(&["................", "................", "................", "................", "................", ".....kkkkk......", "....kLLLLLkk....", "...kLLlLLLLLk...", "..kLLLLLLlLLLk..", "..kLlLLLLLLLLk..", ".kLLLLLLLLLLLDk.", ".kLLLLlLLLLLDDk.", ".kDLLLLLLLLDDDk.", "..kDDDDDDDDDDk..", "...kkkkkkkkkk...", "................"], rp));
+    obj[5] = at.add(&spr(&["................", "................", "................", "................", "................", ".....kkkkk......", "....kLLLLLkk....", "...kLLcCLLLLk...", "..kLLLcLLlLLLk..", "..kLlLLLLLcCLk..", ".kLLLLLLLLcLLDk.", ".kLcCLlLLLLLDDk.", ".kDcLLLLLLLDDDk.", "..kDDDDDDDDDDk..", "...kkkkkkkkkk...", "................"], rp));
+    obj[6] = at.add(&spr(&["................", "................", "................", "................", "...oooooooooo...", "..oyyyyyyyyyyo..", "..oyYYYYYYYYyo..", "..oyyyyyyyyyyo..", "..oooooGGooooo..", "..oyyyyGGyyyyo..", "..oyyyyyyyyyyo..", "..oyyyyyyyyyyo..", "..oyyyyyyyyyyo..", "..oooooooooooo..", "................", "................"], &[('o', 0x5a3010), ('y', 0xa0642a), ('Y', 0xc88a40), ('G', 0xffd84a)]));
+    obj[7] = at.add(&spr(&["................", "................", "......cccc......", ".....cCcccc.....", ".....cCcccc.....", "..cc.cCcccc.....", "..cc.cCcccc.cc..", "..cc.cCcccc.cc..", "..ccccCcccc.cc..", "...cccCcccccc...", ".....cCcccc.....", ".....cCcccc.....", ".....cCcccc.....", ".....cCcccc.....", "....dddddddd....", "................"], &[('c', 0x3c9a4a), ('C', 0x6fd07a), ('d', 0xc9a35a)]));
+    obj[8] = at.add(&spr(&[".......gg.......", "......gggg......", ".....gwgggg.....", "....gggggwgg....", "......gggg......", "....ggwggggg....", "...gggggggwgg...", "..ggwgggggggg...", ".....gggggg.....", "...gggggwgggg...", "..gggwgggggggg..", ".gggggggggwgggg.", "......tttt......", "......tttt......", ".....tttttt.....", "................"], &[('g', 0x2f6b4f), ('w', 0xeef6ff), ('t', 0x6a4022)]));
+    let firep: &[(char, u32)] = &[('y', 0xffe680), ('o', 0xffa630), ('r', 0xff5a1a), ('R', 0xfff2a0), ('l', 0x6a4022), ('L', 0x8a5a32), ('s', 0x888888)];
+    obj[9] = at.add(&spr(&["................", "................", "................", "................", "................", "................", ".......y........", "......yoy.......", ".....yoroy......", "....yorrroy.....", ".....orRro......", "......rRr.......", "...lLlLLlLl.....", "..lsslLLlssl....", "...lLLllLLl.....", "................"], firep));
+    // ---- icons 8x8
+    let mut icons = vec![
+        at.add(&spr(&["........", "..ttttt.", ".tTTTTTo", "tTTTTToO", "tTTTTToo", ".tTTTTTo", "..ttttt.", "........"], &[('t', 0x5a3418), ('T', 0x8a5a32), ('o', 0xc89a60), ('O', 0xe0b880)])),
+        at.add(&spr(&["........", "..kkkk..", ".kLLLlk.", "kLLlLLLk", "kLLLLLDk", "kDLLLDDk", ".kkkkkk.", "........"], rp)),
+        at.add(&spr(&["...gg...", "....g...", ".rr.rr..", "rRrrRrr.", "rrrrrrr.", ".rrrrr..", "..rrr...", "........"], &[('g', 0x3d9440), ('r', 0xe8344a), ('R', 0xffb0b8)])),
+        at.add(&spr(&["........", "..cccc..", ".cCCccc.", "ccCcccdc", ".cccccd.", "..ccdd..", "...cd...", "........"], &[('c', 0x4ef0ff), ('C', 0xe0ffff), ('d', 0x20a0c0)])),
+        at.add(&spr(&["..oooo..", ".oyyyyo.", "oyYyyyyo", "oyYyyyyo", "oyyyyyyo", "oyyyyyYo", ".oyyyyo.", "..oooo.."], &[('o', 0xa06a10), ('y', 0xffd84a), ('Y', 0xfff2a0)])),
+        at.add(&spr(&["....y...", "...yo...", "..yoro..", ".yorrRo.", ".orRRro.", "..oRRo..", "lLlLLlLl", ".lLllLl."], firep)),
+    ];
+    let ex = art::build_extra(&mut at, &mut obj, &mut icons);
+    let tex = Texture2D::from_image(&at.img);
+    tex.set_filter(FilterMode::Nearest);
+    Sprites { tex, tiles, player, slime, skel, bat, obj, icons, ex }
+}
+
+// ======================= audio =======================
+fn wav(f0: f32, dur: f32, slide: f32, vol: f32, kind: u8) -> Vec<u8> {
+    let sr = 22050u32;
+    let n = (sr as f32 * dur) as u32;
+    let mut d = Vec::with_capacity(44 + n as usize * 2);
+    d.extend_from_slice(b"RIFF");
+    d.extend_from_slice(&(36 + n * 2).to_le_bytes());
+    d.extend_from_slice(b"WAVEfmt ");
+    d.extend_from_slice(&16u32.to_le_bytes());
+    d.extend_from_slice(&1u16.to_le_bytes());
+    d.extend_from_slice(&1u16.to_le_bytes());
+    d.extend_from_slice(&sr.to_le_bytes());
+    d.extend_from_slice(&(sr * 2).to_le_bytes());
+    d.extend_from_slice(&2u16.to_le_bytes());
+    d.extend_from_slice(&16u16.to_le_bytes());
+    d.extend_from_slice(b"data");
+    d.extend_from_slice(&(n * 2).to_le_bytes());
+    let mut ph = 0f32;
+    let mut seed = 12345u32;
+    for i in 0..n {
+        let t = i as f32 / n as f32;
+        ph += (f0 + slide * t) / sr as f32;
+        let s = match kind {
+            0 => if ph.fract() < 0.5 { 1. } else { -1. },
+            1 => ph.fract() * 2. - 1.,
+            2 => (ph * std::f32::consts::TAU).sin(),
+            _ => { seed = seed.wrapping_mul(1103515245).wrapping_add(12345); (seed >> 16) as f32 / 32768. - 1. }
+        };
+        let env = (1. - t) * (1. - t);
+        d.extend_from_slice(&((s * env * vol * 32767.) as i16).to_le_bytes());
+    }
+    d
+}
+#[derive(Default)]
+struct Sfx { swing: Option<Sound>, hit: Option<Sound>, chop: Option<Sound>, rock: Option<Sound>, hurt: Option<Sound>, kill: Option<Sound>, gem: Option<Sound>, lvl: Option<Sound>, craft: Option<Sound>, eat: Option<Sound>, fire: Option<Sound>, chest: Option<Sound>, shoot: Option<Sound>, boom: Option<Sound>, buy: Option<Sound>, door: Option<Sound> }
+async fn snd(f: f32, d: f32, sl: f32, v: f32, k: u8) -> Option<Sound> {
+    load_sound_from_bytes(&wav(f, d, sl, v, k)).await.ok()
+}
+async fn load_sfx() -> Sfx {
+    Sfx {
+        swing: snd(300., 0.06, -150., 0.15, 2).await,
+        hit: snd(200., 0.07, -80., 0.25, 0).await,
+        chop: snd(240., 0.05, -60., 0.25, 0).await,
+        rock: snd(170., 0.06, -40., 0.25, 0).await,
+        hurt: snd(90., 0.18, -40., 0.35, 1).await,
+        kill: snd(120., 0.18, -60., 0.3, 1).await,
+        gem: snd(880., 0.18, 400., 0.2, 2).await,
+        lvl: snd(523., 0.35, 400., 0.25, 0).await,
+        craft: snd(660., 0.15, 300., 0.2, 0).await,
+        eat: snd(520., 0.12, 200., 0.25, 2).await,
+        fire: snd(200., 0.25, 0., 0.15, 3).await,
+        chest: snd(660., 0.35, 600., 0.25, 2).await,
+        shoot: snd(520., 0.1, -300., 0.15, 1).await,
+        boom: snd(80., 0.4, -50., 0.4, 3).await,
+        buy: snd(700., 0.12, 500., 0.2, 2).await,
+        door: snd(150., 0.1, 80., 0.2, 0).await,
+    }
+}
+fn play(s: &Option<Sound>) {
+    if let Some(s) = s { play_sound(s, PlaySoundParams { looped: false, volume: 0.6 }); }
+}
+
+// ======================= entities =======================
+#[derive(Clone, Copy, PartialEq)]
+enum EK { Slime, Skel, Bat }
+#[derive(Clone)]
+struct Enemy { k: EK, x: f32, y: f32, hp: f32, spd: f32, dmg: i32, xp: i32, coin: i32, vx: f32, vy: f32, kb: f32, flash: f32, wt: f32, wdx: f32, wdy: f32, anim: f32, pal: usize, dead: bool }
+struct Particle { x: f32, y: f32, vx: f32, vy: f32, l: f32, c: Color }
+struct Float { x: f32, y: f32, t: String, c: Color, l: f32, icon: Option<usize> }
+struct Player { x: f32, y: f32, dir: usize, flip: bool, hp: i32, maxhp: i32, xp: i32, lvl: i32, sword: usize, pick: bool, inv: [i32; NI], invul: f32, kbx: f32, kby: f32, kbt: f32, atk_t: f32, atk_cd: f32, anim: f32, moving: bool, regen: f32, last_hit: f32, kills: i32, weapon: u8, bow: bool, staff: u8, armor: [u8; 3] }
+impl Player {
+    fn new(x: f32, y: f32) -> Self {
+        Player { x, y, dir: 0, flip: false, hp: 10, maxhp: 10, xp: 0, lvl: 1, sword: 0, pick: false, inv: [0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0], invul: 0., kbx: 0., kby: 0., kbt: 0., atk_t: 0., atk_cd: 0., anim: 0., moving: false, regen: 0., last_hit: 0., kills: 0, weapon: 0, bow: false, staff: 0, armor: [0; 3] }
+    }
+    fn facing(&self) -> (f32, f32) {
+        DV[if self.dir == 2 && self.flip { 3 } else { self.dir }]
+    }
+}
+
+#[derive(Default)]
+struct Input { mv: Vec2, atk: bool, eat: bool, fire: bool, menu: Option<usize>, map: bool, act: bool, swap: bool, place: bool, cancel: bool, potion: bool, aim: Option<Vec2> }
+
+// ======================= game =======================
+struct Game {
+    w: World,
+    p: Player,
+    en: Vec<Enemy>,
+    parts: Vec<Particle>,
+    floats: Vec<Float>,
+    toasts: Vec<(String, f32)>,
+    time: f32,
+    spawn: (f32, f32),
+    seen: HashSet<u8>,
+    obj_dmg: HashMap<(i32, i32), i32>,
+    shake: ((i32, i32), f32),
+    hurt_flash: f32,
+    darkv: f32,
+    last_biome: i32,
+    spawn_t: f32,
+    save_t: f32,
+    mini_t: f32,
+    died: bool,
+    big_map: bool,
+    sfx: Sfx,
+    proj: Vec<Proj>,
+    bosses: Vec<Boss>,
+    boss_cd: f32,
+    boss_t: f32,
+    chests: HashMap<(i32, i32), [i32; NI]>,
+    camps_found: HashSet<(i32, i32)>,
+    camp_t: f32,
+    build_sel: Option<usize>,
+    req: Option<Req>,
+}
+
+fn find_spawn(w: &World) -> (i32, i32) {
+    for r in 0..400 {
+        let n = 8 * r + 1;
+        for a in 0..n {
+            let ang = a as f32 / n as f32 * std::f32::consts::TAU;
+            let (tx, ty) = ((ang.cos() * r as f32).round() as i32, (ang.sin() * r as f32).round() as i32);
+            let t = w.tile_at(tx, ty);
+            if (t == 3 || t == 4) && w.obj_at(tx, ty) == 0 && !w.solid_at(tx + 1, ty) && !w.solid_at(tx, ty + 1) {
+                return (tx, ty);
+            }
+        }
+    }
+    (0, 0)
+}
+
+fn save_path() -> String {
+    if let Ok(p) = std::env::var("PIXEL_REALM_SAVE") {
+        return p;
+    }
+    #[cfg(target_os = "android")]
+    {
+        let dir = "/data/data/rust.pixel_realm/files";
+        let _ = std::fs::create_dir_all(dir);
+        return format!("{}/save.txt", dir);
+    }
+    #[allow(unreachable_code)]
+    "pixel_realm_save.txt".to_string()
+}
+
+impl Game {
+    fn blank(w: World, sfx: Sfx) -> Game {
+        Game {
+            w, p: Player::new(0., 0.), en: vec![], parts: vec![], floats: vec![], toasts: vec![], time: 0., spawn: (0., 0.),
+            seen: HashSet::new(), obj_dmg: HashMap::new(), shake: ((0, 0), 0.), hurt_flash: 0., darkv: 0., last_biome: -1,
+            spawn_t: 0., save_t: 0., mini_t: 99., died: false, big_map: false, sfx,
+            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), camp_t: 0.,
+            build_sel: None, req: None,
+        }
+    }
+    fn new_world(sfx: Sfx) -> Self {
+        Game::new_world_seed(gen_range(1, i32::MAX), sfx)
+    }
+    fn new_world_seed(seed: i32, sfx: Sfx) -> Self {
+        let w = World::new(seed);
+        let (sx, sy) = find_spawn(&w);
+        let mut g = Game::blank(w, sfx);
+        g.spawn = (sx as f32 * 16. + 8., sy as f32 * 16. + 12.);
+        g.p = Player::new(g.spawn.0, g.spawn.1);
+        g.time = DAYLEN * 0.05;
+        g
+    }
+
+    // ---------- save / load (ไฟล์ข้อความง่ายๆ) ----------
+    fn save_string(&self) -> String {
+        let p = &self.p;
+        let mut s = String::new();
+        s += &format!("seed {}\nspawn {} {}\ntime {}\n", self.w.seed, self.spawn.0, self.spawn.1, self.time);
+        s += &format!("p {} {} {} {} {} {} {} {} {}\n", p.x, p.y, p.hp, p.maxhp, p.xp, p.lvl, p.sword, p.pick as i32, p.kills);
+        s += "inv";
+        for v in p.inv { s += &format!(" {}", v); }
+        s += &format!("\ngear {} {} {} {} {} {}\n", p.weapon, p.bow as i32, p.staff, p.armor[0], p.armor[1], p.armor[2]);
+        s += &format!("bcd {}\n", self.boss_cd);
+        s += "camps";
+        for (x, y) in &self.camps_found { s += &format!(" {},{}", x, y); }
+        s += "\nseen";
+        for b in &self.seen { s += &format!(" {}", b); }
+        s += "\nrem";
+        for (x, y) in &self.w.removed { s += &format!(" {},{}", x, y); }
+        s += "\nplc";
+        for ((x, y), v) in &self.w.placed { s += &format!(" {},{},{}", x, y, v); }
+        s += "\ntmod";
+        for ((x, y), v) in &self.w.tmod { s += &format!(" {},{},{}", x, y, v); }
+        s += "\n";
+        for ((x, y), c) in &self.chests {
+            s += &format!("chest {} {}", x, y);
+            for v in c { s += &format!(" {}", v); }
+            s += "\n";
+        }
+        s
+    }
+    fn save(&self) {
+        let _ = std::fs::write(save_path(), self.save_string());
+    }
+    fn load(sfx: Sfx) -> Result<Game, Sfx> {
+        let Ok(txt) = std::fs::read_to_string(save_path()) else { return Err(sfx) };
+        Game::load_str(&txt, sfx)
+    }
+    fn load_str(txt: &str, sfx: Sfx) -> Result<Game, Sfx> {
+        let mut g = Game::new_world_placeholder(sfx);
+        let mut ok = false;
+        for line in txt.lines() {
+            let mut it = line.split_whitespace();
+            let Some(tag) = it.next() else { continue };
+            let rest: Vec<&str> = it.collect();
+            let f = |i: usize| rest.get(i).and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.);
+            match tag {
+                "seed" => { g.w = World::new(rest.first().and_then(|v| v.parse().ok()).unwrap_or(1)); ok = true; }
+                "spawn" => g.spawn = (f(0), f(1)),
+                "time" => g.time = f(0),
+                "p" => {
+                    let p = &mut g.p;
+                    p.x = f(0); p.y = f(1); p.hp = f(2) as i32; p.maxhp = f(3) as i32; p.xp = f(4) as i32; p.lvl = f(5) as i32;
+                    p.sword = (f(6) as usize).min(4); p.pick = f(7) > 0.; p.kills = f(8) as i32;
+                    for i in 0..6 { p.inv[i] = f(9 + i) as i32; }
+                }
+                "inv" => for i in 0..NI { g.p.inv[i] = f(i) as i32; },
+                "gear" => {
+                    let p = &mut g.p;
+                    p.weapon = (f(0) as u8).min(2);
+                    p.bow = f(1) > 0.;
+                    p.staff = (f(2) as u8).min(2);
+                    for i in 0..3 { p.armor[i] = (f(3 + i) as u8).min(3); }
+                    if !p.has_weapon(p.weapon) { p.weapon = 0; }
+                }
+                "bcd" => g.boss_cd = f(0),
+                "chest" => {
+                    let mut c = [0i32; NI];
+                    for i in 0..NI { c[i] = f(2 + i) as i32; }
+                    g.chests.insert((f(0) as i32, f(1) as i32), c);
+                }
+                "camps" => for v in &rest {
+                    let n: Vec<i32> = v.split(',').filter_map(|x| x.parse().ok()).collect();
+                    if n.len() == 2 { g.camps_found.insert((n[0], n[1])); }
+                },
+                "seen" => for v in &rest { if let Ok(b) = v.parse() { g.seen.insert(b); } },
+                "rem" | "plc" | "tmod" => {
+                    for v in &rest {
+                        let n: Vec<i32> = v.split(',').filter_map(|x| x.parse().ok()).collect();
+                        match (tag, n.len()) {
+                            ("rem", 2) => { g.w.removed.insert((n[0], n[1])); }
+                            ("plc", 3) => { g.w.placed.insert((n[0], n[1]), n[2] as u8); }
+                            ("tmod", 3) => { g.w.tmod.insert((n[0], n[1]), n[2] as u8); }
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        if ok && g.p.maxhp > 0 { if g.p.hp <= 0 { g.p.hp = g.p.maxhp; } Ok(g) } else { Err(g.sfx) }
+    }
+    fn new_world_placeholder(sfx: Sfx) -> Game {
+        Game::blank(World::new(1), sfx)
+    }
+
+    // ---------- helpers ----------
+    fn toast(&mut self, t: impl Into<String>) {
+        self.toasts.push((t.into(), 2.6));
+        if self.toasts.len() > 4 { self.toasts.remove(0); }
+    }
+    fn add_float(&mut self, x: f32, y: f32, t: impl Into<String>, c: Color, icon: Option<usize>) {
+        self.floats.push(Float { x, y, t: t.into(), c, l: 1., icon });
+    }
+    fn burst(&mut self, x: f32, y: f32, c: Color, n: usize, sp: f32) {
+        for _ in 0..n {
+            let a = gen_range(0., std::f32::consts::TAU);
+            let s = gen_range(0., sp);
+            self.parts.push(Particle { x, y, vx: a.cos() * s, vy: a.sin() * s - 20., l: gen_range(0.4, 0.8), c });
+        }
+    }
+    fn gain(&mut self, item: usize, n: i32, x: f32, y: f32) {
+        self.p.inv[item] += n;
+        self.add_float(x, y, format!("+{}", n), WHITE, Some(item));
+    }
+    fn check_lv(&mut self) {
+        while self.p.xp >= self.p.lvl * 10 {
+            self.p.xp -= self.p.lvl * 10;
+            self.p.lvl += 1;
+            self.p.maxhp += 2;
+            self.p.hp = self.p.maxhp;
+            let l = self.p.lvl;
+            self.toast(format!("เลเวลอัป! Lv {} (เลือดสูงสุด +2)", l));
+            play(&self.sfx.lvl);
+        }
+    }
+
+    // ---------- actions ----------
+    fn eat(&mut self) {
+        if self.p.inv[BERRY] <= 0 {
+            if self.p.inv[POTION] > 0 { self.drink(); } else { self.toast("ไม่มีเบอร์รี่"); }
+            return;
+        }
+        if self.p.hp >= self.p.maxhp { self.toast("เลือดเต็มแล้ว"); return; }
+        self.p.inv[BERRY] -= 1;
+        self.p.hp = (self.p.hp + 3).min(self.p.maxhp);
+        let (x, y) = (self.p.x, self.p.y - 18.);
+        self.add_float(x, y, "+3 HP", hx(0xff6666), None);
+        play(&self.sfx.eat);
+    }
+    fn drink(&mut self) {
+        if self.p.inv[POTION] <= 0 { self.toast("ไม่มียาฟื้นฟู — ซื้อได้จากพ่อค้า"); return; }
+        if self.p.hp >= self.p.maxhp { self.toast("เลือดเต็มแล้ว"); return; }
+        self.p.inv[POTION] -= 1;
+        self.p.hp = (self.p.hp + 8).min(self.p.maxhp);
+        let (x, y) = (self.p.x, self.p.y - 18.);
+        self.add_float(x, y, "+8 HP", hx(0xff6666), None);
+        play(&self.sfx.eat);
+    }
+    fn place_fire(&mut self) {
+        if self.p.inv[FIRE] <= 0 { self.toast("ไม่มีกองไฟ — คราฟต์ได้ (C)"); return; }
+        let (dx, dy) = self.p.facing();
+        let (tx, ty) = (tfloor(self.p.x + dx * 14.), tfloor(self.p.y - 3. + dy * 14.));
+        let o = self.w.obj_at(tx, ty);
+        if SOLIDT[self.w.tile_at(tx, ty) as usize] || OSOLID[o as usize] { self.toast("วางตรงนี้ไม่ได้"); return; }
+        self.w.placed.insert((tx, ty), 9);
+        self.p.inv[FIRE] -= 1;
+        play(&self.sfx.fire);
+        self.burst(tx as f32 * 16. + 8., ty as f32 * 16. + 10., hx(0xffa630), 10, 50.);
+        self.save();
+    }
+    fn hit_object(&mut self, tx: i32, ty: i32, dmg: i32) -> bool {
+        let k = (tx, ty);
+        let o = self.w.obj_at(tx, ty);
+        if o == 0 || o == 3 {
+            if self.w.tile_at(tx, ty) == 6 {
+                if !self.p.pick { self.toast("ต้องมีอีเต้อถึงจะขุดภูเขาได้"); return true; }
+                let h = self.obj_dmg.get(&k).copied().unwrap_or(0) + 1;
+                self.shake = (k, 0.2);
+                self.burst(tx as f32 * 16. + 8., ty as f32 * 16. + 8., hx(0x6b625c), 5, 50.);
+                play(&self.sfx.rock);
+                if h >= 4 {
+                    self.obj_dmg.remove(&k);
+                    self.w.tmod.insert(k, 5);
+                    self.gain(STONE, 2, tx as f32 * 16. + 8., ty as f32 * 16.);
+                } else {
+                    self.obj_dmg.insert(k, h);
+                }
+                return true;
+            }
+            return false;
+        }
+        if o == 15 || o == 16 { return true; }
+        if o == 14 && self.chests.get(&k).map_or(false, |c| c.iter().any(|&n| n > 0)) {
+            self.toast("เอาของออกจากกล่องก่อนรื้อ");
+            return true;
+        }
+        let h = self.obj_dmg.get(&k).copied().unwrap_or(0) + dmg;
+        self.shake = (k, 0.2);
+        let col = hx(match o { 1 => 0x3f9a3f, 2 => 0x3d9440, 4 => 0x9a9aa4, 5 => 0x4ef0ff, 6 => 0xc88a40, 7 => 0x3c9a4a, 8 => 0x2f6b4f, 10 => 0x9a6a38, 11 => 0x9a9aa6, 12 | 13 => 0xa06a30, 14 => 0xc88a40, _ => 0xffa630 });
+        let (x, y) = (tx as f32 * 16. + 8., ty as f32 * 16.);
+        self.burst(x, y + 6., col, 5, 50.);
+        if o == 4 || o == 5 || o == 11 { play(&self.sfx.rock) } else { play(&self.sfx.chop) }
+        if h < OHP[o as usize] { self.obj_dmg.insert(k, h); return true; }
+        self.obj_dmg.remove(&k);
+        if self.w.placed.remove(&k).is_none() { self.w.removed.insert(k); }
+        self.burst(x, y + 8., col, 12, 70.);
+        match o {
+            1 => self.gain(WOOD, rnd(2, 3), x, y),
+            8 => self.gain(WOOD, 2, x, y),
+            2 => self.gain(BERRY, rnd(1, 3), x, y),
+            7 => self.gain(BERRY, 1, x, y),
+            4 => self.gain(STONE, rnd(2, 3), x, y),
+            5 => { self.gain(STONE, 1, x, y); self.gain(GEM, 1, x, y - 8.); play(&self.sfx.gem); }
+            9 => self.gain(FIRE, 1, x, y),
+            10 => self.gain(WOOD, 1, x, y),
+            11 => self.gain(STONE, 2, x, y),
+            12 | 13 => self.gain(WOOD, 2, x, y),
+            14 => { self.chests.remove(&k); self.gain(WOOD, 4, x, y); self.gain(STONE, 1, x, y - 8.); }
+            6 => {
+                let c = rnd(5, 15);
+                self.gain(COIN, c, x, y);
+                if gen_range(0., 1.) < 0.7 { self.gain(GEM, rnd(1, 2), x, y - 8.); }
+                self.gain(BERRY, rnd(1, 3), x, y - 16.);
+                self.p.xp += 5;
+                self.check_lv();
+                self.toast(format!("เปิดหีบสมบัติ! ได้ {} เหรียญ", c));
+                play(&self.sfx.chest);
+            }
+            _ => {}
+        }
+        self.save();
+        true
+    }
+    fn kill(&mut self, e: &Enemy) {
+        let c = match e.k { EK::Slime => hx(self_slime_col(e.pal)), EK::Bat => hx(0x5a4670), EK::Skel => hx(0xe8e8d8) };
+        self.burst(e.x, e.y - 6., c, 14, 80.);
+        self.p.xp += e.xp;
+        self.p.inv[COIN] += e.coin;
+        self.p.kills += 1;
+        self.add_float(e.x, e.y - 16., format!("+{}", e.coin), hx(0xffd84a), Some(COIN));
+        if e.k == EK::Bat && gen_range(0., 1.) < 0.3 { self.gain(BERRY, 1, e.x, e.y - 24.); }
+        if e.k == EK::Skel && gen_range(0., 1.) < 0.25 { self.gain(GEM, 1, e.x, e.y - 24.); }
+        if e.k == EK::Skel && self.p.bow && gen_range(0., 1.) < 0.4 { self.gain(ARROW, rnd(2, 4), e.x, e.y - 32.); }
+        play(&self.sfx.kill);
+        self.check_lv();
+    }
+    fn do_attack(&mut self) {
+        self.p.atk_cd = 0.32;
+        self.p.atk_t = 0.18;
+        let (dx, dy) = self.p.facing();
+        let dmg = SWD[self.p.sword];
+        let (fx, fy) = (self.p.x + dx * 12., self.p.y - 6. + dy * 12.);
+        let mut hit = false;
+        for i in 0..self.en.len() {
+            let e = &self.en[i];
+            if e.dead { continue; }
+            let ey = e.y - if e.k == EK::Bat { 14. } else { 5. };
+            if (e.x - fx).hypot(ey - fy) < 15. {
+                hit = true;
+                self.hit_enemy(i, dmg, dx, dy);
+            }
+        }
+        for i in 0..self.bosses.len() {
+            let b = &self.bosses[i];
+            if !b.dead && (b.x - fx).hypot(b.y - 12. - fy) < BOSS_R + 12. {
+                hit = true;
+                self.hit_boss(i, dmg);
+            }
+        }
+        if !hit {
+            let (tx, ty) = (tfloor(self.p.x + dx * 11.), tfloor(self.p.y - 3. + dy * 11.));
+            hit = self.hit_object(tx, ty, if self.p.sword >= 2 { 2 } else { 1 });
+        } else {
+            play(&self.sfx.hit);
+        }
+        if !hit { play(&self.sfx.swing); }
+    }
+    fn hurt(&mut self, d: i32, nx: f32, ny: f32) {
+        let df = d as f32 * (1. - self.p.reduction());
+        let d = df.floor() as i32 + if gen_range(0., 1.) < df.fract() { 1 } else { 0 };
+        self.p.hp -= d;
+        self.p.invul = if d > 0 { 1. } else { 0.6 };
+        self.p.kbx = nx * 130.;
+        self.p.kby = ny * 130.;
+        self.p.kbt = 0.15;
+        self.hurt_flash = 0.35;
+        self.p.last_hit = 0.;
+        let (x, y) = (self.p.x, self.p.y - 20.);
+        if d > 0 { self.add_float(x, y, format!("-{}", d), hx(0xff4444), None); } else { self.add_float(x, y, "ป้องกัน", hx(0x88ccff), None); }
+        play(&self.sfx.hurt);
+        if self.p.hp <= 0 {
+            let lost = self.p.inv[COIN] / 2;
+            self.p.inv[COIN] -= lost;
+            self.p.hp = self.p.maxhp;
+            self.p.x = self.spawn.0;
+            self.p.y = self.spawn.1;
+            self.died = true;
+            self.proj.clear();
+            self.toast(format!("หมดสติ... ฟื้นที่จุดเกิด (เสีย {} เหรียญ)", lost));
+            self.save();
+        }
+    }
+    fn try_spawn(&mut self) {
+        let night = self.darkv > 0.45;
+        if self.en.len() >= if night { 10 } else { 4 } { return; }
+        let a = gen_range(0., std::f32::consts::TAU);
+        let r = gen_range(13., 19.) * 16.;
+        let (x, y) = (self.p.x + a.cos() * r, self.p.y + a.sin() * r);
+        let (tx, ty) = (tfloor(x), tfloor(y));
+        let t = self.w.tile_at(tx, ty);
+        if SOLIDT[t as usize] || OSOLID[self.w.obj_at(tx, ty) as usize] || self.w.near_fire(tx, ty, 6).is_some() || self.w.camp_near(tx, ty, 10).is_some() { return; }
+        let k = if night {
+            let q = gen_range(0., 1.);
+            if q < 0.5 { EK::Skel } else if q < 0.8 { EK::Bat } else { EK::Slime }
+        } else { EK::Slime };
+        let mul = 1. + (x - self.spawn.0).hypot(y - self.spawn.1) / 16. / 250.;
+        let (hp, spd, dmg, xp, coin) = match k { EK::Slime => (3., 24., 1., 3., 1.), EK::Skel => (6., 34., 2., 7., 3.), EK::Bat => (2., 46., 1., 4., 1.) };
+        self.en.push(Enemy {
+            k, x, y, hp: (hp * mul as f32).ceil(), spd: spd * (0.9 + mul * 0.1).min(1.5), dmg: (dmg * mul.min(3.)).ceil() as i32,
+            xp: (xp * mul).ceil() as i32, coin: (coin * mul).ceil() as i32, vx: 0., vy: 0., kb: 0., flash: 0., wt: 0., wdx: 0., wdy: 0.,
+            anim: gen_range(0., 5.), pal: match t { 8 => 1, 7 => 2, 4 => 3, _ => 0 }, dead: false,
+        });
+    }
+    fn upd_enemies(&mut self, dt: f32) {
+        let mut en = std::mem::take(&mut self.en);
+        for e in en.iter_mut() {
+            if e.dead { continue; }
+            e.anim += dt;
+            if e.flash > 0. { e.flash -= dt; }
+            let (dx, dy) = (self.p.x - e.x, self.p.y - e.y);
+            let d = dx.hypot(dy).max(0.001);
+            if d > 440. { e.dead = true; continue; }
+            let (mut mx, mut my): (f32, f32);
+            if e.kb > 0. {
+                e.kb -= dt;
+                mx = e.vx;
+                my = e.vy;
+            } else {
+                let fire = if self.darkv > 0.3 { self.w.near_fire(tfloor(e.x), tfloor(e.y), 3) } else { None };
+                if let Some((fx, fy)) = fire {
+                    let (ax, ay) = (fx as f32 * 16. + 8. - e.x, fy as f32 * 16. + 8. - e.y);
+                    let fd = ax.hypot(ay).max(0.001);
+                    mx = -ax / fd * e.spd;
+                    my = -ay / fd * e.spd;
+                } else if d < 130. {
+                    mx = dx / d * e.spd;
+                    my = dy / d * e.spd;
+                } else {
+                    e.wt -= dt;
+                    if e.wt <= 0. {
+                        e.wt = gen_range(1., 3.);
+                        let a = gen_range(0., std::f32::consts::TAU);
+                        let go = gen_range(0., 1.) < 0.6;
+                        e.wdx = if go { a.cos() } else { 0. };
+                        e.wdy = if go { a.sin() } else { 0. };
+                    }
+                    mx = e.wdx * e.spd * 0.5;
+                    my = e.wdy * e.spd * 0.5;
+                }
+                if e.k == EK::Slime {
+                    let ph = (e.anim * 1.6).fract();
+                    if ph > 0.55 { mx = 0.; my = 0.; } else { mx *= 1.6; my *= 1.6; }
+                }
+                if e.k == EK::Bat {
+                    mx += (e.anim * 5.).cos() * 25.;
+                    my += (e.anim * 7.).sin() * 25.;
+                }
+            }
+            if e.k == EK::Bat {
+                e.x += mx * dt;
+                e.y += my * dt;
+            } else {
+                if !collide(&self.w, e.x + mx * dt, e.y) { e.x += mx * dt; }
+                if !collide(&self.w, e.x, e.y + my * dt) { e.y += my * dt; }
+            }
+            if e.k == EK::Skel && self.darkv < 0.15 {
+                e.hp -= dt * 2.;
+                if gen_range(0., 1.) < 0.2 {
+                    self.parts.push(Particle { x: e.x + gen_range(-4., 4.), y: e.y - 8., vx: 0., vy: -20., l: 0.5, c: GRAY });
+                }
+                if e.hp <= 0. {
+                    e.dead = true;
+                    let (x, y) = (e.x, e.y);
+                    self.burst(x, y - 6., LIGHTGRAY, 10, 50.);
+                }
+            }
+            if e.k == EK::Bat && self.darkv < 0.15 && gen_range(0., 1.) < dt * 0.3 { e.dead = true; }
+            if d < 11. && self.p.invul <= 0. && e.kb <= 0. && !e.dead {
+                self.hurt(e.dmg, dx / d, dy / d);
+            }
+        }
+        en.retain(|e| !e.dead);
+        if self.died { en.clear(); self.died = false; }
+        self.en = en;
+    }
+
+    fn update(&mut self, dt: f32, inp: &Input) {
+        self.time += dt;
+        let hr = ((self.time / DAYLEN * 24.) + 6.) % 24.;
+        self.darkv = (((hr - 12.).abs() - 5.) / 2.).clamp(0., 1.) * 0.82;
+        if inp.eat { self.eat(); }
+        if inp.fire { self.place_fire(); }
+        if inp.potion { self.drink(); }
+        if inp.swap { self.swap_weapon(); }
+        if inp.act { self.interact(); }
+        if inp.place { self.place_piece(); }
+        if inp.cancel && self.build_sel.is_some() { self.build_sel = None; self.toast("ยกเลิกโหมดสร้าง"); }
+        // movement
+        let mut mv = inp.mv;
+        let il = mv.length();
+        if il > 1. { mv /= il; }
+        let p = &mut self.p;
+        p.moving = il > 0.15;
+        if p.moving && p.atk_t <= 0. {
+            if mv.x.abs() > mv.y.abs() { p.dir = 2; p.flip = mv.x < 0.; } else { p.dir = if mv.y > 0. { 0 } else { 1 }; }
+        }
+        let sp = 64. * p.speed_mul() * if p.atk_t > 0. { 0.5 } else { 1. };
+        let (mut mx, mut my) = if p.moving { (mv.x * sp * dt, mv.y * sp * dt) } else { (0., 0.) };
+        if p.kbt > 0. { p.kbt -= dt; mx += p.kbx * dt; my += p.kby * dt; }
+        if !collide(&self.w, p.x + mx, p.y) { p.x += mx; }
+        if !collide(&self.w, p.x, p.y + my) { p.y += my; }
+        if p.moving { p.anim += dt; }
+        if p.invul > 0. { p.invul -= dt; }
+        if p.atk_t > 0. { p.atk_t -= dt; }
+        if p.atk_cd > 0. { p.atk_cd -= dt; }
+        if inp.atk && self.p.atk_cd <= 0. {
+            if let Some(a) = inp.aim { if a.length() > 0.01 { self.face(a); } }
+            if self.p.weapon == 0 { self.do_attack(); } else { self.shoot(inp.aim); }
+        }
+        // regen
+        self.p.last_hit += dt;
+        self.p.regen += dt;
+        let fire_near = self.w.near_fire(tfloor(self.p.x), tfloor(self.p.y), 3).is_some();
+        if self.p.regen > if fire_near { 1.5 } else { 8. } && self.p.last_hit > 4. && self.p.hp < self.p.maxhp {
+            self.p.regen = 0.;
+            self.p.hp += 1;
+            if fire_near { let (x, y) = (self.p.x, self.p.y - 20.); self.add_float(x, y, "+1 HP", hx(0xff8888), None); }
+        }
+        // biome discovery
+        let bt = self.w.tile_at(tfloor(self.p.x), tfloor(self.p.y));
+        if bt as i32 != self.last_biome {
+            self.last_biome = bt as i32;
+            if self.seen.insert(bt) && self.seen.len() > 1 {
+                self.toast(format!("ค้นพบ: {}", TN[bt as usize]));
+                self.p.xp += 3;
+                self.check_lv();
+            }
+        }
+        // enemies
+        self.spawn_t -= dt;
+        if self.spawn_t <= 0. { self.spawn_t = 1.; self.try_spawn(); }
+        self.upd_proj(dt);
+        self.upd_bosses(dt);
+        self.boss_t -= dt;
+        if self.boss_t <= 0. { self.boss_t = 2.; self.try_spawn_boss(); }
+        if self.boss_cd > 0. { self.boss_cd -= dt; }
+        self.camp_t -= dt;
+        if self.camp_t <= 0. { self.camp_t = 1.; self.discover_camps(); }
+        self.upd_enemies(dt);
+        // fx
+        for p in self.parts.iter_mut() { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 120. * dt; p.l -= dt; }
+        self.parts.retain(|p| p.l > 0.);
+        for f in self.floats.iter_mut() { f.y -= 18. * dt; f.l -= dt; }
+        self.floats.retain(|f| f.l > 0.);
+        for t in self.toasts.iter_mut() { t.1 -= dt; }
+        self.toasts.retain(|t| t.1 > 0.);
+        if self.shake.1 > 0. { self.shake.1 -= dt; }
+        if self.hurt_flash > 0. { self.hurt_flash -= dt; }
+        self.save_t += dt;
+        if self.save_t > 10. { self.save_t = 0.; self.save(); }
+    }
+}
+fn self_slime_col(pal: usize) -> u32 {
+    [0x66cc66, 0xf0a040, 0x7cc8f0, 0x4aa86a][pal]
+}
+
+// ======================= rendering =======================
+struct View { s: f32, vw: f32, vh: f32, cx: f32, cy: f32 }
+fn blit(sp: &Sprites, v: &View, r: Rect, x: f32, y: f32, flip: bool, c: Color) {
+    draw_texture_ex(&sp.tex, x * v.s, y * v.s, c, DrawTextureParams { source: Some(r), dest_size: Some(vec2(r.w * v.s, r.h * v.s)), flip_x: flip, ..Default::default() });
+}
+fn blit_sz(sp: &Sprites, v: &View, r: Rect, x: f32, y: f32, w: f32, h: f32, c: Color) {
+    draw_texture_ex(&sp.tex, x * v.s, y * v.s, c, DrawTextureParams { source: Some(r), dest_size: Some(vec2(w * v.s, h * v.s)), ..Default::default() });
+}
+fn prect(v: &View, x: f32, y: f32, w: f32, h: f32, c: Color) {
+    draw_rectangle(x * v.s, y * v.s, w * v.s, h * v.s, c);
+}
+fn make_view(cam_x: f32, cam_y: f32) -> View {
+    let (sw, sh) = (screen_width(), screen_height());
+    let s = (sw.min(sh) / 200.).floor().max(2.);
+    let (vw, vh) = ((sw / s).ceil(), (sh / s).ceil());
+    View { s, vw, vh, cx: (cam_x - vw / 2.).round(), cy: (cam_y - vh / 2. - 6.).round() }
+}
+
+enum Draw { Obj(u8, i32, i32), Enemy(usize), Boss(usize), Player }
+
+fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
+    let w = &g.w;
+    let (tx0, ty0) = ((v.cx / 16.).floor() as i32, (v.cy / 16.).floor() as i32);
+    let (tx1, ty1) = (((v.cx + v.vw) / 16.).floor() as i32, ((v.cy + v.vh) / 16.).floor() as i32);
+    let wf = ((t_now / 0.6) as i32 % 2) as usize;
+    let foam = Color::new(0.86, 0.94, 1., 0.75);
+    for ty in ty0..=ty1 {
+        for tx in tx0..=tx1 {
+            let t = w.tile_at(tx, ty) as usize;
+            let var = (hash(tx, ty, w.seed.wrapping_add(9)) * 4.) as usize;
+            let (px, py) = (tx as f32 * 16. - v.cx, ty as f32 * 16. - v.cy);
+            let idx = if t < 2 { (var & 2) | wf } else { var };
+            blit(sp, v, sp.tiles[t][idx], px, py, false, WHITE);
+            if t < 2 {
+                if w.tile_at(tx, ty - 1) > 1 { prect(v, px, py, 16., 1., foam); }
+                if w.tile_at(tx, ty + 1) > 1 { prect(v, px, py + 15., 16., 1., foam); }
+                if w.tile_at(tx - 1, ty) > 1 { prect(v, px, py, 1., 16., foam); }
+                if w.tile_at(tx + 1, ty) > 1 { prect(v, px + 15., py, 1., 16., foam); }
+            } else if t == 6 {
+                if w.tile_at(tx, ty + 1) != 6 { prect(v, px, py + 13., 16., 3., hx(0x3e3733)); }
+                if let Some(&h) = g.obj_dmg.get(&(tx, ty)) {
+                    for i in 0..h * 2 { prect(v, px + 3. + i as f32 * 2., py + 5. + (i % 2) as f32 * 3., 1., 3., hx(0x2a2522)); }
+                }
+            }
+        }
+    }
+    draw_telegraphs(g, v);
+    // y-sort
+    let mut list: Vec<(f32, Draw)> = vec![];
+    let mut lights: Vec<(f32, f32, f32, bool)> = vec![];
+    for ty in ty0 - 1..=ty1 + 2 {
+        for tx in tx0 - 1..=tx1 + 1 {
+            let o = w.obj_at(tx, ty);
+            if o == 0 { continue; }
+            if o == 9 {
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 10. - v.cy, 80. + (t_now * 11. + tx as f32).sin() * 4., true));
+            } else if o == 15 {
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 8. - v.cy, 58., true));
+            }
+            list.push((ty as f32 * 16. + if o == 3 { 0. } else { 14. }, Draw::Obj(o, tx, ty)));
+        }
+    }
+    for (i, e) in g.en.iter().enumerate() {
+        let (sx, sy) = (e.x - v.cx, e.y - v.cy);
+        if sx < -20. || sx > v.vw + 20. || sy < -30. || sy > v.vh + 30. { continue; }
+        list.push((e.y, Draw::Enemy(i)));
+        if e.k == EK::Skel && g.darkv > 0.3 { lights.push((sx, sy - 11., 12., false)); }
+    }
+    list.push((g.p.y, Draw::Player));
+    for (i, b) in g.bosses.iter().enumerate() {
+        let (sx, sy) = (b.x - v.cx, b.y - v.cy);
+        if sx < -40. || sx > v.vw + 40. || sy < -50. || sy > v.vh + 50. { continue; }
+        list.push((b.y, Draw::Boss(i)));
+        if g.darkv > 0.3 { lights.push((sx, sy - 14., 26., false)); }
+    }
+    list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    for (_, d) in &list {
+        match *d {
+            Draw::Obj(o, tx, ty) => {
+                let (px, py) = (tx as f32 * 16. - v.cx, ty as f32 * 16. - v.cy);
+                if o == 3 {
+                    let h = hash(tx, ty, w.seed.wrapping_add(13));
+                    let c = hx([0xff6b8a, 0xffd84a, 0xffffff, 0xb98cff][(h * 4.) as usize]);
+                    let st = hx(0x3d7a2e);
+                    prect(v, px + 5., py + 9., 1., 3., st);
+                    prect(v, px + 11., py + 4., 1., 3., st);
+                    prect(v, px + 4., py + 8., 3., 1., c);
+                    prect(v, px + 5., py + 7., 1., 3., c);
+                    prect(v, px + 10., py + 3., 3., 1., c);
+                    prect(v, px + 11., py + 2., 1., 3., c);
+                    prect(v, px + 5., py + 8., 1., 1., hx(0xffef9a));
+                    prect(v, px + 11., py + 3., 1., 1., hx(0xffef9a));
+                    continue;
+                }
+                let sx = if g.shake.0 == (tx, ty) && g.shake.1 > 0. { (g.shake.1 * 80.).sin().round() } else { 0. };
+                let near_m = o == 15 && (g.p.x - (tx as f32 * 16. + 8.)).hypot(g.p.y - (ty as f32 * 16. + 8.)) < 48.;
+                let r = if o == 15 { sp.ex.merchant[if near_m && (t_now * 3.) as i32 % 2 == 0 { 1 } else { 0 }] } else { sp.obj[o as usize] };
+                blit(sp, v, r, px + sx, py + 16. - r.h, false, WHITE);
+                if near_m { text_c(font, "พ่อค้า", (px + 8.) * v.s, (py + 16. - r.h - 3.) * v.s, 6. * v.s, hx(0xffee99)); }
+                if o == 9 {
+                    let c = if gen_range(0., 1.) < 0.5 { hx(0xffe680) } else { hx(0xff8a30) };
+                    prect(v, px + 6. + rnd(0, 3) as f32, py + 4. + rnd(0, 3) as f32, 1., 1., c);
+                }
+            }
+            Draw::Enemy(i) => {
+                let e = &g.en[i];
+                let (sx, sy) = ((e.x - v.cx).round(), (e.y - v.cy).round());
+                let c = if e.flash > 0. && ((e.flash * 30.) as i32) % 2 == 1 { Color::new(1., 1., 1., 0.4) } else { WHITE };
+                let shadow = Color::new(0., 0., 0., 0.25);
+                match e.k {
+                    EK::Slime => {
+                        let sq = (e.anim * 1.6 * std::f32::consts::TAU).sin() * 0.15;
+                        let (ww, hh) = ((12. * (1. + sq)).round(), (10. * (1. - sq)).round());
+                        prect(v, sx - 5., sy - 1., 10., 2., shadow);
+                        blit_sz(sp, v, sp.slime[e.pal], (sx - ww / 2.).floor(), sy - hh, ww, hh, c);
+                    }
+                    EK::Skel => {
+                        let bob = ((e.anim * 6.) as i32 % 2) as f32;
+                        prect(v, sx - 4., sy - 1., 8., 2., shadow);
+                        blit(sp, v, sp.skel, sx - 5., sy - 15. - bob, false, c);
+                    }
+                    EK::Bat => {
+                        prect(v, sx - 3., sy - 1., 6., 2., Color::new(0., 0., 0., 0.2));
+                        blit(sp, v, sp.bat[(e.anim * 8.) as usize % 2], sx - 6., sy - 18. + ((e.anim * 4.).sin() * 2.).round(), false, c);
+                    }
+                }
+            }
+            Draw::Boss(i) => draw_boss(g, sp, v, i),
+            Draw::Player => {
+                let p = &g.p;
+                let (sx, sy) = ((p.x - v.cx).round(), (p.y - v.cy).round());
+                if !(p.invul > 0. && ((p.invul * 15.) as i32) % 2 == 1) {
+                    let f = if p.moving { 1 + (p.anim * 8.) as usize % 2 } else { 0 };
+                    prect(v, sx - 4., sy - 1., 8., 2., Color::new(0., 0., 0., 0.25));
+                    blit(sp, v, sp.player[p.dir][f], sx - 6., sy - 15., p.dir == 2 && p.flip, WHITE);
+                    for (sl, &t) in p.armor.iter().enumerate() {
+                        if t == 0 { continue; }
+                        let c = hx(ATC[t as usize]);
+                        let hi = Color::new((c.r + 0.3).min(1.), (c.g + 0.3).min(1.), (c.b + 0.3).min(1.), 1.);
+                        match sl {
+                            0 => { prect(v, sx - 4., sy - 15., 8., 1., hi); prect(v, sx - 4., sy - 14., 8., 2., c); }
+                            1 => { prect(v, sx - 3., sy - 8., 6., 1., hi); prect(v, sx - 3., sy - 7., 6., 3., c); }
+                            _ => { prect(v, sx - 3., sy - 3., 6., 1., hi); prect(v, sx - 3., sy - 2., 6., 2., c); }
+                        }
+                    }
+                    if p.weapon > 0 {
+                        let (fx, fy) = p.facing();
+                        let r = sp.icons[if p.weapon == 1 { IC_BOW } else { IC_STAFF }];
+                        blit(sp, v, r, sx + fx * 8. - 4., sy - 11. + fy * 4., fx < 0., WHITE);
+                    }
+                }
+                if p.atk_t > 0. {
+                    let (dx, dy) = p.facing();
+                    let base = dy.atan2(dx);
+                    let prog = 1. - p.atk_t / 0.18;
+                    let r = 9. + if p.sword > 0 { 3. } else { 0. };
+                    for i in 0..7 {
+                        let a = base - 1.1 + prog * 2.2 * (i as f32 / 6.);
+                        let mut c = hx(SWC[p.sword]);
+                        c.a = 0.4 + 0.6 * (i as f32 / 6.);
+                        prect(v, (sx + a.cos() * r).round() - 1., (sy - 6. + a.sin() * r).round() - 1., 2., 2., c);
+                    }
+                }
+            }
+        }
+    }
+    draw_proj(g, sp, v);
+    for pr in &g.proj { if pr.kind == 1 { lights.push((pr.x - v.cx, pr.y - v.cy, 26., false)); } }
+    if let Some(sel) = g.build_sel {
+        let (tx, ty) = g.build_target();
+        let ok = g.can_place_at(tx, ty) && can_pay(&g.p, PIECES[sel].cost);
+        let (px, py) = (tx as f32 * 16. - v.cx, ty as f32 * 16. - v.cy);
+        let r = sp.obj[PIECES[sel].obj as usize];
+        blit(sp, v, r, px, py + 16. - r.h, false, Color::new(1., 1., 1., 0.6));
+        let lc = if ok { Color::new(0.3, 1., 0.3, 0.9) } else { Color::new(1., 0.3, 0.3, 0.9) };
+        draw_rectangle_lines(px * v.s, py * v.s, 16. * v.s, 16. * v.s, 2., lc);
+    }
+    // particles
+    for p in &g.parts {
+        let mut c = p.c;
+        c.a = (p.l * 2.).min(1.);
+        prect(v, (p.x - v.cx).round(), (p.y - v.cy).round(), 1., 1., c);
+    }
+    // night lighting (เซลล์ 4px ให้ดูเป็นพิกเซล)
+    if g.darkv > 0.02 {
+        lights.push(((g.p.x - v.cx).round(), (g.p.y - v.cy).round() - 6., 48., false));
+        let cell = 4.;
+        let mut y = 0.;
+        while y < v.vh {
+            let mut x = 0.;
+            while x < v.vw {
+                let (cx, cy) = (x + 2., y + 2.);
+                let mut lit = 0f32;
+                for &(lx, ly, lr, _) in &lights {
+                    let d = (cx - lx).hypot(cy - ly);
+                    if d < lr { lit = lit.max(((1. - d / lr) * 1.6).min(1.)); }
+                }
+                let a = g.darkv * (1. - lit);
+                if a > 0.01 { prect(v, x, y, cell, cell, Color::new(0.03, 0.04, 0.15, a)); }
+                x += cell;
+            }
+            y += cell;
+        }
+        for &(lx, ly, lr, fire) in &lights {
+            if fire {
+                for k in 1..4 {
+                    draw_circle(lx * v.s, ly * v.s, lr * v.s * 0.2 * k as f32, Color::new(1., 0.55, 0.15, 0.05 * g.darkv));
+                }
+            }
+        }
+    }
+    // floats
+    let fs = (5. * v.s) as u16;
+    for f in &g.floats {
+        let a = (f.l * 2.).min(1.);
+        let (x, y) = ((f.x - v.cx) * v.s, (f.y - v.cy) * v.s);
+        let dim = measure_text(&f.t, Some(font), fs, 1.);
+        let tx = x - dim.width / 2. - if f.icon.is_some() { 4. * v.s } else { 0. };
+        draw_text_ex(&f.t, tx + 2., y + 2., TextParams { font: Some(font), font_size: fs, color: Color::new(0., 0., 0., a), ..Default::default() });
+        let mut c = f.c;
+        c.a = a;
+        draw_text_ex(&f.t, tx, y, TextParams { font: Some(font), font_size: fs, color: c, ..Default::default() });
+        if let Some(ic) = f.icon {
+            let r = sp.icons[ic];
+            draw_texture_ex(&sp.tex, tx + dim.width + v.s, y - 7. * v.s, Color::new(1., 1., 1., a), DrawTextureParams { source: Some(r), dest_size: Some(vec2(8. * v.s, 8. * v.s)), ..Default::default() });
+        }
+    }
+    if g.hurt_flash > 0. {
+        draw_rectangle(0., 0., screen_width(), screen_height(), Color::new(1., 0., 0., g.hurt_flash * 0.5));
+    }
+}
+
+// ---------- UI helpers ----------
+/// ยกวรรณยุกต์ขึ้นเมื่อมีสระบนนำหน้า (หรือตามด้วยสระอำ) เพราะ renderer ไม่มี text shaping
+/// ใช้ glyph ที่เพิ่มไว้ในฟอนต์ที่ U+F70A..U+F70E
+fn thai(s: &str) -> String {
+    let cs: Vec<char> = s.chars().collect();
+    let mut o = String::with_capacity(s.len());
+    for (i, &c) in cs.iter().enumerate() {
+        if ('\u{0E48}'..='\u{0E4C}').contains(&c) {
+            let prev_upper = i > 0 && matches!(cs[i - 1], '\u{0E31}' | '\u{0E34}'..='\u{0E37}' | '\u{0E47}' | '\u{0E4D}');
+            let next_am = cs.get(i + 1) == Some(&'\u{0E33}');
+            if prev_upper || next_am {
+                o.push(char::from_u32(0xF70A + (c as u32 - 0x0E48)).unwrap());
+                continue;
+            }
+        }
+        o.push(c);
+    }
+    o
+}
+fn ui_scale() -> f32 {
+    (screen_width().min(screen_height()) / 520.).clamp(1., 3.)
+}
+fn text(font: &Font, s: &str, x: f32, y: f32, size: f32, c: Color) {
+    let s = &thai(s);
+    let fs = size as u16;
+    let o = (size / 14.).max(1.);
+    draw_text_ex(s, x + o, y + o, TextParams { font: Some(font), font_size: fs, color: Color::new(0., 0., 0., c.a * 0.8), ..Default::default() });
+    draw_text_ex(s, x, y, TextParams { font: Some(font), font_size: fs, color: c, ..Default::default() });
+}
+fn text_c(font: &Font, s: &str, cx: f32, y: f32, size: f32, c: Color) {
+    let d = measure_text(s, Some(font), size as u16, 1.);
+    text(font, s, cx - d.width / 2., y, size, c);
+}
+fn icon(sp: &Sprites, i: usize, x: f32, y: f32, sz: f32) {
+    draw_texture_ex(&sp.tex, x, y, WHITE, DrawTextureParams { source: Some(sp.icons[i]), dest_size: Some(vec2(sz, sz)), ..Default::default() });
+}
+fn button(font: &Font, r: Rect, label: &str, enabled: bool, u: f32) -> bool {
+    let (mx, my) = mouse_position();
+    let hover = r.contains(vec2(mx, my));
+    let bg = if !enabled { hx(0x555555) } else if hover { hx(0xffdd88) } else { hx(0xffcc66) };
+    draw_rectangle(r.x, r.y, r.w, r.h, bg);
+    draw_rectangle_lines(r.x, r.y, r.w, r.h, 2., BLACK);
+    let col = if enabled { hx(0x222222) } else { hx(0x999999) };
+    let label = &thai(label);
+    let d = measure_text(label, Some(font), (15. * u) as u16, 1.);
+    draw_text_ex(label, r.x + r.w / 2. - d.width / 2., r.y + r.h / 2. + 5. * u, TextParams { font: Some(font), font_size: (15. * u) as u16, color: col, ..Default::default() });
+    enabled && hover && is_mouse_button_pressed(MouseButton::Left)
+}
+
+fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
+    let u = ui_scale();
+    let (x, mut y) = (10. * u, 10. * u);
+    let p = &g.p;
+    text(font, &format!("Lv {} · {}{}", p.lvl, p.weapon_name(), if p.pick { " · มีอีเต้อ" } else { "" }), x, y + 13. * u, 15. * u, WHITE);
+    y += 20. * u;
+    let bw = 160. * u;
+    let bh = 12. * u;
+    draw_rectangle(x, y, bw, bh, hx(0x441111));
+    draw_rectangle(x, y, bw * (p.hp as f32 / p.maxhp as f32).clamp(0., 1.), bh, hx(0xee3333));
+    draw_rectangle_lines(x, y, bw, bh, 2., BLACK);
+    text_c(font, &format!("HP {}/{}", p.hp, p.maxhp), x + bw / 2., y + bh - 2. * u, 11. * u, WHITE);
+    y += bh + 4. * u;
+    let need = p.lvl * 10;
+    draw_rectangle(x, y, bw, bh, hx(0x112233));
+    draw_rectangle(x, y, bw * (p.xp as f32 / need as f32).clamp(0., 1.), bh, hx(0x44ccff));
+    draw_rectangle_lines(x, y, bw, bh, 2., BLACK);
+    text_c(font, &format!("XP {}/{}", p.xp, need), x + bw / 2., y + bh - 2. * u, 11. * u, WHITE);
+    y += bh + 4. * u;
+    let hr = ((g.time / DAYLEN * 24.) + 6.) % 24.;
+    let day = (g.time / DAYLEN) as i32 + 1;
+    let night = !(6. ..18.).contains(&hr);
+    text(font, &format!("{} วันที่ {} · {:02}:{:02} · {}", if night { "กลางคืน" } else { "กลางวัน" }, day, hr as i32, ((hr.fract()) * 60.) as i32, TN[g.w.tile_at(tfloor(p.x), tfloor(p.y)) as usize]), x, y + 13. * u, 13. * u, if night { hx(0xaabbff) } else { hx(0xffee99) });
+    y += 20. * u;
+    let mut ix = x;
+    for &i in &[WOOD, STONE, BERRY, GEM, COIN, FIRE, ARROW, POTION] {
+        if i == POTION && p.inv[i] == 0 { continue; }
+        if i == ARROW && !p.bow && p.inv[i] == 0 { continue; }
+        let s = format!("{}", p.inv[i]);
+        let d = measure_text(&s, Some(font), (13. * u) as u16, 1.);
+        let w = 20. * u + d.width;
+        draw_rectangle(ix, y, w, 18. * u, Color::new(0., 0., 0., 0.55));
+        icon(sp, i, ix + 3. * u, y + 2. * u, 14. * u);
+        text(font, &s, ix + 18. * u, y + 14. * u, 13. * u, WHITE);
+        ix += w + 4. * u;
+    }
+    y += 24. * u;
+    if p.reduction() > 0. {
+        text(font, &format!("เกราะ ลดดาเมจ {:.0}% · เดินเร็ว +{:.0}%", p.reduction() * 100., (p.speed_mul() - 1.) * 100.), x, y + 10. * u, 11. * u, hx(0x88ccff));
+    }
+    // toasts
+    let (sw, sh) = (screen_width(), screen_height());
+    for (i, (t, l)) in g.toasts.iter().enumerate() {
+        let a = (l * 2.).min(1.);
+        let d = measure_text(t, Some(font), (16. * u) as u16, 1.);
+        let (w, h) = (d.width + 28. * u, 30. * u);
+        let ty = sh * 0.36 + i as f32 * (h + 6. * u);
+        draw_rectangle(sw / 2. - w / 2., ty, w, h, Color::new(0., 0., 0., 0.75 * a));
+        draw_rectangle_lines(sw / 2. - w / 2., ty, w, h, 2., Color::new(1., 0.8, 0.4, a));
+        text_c(font, t, sw / 2., ty + h / 2. + 6. * u, 16. * u, Color::new(1., 1., 0.93, a));
+    }
+    draw_boss_bar(g, font);
+    if let Some((_, o)) = g.interact_target() {
+        let s = interact_hint(o, touch);
+        let d = measure_text(&s, Some(font), (15. * u) as u16, 1.);
+        draw_rectangle(sw / 2. - d.width / 2. - 12. * u, sh - 74. * u, d.width + 24. * u, 28. * u, Color::new(0., 0., 0., 0.65));
+        text_c(font, &s, sw / 2., sh - 54. * u, 15. * u, hx(0xffee99));
+    }
+    if let Some(sel) = g.build_sel {
+        let k = if touch { "ปุ่มสร้าง" } else { "R" };
+        text(font, &format!("โหมดสร้าง: {} · {} = วาง · {}", PIECES[sel].name, k, if touch { "เมนู = เปลี่ยน" } else { "T = ยกเลิก" }), x, sh - 16. * u, 13. * u, hx(0x88ff88));
+    }
+}
+
+fn minimap_rect(big: bool) -> Rect {
+    let u = ui_scale();
+    let (sw, sh) = (screen_width(), screen_height());
+    if big {
+        let s = sw.min(sh) * 0.86;
+        Rect::new(sw / 2. - s / 2., sh / 2. - s / 2., s, s)
+    } else {
+        let s = 120. * u;
+        Rect::new(sw - s - 10. * u, 10. * u, s, s)
+    }
+}
+fn update_minimap(g: &Game, img: &mut Image, tex: &Texture2D) {
+    let sc = if g.big_map { 4 } else { 2 };
+    let (ptx, pty) = (tfloor(g.p.x), tfloor(g.p.y));
+    for j in 0..120 {
+        for i in 0..120 {
+            let (tx, ty) = (ptx + (i - 60) * sc, pty + (j - 60) * sc);
+            let t = g.w.tile_at(tx, ty);
+            let mut c = hx(TCOL[t as usize]);
+            if t >= 3 && t != 6 && t != 7 && OSOLID[g.w.obj_at(tx, ty) as usize] { c.r *= 0.8; c.g *= 0.8; c.b *= 0.8; }
+            img.set_pixel(i as u32, j as u32, c);
+        }
+    }
+    for (&(fx, fy), &v) in &g.w.placed {
+        let col = match v { 9 => 0xff9020, 10 | 12 | 13 => 0xa06a30, 11 => 0xc0c0cc, 14 => 0xffd84a, _ => continue };
+        let (i, j) = (60 + (fx - ptx) / sc, 60 + (fy - pty) / sc);
+        for dy in -1..=1 { for dx in -1..=1 {
+            let (a, b) = (i + dx, j + dy);
+            if (0..120).contains(&a) && (0..120).contains(&b) { img.set_pixel(a as u32, b as u32, hx(col)); }
+        } }
+    }
+    for &(cx, cy) in &g.camps_found {
+        let (i, j) = (60 + (cx - ptx) / sc, 60 + (cy - pty) / sc);
+        for dy in -2..=2 { for dx in -2..=2 {
+            let (a, b) = (i + dx, j + dy);
+            if (0..120).contains(&a) && (0..120).contains(&b) { img.set_pixel(a as u32, b as u32, hx(0xffd84a)); }
+        } }
+    }
+    let (si, sj) = (60 + (tfloor(g.spawn.0) - ptx) / sc, 60 + (tfloor(g.spawn.1) - pty) / sc);
+    for k in -2..=2 {
+        if (0..120).contains(&(si + k)) && (0..120).contains(&sj) { img.set_pixel((si + k) as u32, sj as u32, WHITE); }
+        if (0..120).contains(&si) && (0..120).contains(&(sj + k)) { img.set_pixel(si as u32, (sj + k) as u32, WHITE); }
+    }
+    for j in 58..62 { for i in 58..62 { img.set_pixel(i, j, hx(0xff2222)); } }
+    img.set_pixel(59, 59, WHITE); img.set_pixel(60, 60, WHITE); img.set_pixel(59, 60, WHITE); img.set_pixel(60, 59, WHITE);
+    tex.update(img);
+}
+
+// ---------- touch controls ----------
+struct TouchUI { active: bool, joy_id: Option<u64>, joy_c: Vec2, joy_v: Vec2, atk_id: Option<u64>, aim: Vec2 }
+/// 0 โจมตี/เล็ง · 1 กิน · 2 กองไฟ · 3 เมนู · 4 แผนที่ · 5 สลับอาวุธ · 6 ใช้ · 7 วางสิ่งปลูกสร้าง
+fn touch_buttons() -> [(Vec2, f32, usize); 8] {
+    let u = ui_scale();
+    let (sw, sh) = (screen_width(), screen_height());
+    [
+        (vec2(sw - 75. * u, sh - 85. * u), 42. * u, 0),
+        (vec2(sw - 165. * u, sh - 130. * u), 28. * u, 1),
+        (vec2(sw - 165. * u, sh - 55. * u), 28. * u, 2),
+        (vec2(sw - 75. * u, sh - 180. * u), 26. * u, 3),
+        (vec2(sw - 245. * u, sh - 55. * u), 26. * u, 4),
+        (vec2(sw - 165. * u, sh - 205. * u), 26. * u, 5),
+        (vec2(sw - 245. * u, sh - 130. * u), 28. * u, 6),
+        (vec2(sw - 75. * u, sh - 260. * u), 26. * u, 7),
+    ]
+}
+fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool) {
+    let ts = touches();
+    if !ts.is_empty() { tu.active = true; }
+    let btns = touch_buttons();
+    let u = ui_scale();
+    for t in ts {
+        match t.phase {
+            TouchPhase::Started => {
+                let mut on_btn = false;
+                for (c, r, id) in btns {
+                    if id == 7 && !build { continue; }
+                    if t.position.distance(c) < r * 1.15 {
+                        on_btn = true;
+                        match id {
+                            0 => { tu.atk_id = Some(t.id); tu.aim = Vec2::ZERO; }
+                            1 => inp.eat = true,
+                            2 => inp.fire = true,
+                            3 => inp.menu = Some(0),
+                            4 => inp.map = true,
+                            5 => inp.swap = true,
+                            6 => inp.act = true,
+                            _ => inp.place = true,
+                        }
+                    }
+                }
+                if !on_btn && tu.joy_id.is_none() && t.position.x < screen_width() * 0.5 && t.position.y > screen_height() * 0.3 {
+                    tu.joy_id = Some(t.id);
+                    tu.joy_c = t.position;
+                    tu.joy_v = Vec2::ZERO;
+                }
+            }
+            TouchPhase::Moved | TouchPhase::Stationary => {
+                if tu.joy_id == Some(t.id) {
+                    let m = 45. * u;
+                    let d = t.position - tu.joy_c;
+                    tu.joy_v = if d.length() > m { d.normalize() } else { d / m };
+                }
+                if tu.atk_id == Some(t.id) {
+                    // ลากนิ้วออกจากปุ่มโจมตี = เล็งทิศ (ธนู/คทา)
+                    let d = t.position - btns[0].0;
+                    tu.aim = if d.length() > 14. * u { d.normalize() } else { Vec2::ZERO };
+                }
+            }
+            TouchPhase::Ended | TouchPhase::Cancelled => {
+                if tu.joy_id == Some(t.id) { tu.joy_id = None; tu.joy_v = Vec2::ZERO; }
+                if tu.atk_id == Some(t.id) { tu.atk_id = None; tu.aim = Vec2::ZERO; }
+            }
+        }
+    }
+    inp.mv += tu.joy_v;
+    if tu.atk_id.is_some() {
+        inp.atk = true;
+        if tu.aim.length() > 0.5 { inp.aim = Some(tu.aim); }
+    }
+}
+fn draw_touch(tu: &TouchUI, sp: &Sprites, font: &Font, build: bool, weapon: u8) {
+    if !tu.active { return; }
+    let u = ui_scale();
+    if tu.joy_id.is_some() {
+        let m = 45. * u;
+        draw_circle(tu.joy_c.x, tu.joy_c.y, m + 10. * u, Color::new(1., 1., 1., 0.12));
+        draw_circle_lines(tu.joy_c.x, tu.joy_c.y, m + 10. * u, 2., Color::new(1., 1., 1., 0.3));
+        let k = tu.joy_c + tu.joy_v * m;
+        draw_circle(k.x, k.y, 20. * u, Color::new(1., 1., 1., 0.45));
+    }
+    for (c, r, id) in touch_buttons() {
+        if id == 7 && !build { continue; }
+        let held = id == 0 && tu.atk_id.is_some();
+        draw_circle(c.x, c.y, r, if id == 0 { Color::new(0.8, 0.25, 0.15, if held { 0.7 } else { 0.5 }) } else if id == 7 { Color::new(0.1, 0.5, 0.2, 0.6) } else { Color::new(0., 0., 0., 0.45) });
+        draw_circle_lines(c.x, c.y, r, 2., Color::new(1., 1., 1., 0.35));
+        match id {
+            0 => {
+                icon(sp, [ICON_SWORD, IC_BOW, IC_STAFF][weapon as usize], c.x - r * 0.55, c.y - r * 0.55, r * 1.1);
+                if held && tu.aim.length() > 0.5 {
+                    let e = c + tu.aim * r * 1.8;
+                    draw_line(c.x, c.y, e.x, e.y, 3. * u, Color::new(1., 1., 0.6, 0.8));
+                    draw_circle(e.x, e.y, 5. * u, Color::new(1., 1., 0.6, 0.9));
+                }
+            }
+            1 => icon(sp, BERRY, c.x - r * 0.5, c.y - r * 0.5, r),
+            2 => icon(sp, FIRE, c.x - r * 0.5, c.y - r * 0.5, r),
+            3 => text_c(font, "เมนู", c.x, c.y + 5. * u, 13. * u, WHITE),
+            4 => text_c(font, "แผนที่", c.x, c.y + 5. * u, 13. * u, WHITE),
+            5 => text_c(font, "สลับ", c.x, c.y + 5. * u, 13. * u, WHITE),
+            6 => text_c(font, "ใช้", c.x, c.y + 5. * u, 14. * u, WHITE),
+            _ => text_c(font, "สร้าง", c.x, c.y + 5. * u, 13. * u, WHITE),
+        }
+    }
+}
+
+// ======================= main =======================
+fn window_conf() -> Conf {
+    Conf { window_title: "Pixel Realm".to_owned(), window_width: 1280, window_height: 720, high_dpi: true, window_resizable: true, ..Default::default() }
+}
+
+enum State { Title, Play, Menu }
+
+/// ปุ่มลัดสำหรับทดสอบ (มีเฉพาะ debug build)
+#[cfg(debug_assertions)]
+fn debug_keys(g: &mut Game) {
+    if is_key_pressed(KeyCode::F1) {
+        for i in [WOOD, STONE, GEM, GEL, CORE] { g.p.inv[i] += 50; }
+        g.p.inv[COIN] += 300;
+        g.p.inv[ARROW] += 30;
+        g.toast("[debug] ได้ของ");
+    }
+    if is_key_pressed(KeyCode::F2) {
+        let (pcx, pcy) = (tfloor(g.p.x).div_euclid(CELL), tfloor(g.p.y).div_euclid(CELL));
+        'find: for r in 0..12i32 {
+            for cy in -r..=r {
+                for cx in -r..=r {
+                    if cx.abs().max(cy.abs()) != r { continue; }
+                    if let Some((mx, my)) = g.w.camp_in_cell(pcx + cx, pcy + cy) {
+                        g.p.x = mx as f32 * 16. + 8.;
+                        g.p.y = (my + 1) as f32 * 16. + 10.;
+                        g.p.dir = 1;
+                        g.toast("[debug] วาร์ปไปแคมป์");
+                        break 'find;
+                    }
+                }
+            }
+        }
+    }
+    if is_key_pressed(KeyCode::F3) { let (x, y) = (g.p.x + 90., g.p.y); g.spawn_boss(0, x, y); }
+    if is_key_pressed(KeyCode::F4) { let (x, y) = (g.p.x + 90., g.p.y); g.spawn_boss(1, x, y); }
+    if is_key_pressed(KeyCode::F5) { g.time = DAYLEN * 0.7; }
+    if is_key_pressed(KeyCode::F6) { g.p.maxhp = 400; g.p.hp = 400; g.toast("[debug] เลือด 400"); }
+}
+
+#[macroquad::main(window_conf)]
+async fn main() {
+    macroquad::rand::srand((miniquad::date::now() * 1000.) as u64);
+    let sp = build_sprites();
+    let font = load_ttf_font_from_bytes(include_bytes!("../assets/PixelRealmThai-Bold.ttf")).expect("font");
+    let mut mini_img = Image::gen_image_color(120, 120, BLACK);
+    let mini_tex = Texture2D::from_image(&mini_img);
+    mini_tex.set_filter(FilterMode::Nearest);
+    let mut sfx_slot: Option<Sfx> = Some(load_sfx().await);
+    let mut game: Option<Game> = None;
+    let has_save = std::fs::metadata(save_path()).is_ok();
+    let mut bg = Game::new_world_placeholder(Sfx::default());
+    bg.w = World::new(gen_range(1, i32::MAX));
+    bg.p.invul = 0.07; // ซ่อนผู้เล่นบนหน้าเมนู
+    let mut state = State::Title;
+    let mut tu = TouchUI { active: false, joy_id: None, joy_c: Vec2::ZERO, joy_v: Vec2::ZERO, atk_id: None, aim: Vec2::ZERO };
+    let mut ui = UiState::new();
+    let mut t_now = 0f32;
+    let mut mouse_armed = false;
+    let mut map_ctr = (0i32, 0i32);
+    let mut map_sc = 2i32;
+
+    loop {
+        let dt = get_frame_time().min(0.05);
+        t_now += dt;
+        clear_background(BLACK);
+        let u = ui_scale();
+        let (sw, sh) = (screen_width(), screen_height());
+        // ระหว่างเล่นใช้ touches() เองทั้งหมด ส่วนเมนู/ไตเติลให้นิ้วจำลองเป็นเมาส์
+        simulate_mouse_with_touch(!matches!(state, State::Play));
+
+        match state {
+            State::Title => {
+                // พื้นหลัง: โลกสุ่มที่เลื่อนช้าๆ
+                bg.p.x = t_now * 20.;
+                bg.p.y = 30.;
+                let v = make_view(bg.p.x, bg.p.y);
+                render_world(&bg, &sp, &v, t_now, &font);
+                draw_rectangle(0., 0., sw, sh, Color::new(0., 0., 0., 0.55));
+                let (w, h) = ((540. * u).min(sw * 0.97), (400. * u).min(sh * 0.97));
+                let (x, y) = (sw / 2. - w / 2., sh / 2. - h / 2.);
+                draw_rectangle(x, y, w, h, Color::new(0.11, 0.12, 0.17, 0.95));
+                draw_rectangle_lines(x, y, w, h, 3., hx(0xffcc66));
+                text_c(&font, "PIXEL REALM", sw / 2., y + 46. * u, 36. * u, hx(0xffcc66));
+                text_c(&font, "สำรวจโลกกว้าง · สร้างฐาน · ล่าบอส · ค้าขายกับพ่อค้าเร่", sw / 2., y + 72. * u, 13. * u, hx(0xdddddd));
+                let lines = if tu.active {
+                    vec![
+                        "แตะค้างด้านซ้ายเพื่อเดิน · ปุ่มดาบ = โจมตี (ลากนิ้วเพื่อเล็งธนู/คทา)",
+                        "ปุ่มเบอร์รี่ = กิน/ใช้ยา · ไฟ = กองไฟ · ใช้ = ประตู/กล่อง/พ่อค้า · สลับ = อาวุธ",
+                        "ปุ่มเมนู = คราฟต์ / สร้างฐาน / ชุดเกราะ · ปุ่มสร้าง = วางสิ่งปลูกสร้าง",
+                    ]
+                } else {
+                    vec![
+                        "WASD / ลูกศร = เดิน · Space / J / เมาส์ซ้าย = โจมตี (ธนู-คทายิงตามเมาส์)",
+                        "E = กิน/ใช้ยา · F = กองไฟ · Q = ใช้ (ประตู/กล่อง/พ่อค้า) · Tab = สลับอาวุธ",
+                        "C = คราฟต์ · B = สร้างฐาน (R = วาง) · I = ชุดเกราะ/กระเป๋า · M = แผนที่",
+                    ]
+                };
+                let mut ly = y + 105. * u;
+                for l in lines.iter().chain(["ตีต้นไม้ได้ไม้ ตีหินได้หิน หินแร่สีฟ้าให้อัญมณี · กลางคืนมีโครงกระดูกและค้างคาว", "บอสซ่อนอยู่ลึกในป่าทึบและเขตหินผา ปราบได้ของหายากไว้คราฟต์ของระดับสูงสุด", "หาแคมป์พ่อค้า (สัญลักษณ์ M บนแผนที่) เพื่อซื้อยา ลูกธนู และพิมพ์เขียวด้วยเหรียญ"].iter()) {
+                    text_c(&font, l, sw / 2., ly, 13. * u, hx(0xcccccc));
+                    ly += 24. * u;
+                }
+                let bw = 150. * u;
+                let by = y + h - 60. * u;
+                let mut start: Option<bool> = None;
+                if has_save {
+                    if button(&font, Rect::new(sw / 2. - bw - 8. * u, by, bw, 42. * u), "เล่นต่อ", true, u) || is_key_pressed(KeyCode::Enter) { start = Some(false); }
+                    if button(&font, Rect::new(sw / 2. + 8. * u, by, bw, 42. * u), "โลกใหม่", true, u) { start = Some(true); }
+                } else if button(&font, Rect::new(sw / 2. - bw / 2., by, bw, 42. * u), "เริ่มเกม", true, u) || is_key_pressed(KeyCode::Enter) {
+                    start = Some(true);
+                }
+                if touches().iter().any(|_| true) { tu.active = true; }
+                if let Some(fresh) = start {
+                    let sfx = sfx_slot.take().unwrap_or_default();
+                    let mut g = if fresh { Game::new_world(sfx) } else {
+                        match Game::load(sfx) { Ok(g) => g, Err(sfx) => Game::new_world(sfx) }
+                    };
+                    let day = (g.time / DAYLEN) as i32 + 1;
+                    g.toast(format!("วันที่ {} — ออกสำรวจกันเลย!", day));
+                    g.save();
+                    game = Some(g);
+                    state = State::Play;
+                    mouse_armed = false;
+                }
+            }
+            State::Play | State::Menu => {
+                let g = game.as_mut().unwrap();
+                let mut inp = Input::default();
+                let in_play = matches!(state, State::Play);
+                let v0 = make_view(g.p.x, g.p.y);
+                if in_play {
+                    let k = |a: KeyCode, b: KeyCode| if is_key_down(a) || is_key_down(b) { 1. } else { 0. };
+                    inp.mv = vec2(k(KeyCode::D, KeyCode::Right) - k(KeyCode::A, KeyCode::Left), k(KeyCode::S, KeyCode::Down) - k(KeyCode::W, KeyCode::Up));
+                    inp.atk = is_key_down(KeyCode::Space) || is_key_down(KeyCode::J);
+                    inp.eat = is_key_pressed(KeyCode::E);
+                    inp.fire = is_key_pressed(KeyCode::F);
+                    inp.map = is_key_pressed(KeyCode::M);
+                    inp.act = is_key_pressed(KeyCode::Q);
+                    inp.place = is_key_pressed(KeyCode::R);
+                    inp.swap = is_key_pressed(KeyCode::Tab);
+                    inp.potion = is_key_pressed(KeyCode::H);
+                    inp.cancel = is_key_pressed(KeyCode::T) || (is_key_pressed(KeyCode::Escape) && g.build_sel.is_some());
+                    inp.menu = if is_key_pressed(KeyCode::C) { Some(0) } else if is_key_pressed(KeyCode::B) { Some(1) } else if is_key_pressed(KeyCode::I) { Some(2) } else { None };
+                    #[cfg(debug_assertions)]
+                    debug_keys(g);
+                    handle_touch(&mut tu, &mut inp, g.build_sel.is_some());
+                    // เมาส์ซ้าย = โจมตี/ยิงไปทางเมาส์ (เริ่มทำงานหลังปล่อยปุ่มครั้งแรก กันคลิกจากเมนูหลุดมา)
+                    let mp: Vec2 = mouse_position().into();
+                    if !is_mouse_button_down(MouseButton::Left) { mouse_armed = true; }
+                    let over_map = minimap_rect(g.big_map).contains(mp);
+                    if !tu.active {
+                        if is_mouse_button_pressed(MouseButton::Left) && over_map {
+                            inp.map = true;
+                        } else if mouse_armed && !over_map && is_mouse_button_down(MouseButton::Left) {
+                            inp.atk = true;
+                            inp.aim = Some(vec2(mp.x / v0.s + v0.cx, mp.y / v0.s + v0.cy) - vec2(g.p.x, g.p.y - 6.));
+                        }
+                    }
+                    if inp.map { g.big_map = !g.big_map; g.mini_t = 99.; }
+                    g.update(dt, &inp);
+                    if let Some(rq) = g.req.take() {
+                        ui.reset_context();
+                        match rq {
+                            Req::Chest(k) => { ui.chest = Some(k); ui.open(3); }
+                            Req::Shop => { ui.shop = true; ui.greet = rnd(0, 3) as usize; ui.open(4); }
+                        }
+                        state = State::Menu;
+                    } else if let Some(t) = inp.menu {
+                        ui.reset_context();
+                        ui.open(t);
+                        state = State::Menu;
+                    }
+                    if matches!(state, State::Menu) {
+                        tu.atk_id = None;
+                        tu.joy_id = None;
+                        tu.joy_v = Vec2::ZERO;
+                        tu.aim = Vec2::ZERO;
+                    }
+                } else {
+                    // ล้าง touch ที่ค้างระหว่างเปิดเมนู
+                    let _ = touches();
+                }
+                g.mini_t += dt;
+                if g.mini_t > 1. {
+                    g.mini_t = 0.;
+                    map_ctr = (tfloor(g.p.x), tfloor(g.p.y));
+                    map_sc = if g.big_map { 4 } else { 2 };
+                    update_minimap(g, &mut mini_img, &mini_tex);
+                }
+                let v = make_view(g.p.x, g.p.y);
+                render_world(g, &sp, &v, t_now, &font);
+                draw_hud(g, &sp, &font, tu.active);
+                let mr = minimap_rect(g.big_map);
+                draw_rectangle(mr.x - 2., mr.y - 2., mr.w + 4., mr.h + 4., BLACK);
+                draw_texture_ex(&mini_tex, mr.x, mr.y, WHITE, DrawTextureParams { dest_size: Some(vec2(mr.w, mr.h)), ..Default::default() });
+                // สัญลักษณ์ M = แคมป์พ่อค้าที่ค้นพบแล้ว
+                for &(cx, cy) in &g.camps_found {
+                    let i = 60. + (cx - map_ctr.0) as f32 / map_sc as f32;
+                    let j = 60. + (cy - map_ctr.1) as f32 / map_sc as f32;
+                    if (3.0..117.0).contains(&i) && (3.0..117.0).contains(&j) {
+                        let (mx, my) = (mr.x + i / 120. * mr.w, mr.y + j / 120. * mr.h);
+                        let rr = if g.big_map { 11. * u } else { 7. * u };
+                        draw_circle(mx, my, rr, hx(0x1d1f2b));
+                        draw_circle_lines(mx, my, rr, 2., hx(0xffd84a));
+                        text_c(&font, "M", mx, my + rr * 0.5, rr * 1.5, hx(0xffd84a));
+                    }
+                }
+                if g.big_map {
+                    text_c(&font, "M = แคมป์พ่อค้า · จุดแดง = คุณ · กากบาทขาว = จุดเกิด", sw / 2., mr.y + mr.h + 18. * u, 13. * u, WHITE);
+                }
+                if in_play {
+                    draw_touch(&tu, &sp, &font, g.build_sel.is_some(), g.p.weapon);
+                    if !tu.active && g.p.weapon > 0 {
+                        let (mx, my) = mouse_position();
+                        let c = Color::new(1., 1., 0.6, 0.9);
+                        draw_circle_lines(mx, my, 7. * u, 2., c);
+                        draw_line(mx - 11. * u, my, mx - 4. * u, my, 2., c);
+                        draw_line(mx + 4. * u, my, mx + 11. * u, my, 2., c);
+                        draw_line(mx, my - 11. * u, mx, my - 4., 2., c);
+                        draw_line(mx, my + 4. * u, mx, my + 11. * u, 2., c);
+                    }
+                } else {
+                    let mut close = draw_menu(g, &sp, &font, &mut ui) || is_key_pressed(KeyCode::Escape);
+                    for (key, tab) in [(KeyCode::C, 0usize), (KeyCode::B, 1), (KeyCode::I, 2)] {
+                        if is_key_pressed(key) {
+                            if ui.tab == tab { close = true; } else { ui.tab = tab; ui.scroll = 0.; }
+                        }
+                    }
+                    if close {
+                        ui.reset_context();
+                        state = State::Play;
+                        mouse_armed = false;
+                    }
+                }
+            }
+        }
+        next_frame().await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn game(seed: i32) -> Game {
+        Game::new_world_seed(seed, Sfx::default())
+    }
+
+    #[test]
+    fn camps_are_deterministic_and_exist() {
+        let a = game(1234);
+        let b = game(1234);
+        let mut found = 0;
+        for cy in -6..6 {
+            for cx in -6..6 {
+                let (ca, cb) = (a.w.camp_in_cell(cx, cy), b.w.camp_in_cell(cx, cy));
+                assert_eq!(ca, cb);
+                if let Some((x, y)) = ca {
+                    found += 1;
+                    assert_eq!(a.w.obj_at(x, y), 15, "พ่อค้าต้องอยู่กลางแคมป์");
+                    assert!(!SOLIDT[a.w.tile_at(x, y + 1) as usize]);
+                }
+            }
+        }
+        assert!(found >= 10, "พบแคมป์น้อยเกินไป: {}", found);
+    }
+
+    #[test]
+    fn chest_move_and_save_roundtrip() {
+        let mut g = game(99);
+        g.p.inv[WOOD] = 30;
+        g.p.inv[GEL] = 4;
+        g.w.placed.insert((5, 5), 14);
+        g.chests.insert((5, 5), [0; NI]);
+        g.chest_move((5, 5), WOOD, 20, true);
+        g.chest_move((5, 5), GEL, 3, true);
+        g.chest_move((5, 5), GEL, 1, false);
+        assert_eq!(g.p.inv[WOOD], 10);
+        assert_eq!(g.chests[&(5, 5)][WOOD], 20);
+        assert_eq!(g.chests[&(5, 5)][GEL], 2);
+        assert_eq!(g.p.inv[GEL], 2);
+        g.p.armor = [1, 2, 3];
+        g.p.bow = true;
+        g.p.staff = 2;
+        g.p.weapon = 2;
+        g.p.sword = 4;
+        g.p.inv[BP_ARM] = 1;
+        g.w.placed.insert((6, 5), 13);
+        g.camps_found.insert((10, 20));
+        let s = g.save_string();
+        let h = Game::load_str(&s, Sfx::default()).ok().expect("load");
+        assert_eq!(h.chests[&(5, 5)][WOOD], 20);
+        assert_eq!(h.chests[&(5, 5)][GEL], 2);
+        assert_eq!(h.p.inv, g.p.inv);
+        assert_eq!(h.p.armor, [1, 2, 3]);
+        assert_eq!((h.p.weapon, h.p.bow, h.p.staff, h.p.sword), (2, true, 2, 4));
+        assert_eq!(h.w.placed.get(&(6, 5)), Some(&13));
+        assert!(h.camps_found.contains(&(10, 20)));
+        assert_eq!(h.w.seed, g.w.seed);
+    }
+
+    #[test]
+    fn armor_reduces_and_speeds() {
+        let mut g = game(7);
+        assert_eq!(g.p.reduction(), 0.);
+        g.p.armor = [3, 3, 3];
+        assert!((g.p.reduction() - 0.54).abs() < 1e-4);
+        assert!(g.p.speed_mul() > 1.2);
+        g.p.hp = 100;
+        g.p.maxhp = 100;
+        let mut tot = 0;
+        for _ in 0..200 {
+            g.p.hp = 100;
+            g.p.invul = 0.;
+            g.hurt(10, 1., 0.);
+            tot += 100 - g.p.hp;
+        }
+        let avg = tot as f32 / 200.;
+        assert!(avg > 3.5 && avg < 5.5, "avg {}", avg);
+    }
+
+    #[test]
+    fn crafting_gates() {
+        let mut g = game(3);
+        // ล็อกจนกว่าจะมีพิมพ์เขียวและของบอส
+        let top = RECIPES.iter().position(|r| r.name == "เกราะอกโกเลม").unwrap();
+        g.p.inv[CORE] = 5;
+        g.p.inv[GEL] = 5;
+        assert_eq!(recipe_state(&g.p, &RECIPES[top]), 2);
+        g.craft(top);
+        assert_eq!(g.p.armor[1], 0);
+        g.p.inv[BP_ARM] = 1;
+        assert_eq!(recipe_state(&g.p, &RECIPES[top]), 0);
+        g.craft(top);
+        assert_eq!(g.p.armor[1], 3);
+        assert_eq!(g.p.inv[CORE], 2);
+        assert_eq!(g.p.inv[BP_ARM], 1, "พิมพ์เขียวไม่ถูกใช้หมด");
+        // ธนู + ลูกธนู
+        g.p.inv[WOOD] = 30;
+        let bow = RECIPES.iter().position(|r| r.name == "ธนู").unwrap();
+        g.craft(bow);
+        assert!(g.p.bow && g.p.weapon == 1);
+        let ar = RECIPES.iter().position(|r| r.name == "ลูกธนู x10").unwrap();
+        g.p.inv[STONE] = 5;
+        g.craft(ar);
+        assert_eq!(g.p.inv[ARROW], 10);
+    }
+
+    #[test]
+    fn shop_buy() {
+        let mut g = game(5);
+        g.p.inv[COIN] = 100;
+        let bp = OFFERS.iter().position(|o| o.item == BP_ARM).unwrap();
+        g.buy(bp);
+        assert_eq!(g.p.inv[BP_ARM], 1);
+        assert_eq!(g.p.inv[COIN], 30);
+        g.buy(bp); // ซื้อซ้ำไม่ได้
+        assert_eq!(g.p.inv[BP_ARM], 1);
+        assert_eq!(g.p.inv[COIN], 30);
+    }
+
+    #[test]
+    fn build_door_and_chest() {
+        let mut g = game(11);
+        g.p.inv[WOOD] = 50;
+        g.p.inv[STONE] = 20;
+        // หาที่โล่ง
+        let (mut tx, mut ty) = (0, 0);
+        'f: for y in -40..40 { for x in -40..40 {
+            if g.w.obj_at(x, y) == 0 && !SOLIDT[g.w.tile_at(x, y) as usize] && g.w.obj_at(x + 1, y) == 0 && !SOLIDT[g.w.tile_at(x + 1, y) as usize] && g.w.obj_at(x + 2, y) == 0 {
+                tx = x; ty = y; break 'f;
+            }
+        } }
+        g.p.x = tx as f32 * 16. + 8.;
+        g.p.y = ty as f32 * 16. + 10.;
+        g.p.dir = 2;
+        g.p.flip = false;
+        g.build_sel = Some(2); // ประตู
+        g.place_piece();
+        let (dx, dy) = g.build_target();
+        assert_eq!((dx, dy), (tx + 1, ty));
+        assert_eq!(g.w.obj_at(dx, dy), 12);
+        assert!(g.w.solid_at(dx, dy));
+        g.interact();
+        assert_eq!(g.w.obj_at(dx, dy), 13);
+        assert!(!g.w.solid_at(dx, dy));
+        g.interact();
+        assert_eq!(g.w.obj_at(dx, dy), 12);
+        // กล่อง: วางไม่ทับของเดิม
+        g.build_sel = Some(3);
+        g.place_piece();
+        assert_eq!(g.w.obj_at(dx, dy), 12, "ห้ามวางทับ");
+        g.w.placed.remove(&(dx, dy));
+        g.place_piece();
+        assert_eq!(g.w.obj_at(dx, dy), 14);
+        assert!(g.chests.contains_key(&(dx, dy)));
+        g.interact();
+        assert_eq!(g.req, Some(Req::Chest((dx, dy))));
+        // ไม่ให้รื้อกล่องที่มีของ
+        g.chest_move((dx, dy), WOOD, 1, true);
+        let hit = g.hit_object(dx, dy, 99);
+        assert!(hit && g.w.obj_at(dx, dy) == 14);
+    }
+
+    #[test]
+    fn bosses_attack_and_die() {
+        for kind in 0..2u8 {
+            let mut g = game(21);
+            g.p.maxhp = 100000;
+            g.p.hp = 100000;
+            let (x, y) = (g.p.x + 60., g.p.y);
+            g.spawn_boss(kind, x, y);
+            g.bosses[0].cd = 0.;
+            let mut saw_attack = false;
+            let mut saw_proj_or_aoe = false;
+            for _ in 0..1800 {
+                g.p.invul = 0.;
+                g.upd_bosses(0.016);
+                g.upd_proj(0.016);
+                if let Some(b) = g.bosses.first() { if b.atk != 0 || b.dash > 0. { saw_attack = true; } }
+                if !g.proj.is_empty() || g.p.hp < 100000 { saw_proj_or_aoe = true; }
+                for p in g.proj.iter_mut() { p.life = p.life.min(0.01); }
+            }
+            assert!(saw_attack, "บอส {} ไม่โจมตี", kind);
+            assert!(saw_proj_or_aoe);
+            // ฆ่าบอส
+            g.bosses[0].hp = 1.;
+            g.hit_boss(0, 5);
+            assert!(g.bosses[0].dead);
+            if kind == 0 { assert!(g.p.inv[GEL] >= 3); } else { assert!(g.p.inv[CORE] >= 2); }
+            assert!(g.boss_cd > 100.);
+        }
+    }
+
+    #[test]
+    fn arrows_and_staff_hit() {
+        let mut g = game(31);
+        g.p.bow = true;
+        g.p.weapon = 1;
+        g.p.inv[ARROW] = 2;
+        g.p.x = 0.; g.p.y = 0.;
+        // ศัตรูทางขวา
+        g.en.push(Enemy { k: EK::Skel, x: 60., y: 6., hp: 4., spd: 0., dmg: 1, xp: 1, coin: 2, vx: 0., vy: 0., kb: 0., flash: 0., wt: 0., wdx: 0., wdy: 0., anim: 0., pal: 0, dead: false });
+        // กันกำแพง: ล้างวัตถุในแนวยิง
+        for tx in -2..8 { for ty in -2..2 { g.w.removed.insert((tx, ty)); } }
+        for _ in 0..5 { g.w.tmod.insert((0, 0), 3); }
+        g.shoot(Some(vec2(1., 0.)));
+        assert_eq!(g.p.inv[ARROW], 1);
+        assert_eq!(g.proj.len(), 1);
+        for _ in 0..120 { g.upd_proj(0.01); }
+        assert!(g.en[0].hp < 4. || g.en[0].dead, "ลูกธนูต้องโดนศัตรู");
+        g.p.staff = 2; g.p.weapon = 2; g.p.atk_cd = 0.;
+        g.shoot(Some(vec2(0., 1.)));
+        assert_eq!(g.proj.len(), 3, "คทาราชา ยิง 3 ทิศ");
+        g.p.weapon = 1; g.p.inv[ARROW] = 0; g.proj.clear();
+        g.shoot(None);
+        assert!(g.proj.is_empty(), "ไม่มีลูกธนูต้องไม่ยิง");
+    }
+}
