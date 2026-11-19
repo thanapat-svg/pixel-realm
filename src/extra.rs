@@ -147,9 +147,10 @@ impl Game {
             return;
         }
         let (x, y) = (self.p.x, self.p.y - 18.);
+        let food = nutrition(item).map_or(0., |n| n.0);
         match item {
             DISH_STEW => {
-                if self.p.hp >= self.p.maxhp {
+                if self.p.hp >= self.p.maxhp && self.p.hunger >= 90. {
                     self.toast("เลือดเต็มแล้ว");
                     return;
                 }
@@ -157,7 +158,7 @@ impl Game {
                 self.add_float(x, y, "+14 HP", hx(0xff6666), None);
             }
             DISH_FISH => {
-                if self.p.hp >= self.p.maxhp {
+                if self.p.hp >= self.p.maxhp && self.p.hunger >= 90. {
                     self.toast("เลือดเต็มแล้ว");
                     return;
                 }
@@ -174,6 +175,7 @@ impl Game {
             }
         }
         self.p.inv[item] -= 1;
+        self.feed(food);
         play(&self.sfx.eat);
     }
     pub fn upd_buffs(&mut self, dt: f32) {

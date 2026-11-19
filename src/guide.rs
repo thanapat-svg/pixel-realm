@@ -78,14 +78,14 @@ impl Game {
         if let Some((_, o)) = self.interact_target() {
             return Some(match o {
                 12 => "เปิด", 13 => "ปิด", 14 => "กล่อง", 17 => "ตีบวก", 25 => "วาร์ป", 26 => "ทำอาหาร",
-                19 | 36 => "เข้า", 20 => "ออก", 33 => "นอน", 34 => "โต๊ะ", 24 => "เปิดหีบ", _ => "คุย",
+                19 | 36 => "เข้า", 20 => "ออก", 33 => "นอน", 39 => "ดื่ม", 34 => "โต๊ะ", 24 => "เปิดหีบ", _ => "คุย",
             }.to_string());
         }
         if let Some(h) = self.farm_hint(true) {
             let s = h.split(": ").nth(1).unwrap_or("ใช้");
             return Some(if s.starts_with("ปลูก") { "ปลูก".to_string() } else if s.starts_with("เก็บ") { "เก็บ".to_string() } else if s.starts_with("เติม") { "เติมน้ำ".to_string() } else { s.split(|c| c == ' ' || c == '(').next().unwrap_or("ใช้").to_string() });
         }
-        if self.water_ahead().is_some() { return Some("ตกปลา".to_string()); }
+        if self.water_ahead().is_some() { return Some(if self.survival_mode() > 0 && self.p.thirst < 90. { "ดื่มน้ำ" } else { "ตกปลา" }.to_string()); }
         None
     }
 }

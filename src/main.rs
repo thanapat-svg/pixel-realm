@@ -20,6 +20,7 @@ mod camp;
 mod combat;
 mod dungeon;
 mod menu;
+mod needs;
 mod npc;
 mod prefs;
 mod rpg;
@@ -35,6 +36,7 @@ use camp::*;
 use combat::*;
 use dungeon::*;
 use menu::*;
+use needs::*;
 use npc::*;
 use rpg::*;
 use skin::*;
@@ -52,9 +54,10 @@ const TCOL: [u32; 15] = [
 const SOLIDT: [bool; 15] = [true, true, false, false, false, false, true, false, false, false, true, false, false, false, true];
 // objects: 1 tree,2 bush,3 flower,4 rock,5 ore,6 chest,7 cactus,8 pine,9 campfire,
 //   10 กำแพงไม้,11 กำแพงหิน,12 ประตูปิด,13 ประตูเปิด,14 กล่องเก็บของ,15 พ่อค้า,16 เต็นท์
+//   37 ปราสาท,38 กำแพงเมือง,39 บ่อน้ำ
 //   17 โต๊ะตีเหล็ก,18 คบเพลิง,19 ทางเข้าดันเจี้ยน,20 ทางออกดันเจี้ยน,21 หนามหุบ,22 หนามโผล่,23 ป้อมลูกไฟ,24 หีบสมบัติหายาก
-const OSOLID: [bool; 40] = [false, true, true, false, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, false, false, false, false, true, true, true, true, false, false, false, false, false, false, true, true, false, false, true, true, false];
-const OHP: [i32; 40] = [0, 3, 1, 0, 3, 4, 1, 2, 3, 2, 5, 8, 4, 4, 5, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 1, 1, 1, 1, 4, 8, 0, 0, 20, 8, 0];
+const OSOLID: [bool; 40] = [false, true, true, false, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, false, false, false, false, true, true, true, true, false, false, false, false, false, false, true, true, false, false, true, true, true];
+const OHP: [i32; 40] = [0, 3, 1, 0, 3, 4, 1, 2, 3, 2, 5, 8, 4, 4, 5, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 1, 1, 1, 1, 4, 8, 0, 0, 20, 8, 6];
 
 const WOOD: usize = 0;
 const STONE: usize = 1;
@@ -432,10 +435,10 @@ enum EK { Slime, Skel, Bat }
 struct Enemy { k: EK, x: f32, y: f32, hp: f32, spd: f32, dmg: i32, xp: i32, coin: i32, vx: f32, vy: f32, kb: f32, flash: f32, wt: f32, wdx: f32, wdy: f32, anim: f32, pal: usize, dead: bool, night: bool, burn: f32, slow: f32, stun: f32, btick: f32 }
 struct Particle { x: f32, y: f32, vx: f32, vy: f32, l: f32, c: Color }
 struct Float { x: f32, y: f32, t: String, c: Color, l: f32, icon: Option<usize>, sz: f32 }
-struct Player { x: f32, y: f32, dir: usize, flip: bool, hp: i32, maxhp: i32, xp: i32, lvl: i32, sword: usize, pick: bool, rod: bool, elem: u8, elems: u8, inv: [i32; NI], invul: f32, kbx: f32, kby: f32, kbt: f32, atk_t: f32, atk_cd: f32, anim: f32, moving: bool, regen: f32, last_hit: f32, kills: i32, weapon: u8, bow: bool, staff: u8, armor: [u8; 3], outfit: u8, outfits: u8, sp: i32, st: [u8; 4], wplus: [u8; 3], aplus: [u8; 3], dash_t: f32, dash_cd: f32, dash_dir: Vec2, ghost_t: f32, buff_spd: f32, buff_crit: f32, can: bool, water: i32 }
+struct Player { x: f32, y: f32, dir: usize, flip: bool, hp: i32, maxhp: i32, xp: i32, lvl: i32, sword: usize, pick: bool, rod: bool, elem: u8, elems: u8, inv: [i32; NI], invul: f32, kbx: f32, kby: f32, kbt: f32, atk_t: f32, atk_cd: f32, anim: f32, moving: bool, regen: f32, last_hit: f32, kills: i32, weapon: u8, bow: bool, staff: u8, armor: [u8; 3], outfit: u8, outfits: u8, sp: i32, st: [u8; 4], wplus: [u8; 3], aplus: [u8; 3], dash_t: f32, dash_cd: f32, dash_dir: Vec2, ghost_t: f32, buff_spd: f32, buff_crit: f32, can: bool, water: i32, hunger: f32, thirst: f32, rest: f32, sick: f32, starve: f32 }
 impl Player {
     fn new(x: f32, y: f32) -> Self {
-        Player { x, y, dir: 0, flip: false, hp: 10, maxhp: 10, xp: 0, lvl: 1, sword: 0, pick: false, rod: false, elem: 0, elems: 1, inv: [0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], invul: 0., kbx: 0., kby: 0., kbt: 0., atk_t: 0., atk_cd: 0., anim: 0., moving: false, regen: 0., last_hit: 0., kills: 0, weapon: 0, bow: false, staff: 0, armor: [0; 3], outfit: 0, outfits: 0, sp: 0, st: [0; 4], wplus: [0; 3], aplus: [0; 3], dash_t: 0., dash_cd: 0., dash_dir: Vec2::ZERO, ghost_t: 0., buff_spd: 0., buff_crit: 0., can: false, water: 0 }
+        Player { x, y, dir: 0, flip: false, hp: 10, maxhp: 10, xp: 0, lvl: 1, sword: 0, pick: false, rod: false, elem: 0, elems: 1, inv: [0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], invul: 0., kbx: 0., kby: 0., kbt: 0., atk_t: 0., atk_cd: 0., anim: 0., moving: false, regen: 0., last_hit: 0., kills: 0, weapon: 0, bow: false, staff: 0, armor: [0; 3], outfit: 0, outfits: 0, sp: 0, st: [0; 4], wplus: [0; 3], aplus: [0; 3], dash_t: 0., dash_cd: 0., dash_dir: Vec2::ZERO, ghost_t: 0., buff_spd: 0., buff_crit: 0., can: false, water: 0, hunger: 100., thirst: 100., rest: 100., sick: 0., starve: 0. }
     }
     fn facing(&self) -> (f32, f32) {
         DV[if self.dir == 2 && self.flip { 3 } else { self.dir }]
@@ -606,6 +609,7 @@ impl Game {
         s += &format!("elem {} {}\nrod {}\n", p.elem, p.elems, p.rod as i32);
         s += &format!("farm {} {} {}\n", p.can as i32, p.water, self.seed_sel);
         s += &format!("tut {}\n", self.tut);
+        s += &format!("need {:.1} {:.1} {:.1} {:.1}\n", p.hunger, p.thirst, p.rest, p.sick);
         s += &self.npc_save_str();
         if let Some(b) = self.bed { s += &format!("bed {} {}\n", b.0, b.1); }
         s += "crops";
@@ -691,6 +695,7 @@ impl Game {
                 }
                 "rod" => g.p.rod = f(0) > 0.,
                 "tut" => g.tut = f(0) as u8,
+                "need" => { g.p.hunger = f(0).clamp(0., 100.); g.p.thirst = f(1).clamp(0., 100.); g.p.rest = f(2).clamp(0., 100.); g.p.sick = f(3).max(0.); }
                 "town" | "npc" | "npcseen" => g.npc_load_line(tag, &rest),
                 "nsoc" | "nrel" | "nnews" => g.soc_load_line(tag, &rest),
                 "farm" => { g.p.can = f(0) > 0.; g.p.water = (f(1) as i32).clamp(0, WATER_MAX); g.seed_sel = (f(2) as u8).min(1); }
@@ -796,8 +801,9 @@ impl Game {
             if self.p.inv[POTION] > 0 { self.drink(); } else { self.toast("ไม่มีเบอร์รี่"); }
             return;
         }
-        if self.p.hp >= self.p.maxhp { self.toast("เลือดเต็มแล้ว"); return; }
+        if self.p.hp >= self.p.maxhp && self.p.hunger >= 95. { self.toast(if self.survival_mode() == 0 { "เลือดเต็มแล้ว" } else { "อิ่มแล้ว เลือดก็เต็ม" }); return; }
         self.p.inv[BERRY] -= 1;
+        self.feed(12.);
         self.p.hp = (self.p.hp + 3).min(self.p.maxhp);
         let (x, y) = (self.p.x, self.p.y - 18.);
         self.add_float(x, y, "+3 HP", hx(0xff6666), None);
@@ -981,7 +987,10 @@ impl Game {
         let (x, y) = (self.p.x, self.p.y - 20.);
         if d > 0 { self.add_float(x, y, format!("-{}", d), hx(0xff4444), None); } else { self.add_float(x, y, "ป้องกัน", hx(0x88ccff), None); }
         play(&self.sfx.hurt);
-        if self.p.hp <= 0 {
+        if self.p.hp <= 0 { self.faint("หมดสติ..."); }
+    }
+    fn faint(&mut self, why: &str) {
+        {
             let lost = self.p.inv[COIN] / 2;
             self.p.inv[COIN] -= lost;
             self.p.hp = self.p.maxhp;
@@ -990,10 +999,11 @@ impl Game {
             self.p.x = rp.0;
             self.p.y = rp.1;
             self.died = true;
+            self.p.hunger = self.p.hunger.max(35.); self.p.thirst = self.p.thirst.max(35.); self.p.starve = 0.;
             self.proj.clear();
             self.drops.clear();
             self.tp_comp();
-            self.toast(format!("หมดสติ... ฟื้นที่จุดเกิด (เสีย {} เหรียญ)", lost));
+            self.toast(format!("{} ฟื้นที่จุดเกิด (เสีย {} เหรียญ)", why, lost));
             self.save();
         }
     }
@@ -1143,12 +1153,13 @@ impl Game {
         let mut mv = inp.mv;
         let il = mv.length();
         if il > 1. { mv /= il; }
+        let nmul = self.need_speed_mul();
         let p = &mut self.p;
         p.moving = il > 0.15;
         if p.moving && p.atk_t <= 0. {
             if mv.x.abs() > mv.y.abs() { p.dir = 2; p.flip = mv.x < 0.; } else { p.dir = if mv.y > 0. { 0 } else { 1 }; }
         }
-        let sp = 64. * p.speed_mul() * wmul * if p.atk_t > 0. { 0.5 } else { 1. };
+        let sp = 64. * p.speed_mul() * wmul * nmul * if p.atk_t > 0. { 0.5 } else { 1. };
         let (mut mx, mut my) = if p.dash_t > 0. { (p.dash_dir.x * 250. * dt, p.dash_dir.y * 250. * dt) } else if p.moving { (mv.x * sp * dt, mv.y * sp * dt) } else { (0., 0.) };
         if p.kbt > 0. { p.kbt -= dt; mx += p.kbx * dt; my += p.kby * dt; }
         if !collide(&self.w, p.x + mx, p.y) { p.x += mx; }
@@ -1176,7 +1187,8 @@ impl Game {
         self.p.last_hit += dt;
         self.p.regen += dt;
         let fire_near = self.w.near_fire(tfloor(self.p.x), tfloor(self.p.y), 3).is_some();
-        if self.p.regen > if fire_near { 1.5 } else { 8. } && self.p.last_hit > 4. && self.p.hp < self.p.maxhp {
+        self.needs_update(dt);
+        if self.p.regen > if fire_near { 1.5 } else { 8. } && self.p.last_hit > 4. && self.p.hp < self.p.maxhp && self.can_regen() {
             self.p.regen = 0.;
             self.p.hp += 1;
             if fire_near { let (x, y) = (self.p.x, self.p.y - 20.); self.add_float(x, y, "+1 HP", hx(0xff8888), None); }
@@ -1625,6 +1637,7 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
     draw_rectangle_lines(x, y, bw, bh, 2., BLACK);
     text_c(font, &format!("XP {}/{}", p.xp, need), x + bw / 2., y + bh - 2. * u, 11. * u, WHITE);
     y += bh + 4. * u;
+    y += draw_need_bars(g, font, x, y, bw, u);
     let hr = ((g.time / DAYLEN * 24.) + 6.) % 24.;
     let day = (g.time / DAYLEN) as i32 + 1;
     let night = !(6. ..18.).contains(&hr);
@@ -1691,7 +1704,8 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
         draw_rectangle(sw / 2. - d.width / 2. - 12. * u, sh - 74. * u, d.width + 24. * u, 28. * u, Color::new(0., 0., 0., 0.65));
         text_c(font, s, sw / 2., sh - 54. * u, 15. * u, if f.bite_t > 0. { hx(0xffee44) } else { hx(0xbfe8ff) });
     } else if g.interact_target().is_none() && g.water_ahead().is_some() {
-        let s = if touch { "ปุ่ม \"ใช้\": ตกปลา" } else { "Q: ตกปลา" };
+        let thirsty = g.survival_mode() > 0 && g.p.thirst < 90.;
+        let s = if thirsty { if touch { "ปุ่ม \"ใช้\": ดื่มน้ำ" } else { "Q: ดื่มน้ำ" } } else if touch { "ปุ่ม \"ใช้\": ตกปลา" } else { "Q: ตกปลา" };
         let d = measure_text(s, Some(font), (15. * u) as u16, 1.);
         draw_rectangle(sw / 2. - d.width / 2. - 12. * u, sh - 74. * u, d.width + 24. * u, 28. * u, Color::new(0., 0., 0., 0.65));
         text_c(font, s, sw / 2., sh - 54. * u, 15. * u, hx(0xbfe8ff));
@@ -2147,7 +2161,7 @@ async fn main() {
                         if button(&font, Rect::new(bx, y, bw, bh), "วิธีเล่น", true, u) { tview = 2; }
                         y += bh + gap;
                         if button(&font, Rect::new(bx, y, bw, bh), "ออกจากเกม", true, u) { std::process::exit(0); }
-                        text_c(&font, "v6 · เกมวาดด้วยโค้ดทั้งหมด", sw / 2., sh - 10. * u, 11. * u, hx(0x999999));
+                        text_c(&font, "v7 · เกมวาดด้วยโค้ดทั้งหมด", sw / 2., sh - 10. * u, 11. * u, hx(0x999999));
                     }
                     1 => {
                         let (w, h) = ((420. * u).min(sw * 0.97), (350. * u).min(sh * 0.97));
@@ -3321,8 +3335,11 @@ mod npc_tests {
         for k in 0..n {
             let b = (500 + k * 2, 500);
             g.w.placed.insert(b, 33);
-            g.npcs.push(mk(k as u32 + 1, npc::ST_HOME, b));
+            let mut m = mk(k as u32 + 1, npc::ST_HOME, b);
+            m.soc.love = GEM as u8; m.soc.hate = FISH as u8; // รสนิยมกลาง ๆ สำหรับข้าวโพด
+            g.npcs.push(m);
         }
+        g.w.placed.insert((498, 498), 39); // บ่อน้ำ
         g.npc_next = n as u32 + 1;
     }
     fn chest_with_food(g: &mut Game, near: (i32, i32), n: i32) {
@@ -3540,6 +3557,7 @@ mod social_tests {
     }
     fn town(g: &mut Game, n: u32) {
         for k in 0..n { let b = (500 + k as i32 * 2, 500); g.w.placed.insert(b, 33); g.npcs.push(mk(k + 1, b)); }
+        g.w.placed.insert((498, 498), 39); // บ่อน้ำ
         g.npc_next = n + 1;
     }
 
@@ -3796,5 +3814,292 @@ mod social_tests {
         let set: HashSet<&&str> = NPC_NAMES.iter().collect();
         assert_eq!(set.len(), NPC_NAMES.len());
         assert_eq!(NPC_FEM.len(), NPC_NAMES.len());
+    }
+}
+
+#[cfg(test)]
+mod needs_tests {
+    use super::*;
+
+    fn g0() -> Game { Game::new_world_seed(777, Sfx::default()) }
+    fn stand_on(g: &mut Game, tile: u8) {
+        // หาไทล์ชนิดที่ต้องการใกล้จุดเกิด แล้วเอาผู้เล่นไปยืน
+        for r in 0..200i32 { for dy in -r..=r { for dx in -r..=r {
+            if dx.abs().max(dy.abs()) != r { continue; }
+            let (tx, ty) = (tfloor(g.spawn.0) + dx, tfloor(g.spawn.1) + dy);
+            if g.w.tile_at(tx, ty) == tile && g.w.obj_at(tx, ty) == 0 { g.p.x = tx as f32 * 16. + 8.; g.p.y = ty as f32 * 16. + 12.; return; }
+        } } }
+        panic!("ไม่พบไทล์ {}", tile);
+    }
+
+    #[test]
+    fn thirst_drains_faster_than_hunger_and_rest_slowest() {
+        let mut g = g0();
+        for _ in 0..240 { g.needs_tick(1., 1); } // 1 วันเกม
+        let (h, t, r) = (100. - g.p.hunger, 100. - g.p.thirst, 100. - g.p.rest);
+        assert!(t > h && h > r, "หิว {:.1} กระหาย {:.1} เหนื่อย {:.1}", h, t, r);
+        assert!((t - 66.7).abs() < 3. && (h - 33.3).abs() < 3. && (r - 25.).abs() < 3., "{} {} {}", t, h, r);
+    }
+
+    #[test]
+    fn desert_is_hotter_and_snow_burns_food_unless_warm() {
+        let mut g = g0();
+        stand_on(&mut g, 8);
+        assert_eq!(g.climate().0, 2.2);
+        let mut b = g0();
+        stand_on(&mut b, 3);
+        assert_eq!(b.climate(), (1., 1.));
+        for _ in 0..60 { g.needs_tick(1., 1); b.needs_tick(1., 1); }
+        assert!(g.p.thirst < b.p.thirst - 10., "ทะเลทรายกระหายเร็วกว่า: {} vs {}", g.p.thirst, b.p.thirst);
+        let mut s = g0();
+        stand_on(&mut s, 7);
+        assert_eq!(s.climate().1, 1.5);
+        s.w.placed.insert((tfloor(s.p.x), tfloor(s.p.y)), 9); // กองไฟใต้เท้า
+        assert_eq!(s.climate().1, 1.0, "ผิงไฟกันหนาว");
+    }
+
+    #[test]
+    fn survival_off_means_no_drain() {
+        let mut g = g0();
+        for _ in 0..500 { g.needs_tick(1., 0); }
+        assert_eq!((g.p.hunger, g.p.thirst, g.p.rest), (100., 100., 100.));
+        assert_eq!(g.need_speed_mul_mode(0), 1.);
+    }
+
+    #[test]
+    fn low_needs_slow_you_down_and_stop_regen() {
+        let mut g = g0();
+        assert_eq!(g.need_speed_mul_mode(1), 1.);
+        assert!(g.can_regen());
+        g.p.thirst = 25.; assert_eq!(g.need_speed_mul_mode(1), 0.95);
+        g.p.thirst = 10.; assert_eq!(g.need_speed_mul_mode(1), 0.85);
+        g.p.hunger = 0.;  assert_eq!(g.need_speed_mul_mode(1), 0.7);
+        assert!(!g.can_regen());
+        g.p.hunger = 100.; g.p.thirst = 100.; g.p.sick = 10.;
+        assert!(!g.can_regen(), "ท้องเสียไม่ฟื้นเลือด");
+        assert!((g.need_speed_mul_mode(1) - 0.9).abs() < 1e-6);
+    }
+
+    #[test]
+    fn starvation_drains_hp_but_normal_mode_never_kills_hard_mode_faints() {
+        let mut g = g0();
+        g.p.hp = 5; g.p.maxhp = 10; g.p.thirst = 0.; g.p.hunger = 100.;
+        for _ in 0..200 { g.needs_tick(1., 1); g.p.thirst = 0.; }
+        assert_eq!(g.p.hp, 1, "โหมดปกติ: เหลือ 1 ไม่ตาย");
+        // โหมดยาก: หมดสติ ฟื้นที่จุดเกิดพร้อมน้ำ/อาหารขั้นต่ำ เสียเหรียญครึ่งหนึ่ง
+        g.p.inv[COIN] = 100;
+        let mut fainted = false;
+        for _ in 0..60 { g.needs_tick(1., 2); if g.died { fainted = true; break; } g.p.thirst = 0.; }
+        assert!(fainted, "โหมดยาก: อดน้ำจนหมดสติ");
+        assert_eq!(g.p.hp, g.p.maxhp, "ฟื้นเลือดเต็มหลังหมดสติ");
+        assert_eq!(g.p.inv[COIN], 50);
+        assert!(g.p.thirst >= 35. && g.p.hunger >= 35., "ฟื้นพร้อมน้ำ/อาหารขั้นต่ำ {} {}", g.p.thirst, g.p.hunger);
+        // อัตราเร็วขึ้นเมื่อขาดทั้งอาหารและน้ำ
+        let mut a = g0(); a.p.hp = 9; a.p.maxhp = 10; a.p.hunger = 0.; a.p.thirst = 0.;
+        let mut b = g0(); b.p.hp = 9; b.p.maxhp = 10; b.p.hunger = 0.; b.p.thirst = 50.;
+        for _ in 0..8 { a.p.hunger = 0.; a.p.thirst = 0.; a.needs_tick(1., 1); b.p.hunger = 0.; b.p.thirst = 50.; b.needs_tick(1., 1); }
+        assert!(a.p.hp < b.p.hp, "ขาดทั้งคู่เลือดลดเร็วกว่า {} vs {}", a.p.hp, b.p.hp);
+    }
+
+    #[test]
+    fn eating_restores_hunger_raw_food_can_make_you_sick_herb_cures() {
+        let mut g = g0();
+        g.p.hunger = 40.; g.p.inv[BERRY] = 5; g.p.inv[MEAT] = 5; g.p.inv[FISH] = 5; g.p.inv[HERB] = 3; g.p.inv[DISH_STEW] = 2; g.p.inv[SHROOM] = 2;
+        assert!(g.eat_generic_roll(BERRY, 0.9));
+        assert!((g.p.hunger - 52.).abs() < 0.01);
+        g.p.hunger = 40.;
+        g.use_dish(DISH_STEW);
+        assert!((g.p.hunger - 100.).abs() < 0.01, "สตูว์ +60 ทำให้เกือบเต็ม: {}", g.p.hunger);
+        // เนื้อดิบ: roll ต่ำกว่า 0.30 → ท้องเสีย
+        g.p.hunger = 30.; g.p.hp = 8;
+        assert!(g.eat_generic_roll(MEAT, 0.1));
+        assert!(g.p.sick > 0. && g.p.hp == 7);
+        assert!(g.p.hunger < 30. + 30., "อาเจียนบางส่วน");
+        // สมุนไพรแก้ท้องเสีย
+        assert!(g.eat_generic_roll(HERB, 0.9));
+        assert_eq!(g.p.sick, 0.);
+        // โชคดี roll สูง ไม่ป่วย
+        g.p.hunger = 30.;
+        assert!(g.eat_generic_roll(MEAT, 0.9));
+        assert_eq!(g.p.sick, 0.);
+        // เห็ด: ก็เสี่ยงเหมือนกัน
+        g.p.hunger = 30.;
+        g.eat_generic_roll(SHROOM, 0.01);
+        assert!(g.p.sick > 0.);
+        // อิ่มและเลือดเต็ม → ไม่กิน ไม่เสียของ
+        let mut f = g0(); f.p.inv[BERRY] = 2; f.p.hunger = 100.; f.p.hp = f.p.maxhp;
+        assert!(!f.eat_generic_roll(BERRY, 0.9));
+        assert_eq!(f.p.inv[BERRY], 2);
+        // ปรุงสุกไม่เสี่ยง
+        let mut c = g0(); c.p.hunger = 20.; c.p.inv[DISH_FISH] = 1;
+        c.use_dish(DISH_FISH);
+        assert!((c.p.hunger - 65.).abs() < 0.01 && c.p.sick == 0.);
+    }
+
+    /// เอาผู้เล่นไปยืนริมน้ำตื้น หันหน้าเข้าหาน้ำ — salty=true ชายทะเล (ติดทะเลลึก) · false บึง/ทะเลสาบน้ำจืด
+    fn stand_facing_water(g: &mut Game, salty: bool) -> (i32, i32) {
+        for r in 5..350i32 { for dy in -r..=r { for dx in -r..=r {
+            if dx.abs().max(dy.abs()) != r { continue; }
+            let (tx, ty) = (tfloor(g.spawn.0) + dx, tfloor(g.spawn.1) + dy);
+            if g.w.tile_at(tx, ty) != 1 || g.is_salt(tx, ty) != salty { continue; }
+            // ยืนที่ช่องข้างน้ำ แล้วหันเข้าหาน้ำ (DV: 0 ลง, 1 ขึ้น, 2 ขวา, 3 ซ้าย)
+            for (ox, oy, dir, flip) in [(0, -1, 0usize, false), (0, 1, 1, false), (-1, 0, 2, false), (1, 0, 2, true)] {
+                let (sx, sy) = (tx + ox, ty + oy);
+                if g.w.solid_at(sx, sy) || g.w.tile_at(sx, sy) < 2 { continue; }
+                g.p.x = sx as f32 * 16. + 8.; g.p.y = sy as f32 * 16. + 8. + 3.;
+                g.p.dir = dir; g.p.flip = flip;
+                if let Some((wx, wy)) = g.water_ahead() { if g.w.tile_at(wx, wy) == 1 && g.is_salt(wx, wy) == salty { return (wx, wy); } }
+            }
+        } } }
+        panic!("ไม่พบจุดยืนริมน้ำ salty={}", salty);
+    }
+
+    #[test]
+    fn salt_depends_on_deep_sea_nearby() {
+        let g = g0();
+        let (mut sea, mut pond) = (None, None);
+        'o: for y in -250..250 { for x in -250..250 {
+            if g.w.tile_at(x, y) != 1 { continue; }
+            if g.is_salt(x, y) { if sea.is_none() { sea = Some((x, y)); } } else if pond.is_none() { pond = Some((x, y)); }
+            if sea.is_some() && pond.is_some() { break 'o; }
+        } }
+        let (sx, sy) = sea.expect("มีชายทะเล");
+        let (px, py) = pond.expect("มีบึงน้ำจืด");
+        assert!((-3..=3).any(|dy| (-3..=3).any(|dx| g.w.tile_at(sx + dx, sy + dy) == 0)));
+        assert!(!(-3..=3).any(|dy| (-3..=3).any(|dx| g.w.tile_at(px + dx, py + dy) == 0)));
+        let deep = (-250..250).flat_map(|y| (-250..250).map(move |x| (x, y))).find(|&(x, y)| g.w.tile_at(x, y) == 0).unwrap();
+        assert!(g.is_salt(deep.0, deep.1));
+        assert!(!g.is_salt(tfloor(g.spawn.0), tfloor(g.spawn.1)), "พื้นดินไม่ใช่น้ำ");
+    }
+
+    #[test]
+    fn drink_fresh_pond_helps_and_requires_thirst() {
+        let mut g = g0();
+        stand_facing_water(&mut g, false);
+        g.p.thirst = 20.;
+        assert!(g.drink_ahead_roll(0.9));
+        assert!((g.p.thirst - 50.).abs() < 0.01 && g.p.sick == 0.);
+        assert!(g.drink_ahead_roll(0.05), "ดื่มซ้ำ น้ำจากธรรมชาติไม่สะอาดเสมอไป");
+        assert!(g.p.sick > 0.);
+        g.p.thirst = 95.;
+        assert!(!g.drink_ahead_roll(0.9), "ไม่กระหายแล้ว ไม่ดื่ม (ไปตกปลาแทน)");
+    }
+
+    #[test]
+    fn sea_water_is_salty_and_makes_thirst_worse() {
+        let mut g = g0();
+        stand_facing_water(&mut g, true);
+        g.p.thirst = 50.;
+        assert!(g.drink_ahead_roll(0.9));
+        assert!(g.p.thirst < 50., "น้ำทะเลทำให้กระหายขึ้น: {}", g.p.thirst);
+        assert_eq!(g.p.sick, 0.);
+    }
+
+    #[test]
+    fn well_gives_clean_water_and_supplies_nearby_village() {
+        let mut g = g0();
+        g.p.thirst = 30.;
+        g.drink_well();
+        assert!((g.p.thirst - 75.).abs() < 0.01 && g.p.sick == 0.);
+        // ชาวบ้านต้องมีน้ำ: ไม่มีแหล่งน้ำ/บ่อ → ความสุขลด · มีบ่อ → ปกติ
+        let mut a = g0();
+        let mut bed = (900, 900);
+        'd: for oy in 0..30 { for ox in 0..30 {
+            let c = (900 + ox * 45, 900 + oy * 45);
+            if !a.water_within(c.0, c.1, 20) && a.w.tile_at(c.0, c.1) >= 3 && !a.w.solid_at(c.0, c.1) { bed = c; break 'd; }
+        } }
+        assert!(!a.water_within(bed.0, bed.1, 20), "จุดทดสอบต้องห่างน้ำจืด");
+        a.w.placed.insert(bed, 33);
+        let mut n = npc::Npc { id: 1, name: 1, look: 0, x: 0., y: 0., state: npc::ST_HOME, hearts: 2, mood: 60, married: false, child: false, role: 0, bed, anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false, soc: Soc::generate(1, 1) };
+        n.soc.love = GEM as u8; n.soc.hate = FISH as u8;
+        a.npcs.push(n);
+        let mut c = [0; NI]; c[CORN] = 5; a.chests.insert((bed.0 + 1, bed.1), c);
+        a.npc_dawn();
+        let dry = a.npcs[0].mood;
+        a.w.placed.insert((bed.0 - 2, bed.1 - 2), 39);
+        a.npcs[0].mood = 60;
+        a.npc_dawn();
+        let wet = a.npcs[0].mood;
+        assert_eq!(wet - dry, 15, "ไม่มีน้ำ −15 ความสุข ({} vs {})", dry, wet);
+        assert!(a.news.iter().any(|(_, t)| t.contains("น้ำดื่ม")));
+    }
+
+    #[test]
+    fn npcs_eat_favourites_and_avoid_hated_food() {
+        let mut g = g0();
+        let bed = (900, 900);
+        g.w.placed.insert(bed, 33);
+        g.w.placed.insert((898, 898), 39);
+        let mut n = npc::Npc { id: 1, name: 1, look: 0, x: 0., y: 0., state: npc::ST_HOME, hearts: 2, mood: 50, married: false, child: false, role: 0, bed, anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false, soc: Soc::generate(1, 1) };
+        n.soc.love = CORN as u8; n.soc.hate = BERRY as u8;
+        g.npcs.push(n);
+        let mut c = [0; NI]; c[BERRY] = 3; c[CORN] = 3; c[CARROT] = 3;
+        g.chests.insert((901, 900), c);
+        g.npc_dawn();
+        assert_eq!(g.chests[&(901, 900)][CORN], 2, "กินของโปรดก่อน");
+        assert_eq!(g.chests[&(901, 900)][BERRY], 3);
+        // 50 + 3(เตียง) + 5(อิ่ม) + 4(ของโปรด)
+        assert_eq!(g.npcs[0].mood, 62);
+        // เหลือแต่ของที่เกลียด → ยอมกินแต่ไม่สบอารมณ์
+        g.chests.get_mut(&(901, 900)).unwrap().iter_mut().for_each(|v| *v = 0);
+        g.chests.get_mut(&(901, 900)).unwrap()[BERRY] = 2;
+        g.npcs[0].mood = 50;
+        g.npc_dawn();
+        assert_eq!(g.chests[&(901, 900)][BERRY], 1);
+        assert_eq!(g.npcs[0].mood, 50 + 3 + 5 - 4);
+    }
+
+    #[test]
+    fn sleeping_restores_rest_and_costs_food_but_never_kills() {
+        let mut g = g0();
+        g.p.rest = 10.; g.p.sick = 30.; g.p.hunger = 20.; g.p.thirst = 5.;
+        g.sleep_needs(120.);
+        assert_eq!(g.p.rest, 100.);
+        assert_eq!(g.p.sick, 0.);
+        assert!(g.p.hunger >= 3. && g.p.thirst >= 3., "ไม่ตายตอนหลับ");
+        let mut h = g0();
+        h.p.hunger = 90.; h.p.thirst = 90.;
+        h.sleep_needs(120.);
+        assert!(h.p.thirst < h.p.hunger, "น้ำลดมากกว่าอาหาร: {} {}", h.p.thirst, h.p.hunger);
+        assert!(h.p.hunger > 80.);
+    }
+
+    #[test]
+    fn needs_roundtrip_in_save_and_old_saves_start_full() {
+        let mut g = g0();
+        g.p.hunger = 41.5; g.p.thirst = 22.; g.p.rest = 63.; g.p.sick = 12.;
+        let txt = g.save_string();
+        assert!(txt.contains("need 41.5 22.0 63.0 12.0"));
+        let l = Game::load_str(&txt, Sfx::default()).ok().unwrap();
+        assert_eq!((l.p.hunger, l.p.thirst, l.p.rest, l.p.sick), (41.5, 22., 63., 12.));
+        let old: String = txt.lines().filter(|x| !x.starts_with("need")).map(|x| format!("{}\n", x)).collect();
+        let lo = Game::load_str(&old, Sfx::default()).ok().unwrap();
+        assert_eq!((lo.p.hunger, lo.p.thirst, lo.p.rest), (100., 100., 100.));
+    }
+
+    #[test]
+    fn rain_and_warning_toasts() {
+        let mut g = g0();
+        g.p.thirst = 20.; g.rain_on = true; g.rain = 1.;
+        for _ in 0..10 { g.needs_tick(1., 1); }
+        assert!(g.p.thirst > 25., "ฝนตกช่วยดับกระหาย {}", g.p.thirst);
+        let mut w = g0();
+        w.p.thirst = 30.2;
+        w.needs_tick(1., 1);
+        assert!(w.toasts.iter().any(|t| format!("{:?}", t).contains("กระหาย")), "ข้ามเกณฑ์ 30 ต้องเตือน");
+    }
+
+    #[test]
+    fn well_is_buildable_solid_and_listed() {
+        assert!(PIECES.iter().any(|p| p.obj == 39));
+        assert!(OSOLID[39] && OHP[39] > 0);
+        let mut g = g0();
+        let t = (tfloor(g.p.x) + 3, tfloor(g.p.y));
+        g.w.placed.insert(t, 39);
+        g.p.x = t.0 as f32 * 16. + 8.; g.p.y = t.1 as f32 * 16. + 20.;
+        assert_eq!(g.interact_target().map(|x| x.1), Some(39));
+        g.p.thirst = 10.;
+        g.interact();
+        assert!(g.p.thirst > 50.);
     }
 }

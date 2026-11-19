@@ -238,7 +238,9 @@ impl Game {
             return;
         }
         self.bed = Some(k);
+        let t0 = self.time;
         self.time = ((self.time / DAYLEN).floor() + 1.) * DAYLEN;
+        self.sleep_needs(self.time - t0);
         self.p.hp = self.p.maxhp;
         self.en.clear();
         self.proj.clear();
@@ -254,7 +256,8 @@ impl Game {
         self.sleep_fx = 2.;
         self.refresh_torches();
         let day = (self.time / DAYLEN) as i32 + 1;
-        self.toast(format!("หลับสบาย... เช้าวันที่ {} (เลือดเต็ม · ตั้งเตียงเป็นจุดเกิด)", day));
+        let hungry = if self.survival_mode() > 0 && (self.p.thirst < 30. || self.p.hunger < 30.) { " · ตื่นมาหิว/กระหายน้ำ" } else { "" };
+        self.toast(format!("หลับสบาย... เช้าวันที่ {} (เลือดเต็ม · แรงเต็ม · ตั้งเตียงเป็นจุดเกิด){}", day, hungry));
         self.save();
     }
     /// จุดเกิดใหม่: เตียงถ้ายังอยู่ ไม่งั้นจุดเกิดเดิม
@@ -278,11 +281,12 @@ impl Game {
         if self.p.inv[item] <= 0 {
             return;
         }
-        if self.p.hp >= self.p.maxhp {
+        if self.p.hp >= self.p.maxhp && self.p.hunger >= 95. {
             self.toast("เลือดเต็มแล้ว");
             return;
         }
         self.p.inv[item] -= 1;
+        self.feed(nutrition(item).map_or(15., |n| n.0));
         self.p.hp = (self.p.hp + CROP_HEAL[kind]).min(self.p.maxhp);
         let (x, y) = (self.p.x, self.p.y - 18.);
         self.add_float(x, y, format!("+{} HP", CROP_HEAL[kind]), hx(0xff6666), None);

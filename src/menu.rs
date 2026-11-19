@@ -284,6 +284,7 @@ fn tab_gear(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
     y += 24. * u;
     let mut seed_pick: Option<u8> = None;
     let mut crop_eat: Option<usize> = None;
+    let mut raw_eat: Option<usize> = None;
     let mut drink = false;
     let mut dish: Option<usize> = None;
     for i in 0..NI {
@@ -301,6 +302,9 @@ fn tab_gear(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
             if (i == CORN || i == CARROT) && btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 2. * u, 92. * u, 26. * u), "กิน", g.p.inv[i] > 0, u) {
                 crop_eat = Some(i);
             }
+            if matches!(i, BERRY | FISH | MEAT | SHROOM | HERB) && btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 2. * u, 92. * u, 26. * u), if i == HERB { "ใช้" } else if matches!(i, FISH | MEAT | SHROOM) { "กิน (ดิบ)" } else { "กิน" }, g.p.inv[i] > 0, u) {
+                raw_eat = Some(i);
+            }
             if (DISH_STEW..=DISH_FISH).contains(&i) && btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 2. * u, 92. * u, 26. * u), "กิน", g.p.inv[i] > 0, u) {
                 dish = Some(i);
             }
@@ -309,6 +313,7 @@ fn tab_gear(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
     }
     if let Some(s) = seed_pick { g.seed_sel = s; }
     if let Some(i) = crop_eat { g.eat_crop(i); }
+    if let Some(i) = raw_eat { g.eat_generic(i); }
     if drink {
         g.drink();
     }
@@ -592,13 +597,14 @@ fn tab_settings(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: R
         y += rh;
     }
     // ---- กราฟิก/ประสิทธิภาพ (ค่าส่วนกลาง ใช้ร่วมกับหน้าเมนูหลัก)
-    let grows: [(&str, &str, String); 6] = [
+    let grows: [(&str, &str, String); 7] = [
         ("เฟรมเรต", "30 ประหยัดแบต · 60 ลื่น · ไม่จำกัด = ตามรีเฟรชเรตจอ", prefs::fps_name().to_string()),
         ("เอฟเฟกต์ฝน/หิมะ", "ปิดแล้วเครื่องแรงน้อยจะลื่นขึ้น (ผลช้าลง/มืดยังอยู่)", if prefs::weather_fx() { "เปิด" } else { "ปิด" }.to_string()),
         ("แสงไดนามิก", "สูง = ละเอียด · ต่ำ = เร็วขึ้น · ปิด = มืดเรียบ", prefs::light_name().to_string()),
         ("ขนาดปุ่มทัช", "ปรับให้ใหญ่/เล็กตามมือ", prefs::touch_name().to_string()),
         ("กล้องสั่น", "ตอนโดนตี/ระเบิด", if prefs::shake() { "เปิด" } else { "ปิด" }.to_string()),
         ("แสดง FPS", "มุมซ้ายล่าง", if prefs::show_fps() { "เปิด" } else { "ปิด" }.to_string()),
+        ("เอาตัวรอด", "หิว/กระหาย/เหนื่อย · ปกติ = ไม่ตายเพราะหิว · ยาก = หมดสติได้ · ปิด = ไม่มี", prefs::survival_name().to_string()),
     ];
     let mut gflip = usize::MAX;
     for (i, (n, d, val)) in grows.iter().enumerate() {
@@ -617,6 +623,7 @@ fn tab_settings(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: R
         3 => prefs::cycle_touch(),
         4 => prefs::toggle(&prefs::SHAKE),
         5 => prefs::toggle(&prefs::SHOW_FPS),
+        6 => prefs::cycle_survival(),
         _ => {}
     }
     if visible(y, rh, c) {

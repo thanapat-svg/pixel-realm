@@ -94,16 +94,22 @@ impl Game {
         if n == 0 { 0 } else if n <= 3 { 1 } else if n <= 10 { 2 } else if self.has_castle() && self.walls() >= 12 { 3 } else { 2 }
     }
     pub fn food_stock(&self) -> i32 { self.chests.values().map(|c| FOODS.iter().map(|&i| c[i]).sum::<i32>()).sum() }
-    fn take_food(&mut self, near: (i32, i32)) -> bool {
+    /// กินอาหาร 1 ชิ้นจากกล่องใกล้เตียง — เลือกของที่ชอบก่อน เลี่ยงของที่เกลียด (คืนไอเทมที่กิน)
+    fn take_food_for(&mut self, near: (i32, i32), idx: usize) -> Option<usize> {
+        let (love, hate) = (self.npcs[idx].soc.love as usize, self.npcs[idx].soc.hate as usize);
         let keys: Vec<(i32, i32)> = self.chests.keys().copied().filter(|k| (k.0 - near.0).abs() <= 16 && (k.1 - near.1).abs() <= 16).collect();
+        let mut best: Option<(i32, (i32, i32), usize)> = None;
         for k in keys {
+            let c = self.chests[&k];
             for &f in &FOODS {
-                if let Some(c) = self.chests.get_mut(&k) {
-                    if c[f] > 0 { c[f] -= 1; return true; }
-                }
+                if c[f] <= 0 { continue; }
+                let score = if f == love { 3 } else if f == hate { -3 } else if (DISH_STEW..=DISH_FISH).contains(&f) { 1 } else { 0 };
+                if best.map_or(true, |b| score > b.0) { best = Some((score, k, f)); }
             }
         }
-        false
+        let (_, k, f) = best?;
+        self.chests.get_mut(&k)?[f] -= 1;
+        Some(f)
     }
     fn give_to_chest(&mut self, near: (i32, i32), item: usize, n: i32) {
         let best = self.chests.keys().copied().filter(|k| (k.0 - near.0).abs() <= 16 && (k.1 - near.1).abs() <= 16).min_by_key(|k| (k.0 - near.0).abs() + (k.1 - near.1).abs());
@@ -264,15 +270,24 @@ impl Game {
     pub fn npc_dawn(&mut self) {
         let mut fed_n = 0;
         let mut hungry_n = 0;
+        let mut thirsty_n = 0;
         let ids: Vec<u32> = self.npcs.iter().filter(|n| n.state == ST_HOME).map(|n| n.id).collect();
         for id in &ids {
             let Some(i) = self.idx(*id) else { continue };
             let bed = self.npcs[i].bed;
             let bed_ok = self.w.placed.get(&bed) == Some(&33);
-            let fed = self.take_food(bed);
+            let eaten = self.take_food_for(bed, i);
+            let fed = eaten.is_some();
+            let has_water = self.water_within(bed.0, bed.1, 20);
             let n = &mut self.npcs[i];
             n.mood += if bed_ok { 3 } else { -25 };
             n.mood += if fed { 5 } else { -20 };
+            // น้ำดื่ม: ต้องมีแหล่งน้ำจืด/บ่อน้ำใกล้บ้าน ไม่งั้นทรมานกว่าขาดอาหาร
+            if !has_water { n.mood -= 15; n.soc.grudge = (n.soc.grudge + 2).min(100); thirsty_n += 1; }
+            // รสนิยมการกิน: ของโปรด +4 · ของเกลียด −4 · อาหารปรุงสุก +2
+            if let Some(f) = eaten {
+                n.mood += if f == n.soc.love as usize { 4 } else if f == n.soc.hate as usize { -4 } else if (DISH_STEW..=DISH_FISH).contains(&f) { 2 } else { 0 };
+            }
             // คนในปกครองโทษผู้นำเมื่อลำบาก — ยิ่งใจร้อนยิ่งแค้นเร็ว
             if !bed_ok { n.soc.grudge = (n.soc.grudge + 3 + n.soc.tr[T_TEMPER] as i32 / 30).min(100); }
             if !fed { n.soc.grudge = (n.soc.grudge + 2 + n.soc.tr[T_TEMPER] as i32 / 40).min(100); n.soc.anger = (n.soc.anger + 8).min(100); }
@@ -284,6 +299,7 @@ impl Game {
             if fed { fed_n += 1 } else { hungry_n += 1 }
         }
         for n in self.npcs.iter_mut().filter(|n| n.state != ST_HOME) { n.talked = false; n.gifted = false; }
+        if thirsty_n > 0 { self.news_add(format!("ชาวบ้าน {} คนไม่มีน้ำดื่มใกล้บ้าน — สร้างบ่อน้ำหรือย้ายเตียงไปใกล้แหล่งน้ำ", thirsty_n)); }
         // ย้ายออกเมื่อความสุข 0
         let leaving: Vec<u32> = self.npcs.iter().filter(|n| n.state == ST_HOME && n.mood <= 0).map(|n| n.id).collect();
         for id in &leaving {

@@ -9,7 +9,7 @@ pub struct Piece {
     pub icon: usize,
     pub cost: &'static [(usize, i32)],
 }
-pub const PIECES: [Piece; 12] = [
+pub const PIECES: [Piece; 13] = [
     Piece { name: "กำแพงไม้", desc: "กั้นทางได้ ตีพังได้ (ได้ไม้คืน)", obj: 10, icon: IC_WWALL, cost: &[(WOOD, 2)] },
     Piece { name: "กำแพงหิน", desc: "แข็งแรงกว่ากำแพงไม้", obj: 11, icon: IC_SWALL, cost: &[(STONE, 3)] },
     Piece { name: "ประตู", desc: "กด Q หรือปุ่ม \"ใช้\" เพื่อเปิด-ปิด", obj: 12, icon: IC_DOOR, cost: &[(WOOD, 4)] },
@@ -21,6 +21,7 @@ pub const PIECES: [Piece; 12] = [
     Piece { name: "เตียงนอน", desc: "นอนตอนกลางคืนเพื่อข้ามไปเช้า · ฟื้นเลือดเต็ม · เป็นจุดเกิด", obj: 33, icon: IC_BED, cost: &[(WOOD, 12), (STONE, 2)] },
     Piece { name: "โต๊ะคราฟต์ขั้นสูง", desc: "สร้างอาวุธ/เกราะขั้น 2 (ต้องมีของขั้น 1 ก่อน)", obj: 34, icon: IC_ATABLE, cost: &[(STONE, 20), (WOOD, 10), (GEM, 4)] },
     Piece { name: "ปราสาท", desc: "ศูนย์กลางอาณาจักร (ต้องมี + กำแพงเมือง 12 ชิ้น + ชาวบ้าน >10 = เก็บภาษีได้)", obj: 37, icon: IC_ATABLE, cost: &[(STONE, 80), (WOOD, 40), (GEM, 10)] },
+    Piece { name: "บ่อน้ำ", desc: "น้ำดื่มสะอาด (ดื่มแล้ว +45) · ชาวบ้านในรัศมี 20 ช่องมีน้ำใช้ ไม่ต้องอยู่ริมน้ำ", obj: 39, icon: IC_POT, cost: &[(STONE, 10), (WOOD, 4)] },
     Piece { name: "กำแพงเมือง", desc: "กำแพงหินสูง ทนทานกว่ากำแพงหิน (นับรวมเป็นกำแพงเมือง)", obj: 38, icon: IC_SWALL, cost: &[(STONE, 8)] },
 ];
 
@@ -95,7 +96,7 @@ impl Game {
         for ty in pty - 2..=pty + 2 {
             for tx in ptx - 2..=ptx + 2 {
                 let o = self.w.obj_at(tx, ty);
-                if !matches!(o, 12 | 13 | 14 | 15 | 17 | 19 | 20 | 24 | 25 | 26 | 33 | 34 | 36) {
+                if !matches!(o, 12 | 13 | 14 | 15 | 17 | 19 | 20 | 24 | 25 | 26 | 33 | 34 | 36 | 39) {
                     continue;
                 }
                 let d = (tx as f32 * 16. + 8. - self.p.x).hypot(ty as f32 * 16. + 8. - (self.p.y - 3.));
@@ -118,6 +119,7 @@ impl Game {
             return;
         }
         let Some((k, o)) = self.interact_target() else {
+            if self.drink_ahead() { return; }
             if !self.start_fish() {
                 self.toast("ไม่มีอะไรให้ใช้ตรงนี้");
             }
@@ -157,6 +159,7 @@ impl Game {
                 self.req = Some(Req::Cook);
             }
             33 => self.sleep(k),
+            39 => self.drink_well(),
             34 => {
                 play(&self.sfx.click);
                 self.req = Some(Req::Adv);
@@ -200,6 +203,7 @@ pub fn interact_hint(o: u8, touch: bool) -> String {
         19 => format!("{}: เข้าดันเจี้ยนลับ (อันตราย!)", key),
         36 => format!("{}: เข้าถ้ำใต้ดิน (มืด · มีแร่ · มอนสเตอร์ดุ!)", key),
         33 => format!("{}: นอน (ข้ามไปเช้า)", key),
+        39 => format!("{}: ดื่มน้ำจากบ่อ", key),
         34 => format!("{}: ใช้โต๊ะคราฟต์ขั้นสูง", key),
         20 => format!("{}: ออกจากดันเจี้ยน", key),
         24 => format!("{}: เปิดหีบหายาก", key),
