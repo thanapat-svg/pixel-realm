@@ -22,6 +22,7 @@ mod dungeon;
 mod menu;
 mod prefs;
 mod rpg;
+mod skin;
 use extra::*;
 use farm::*;
 use guide::*;
@@ -33,6 +34,7 @@ use combat::*;
 use dungeon::*;
 use menu::*;
 use rpg::*;
+use skin::*;
 
 // ======================= ค่าคงที่ =======================
 const DAYLEN: f32 = 240.0;
@@ -299,6 +301,7 @@ impl Atlas {
             self.cy += self.rowh + 1;
             self.rowh = 0;
         }
+        assert!(self.cy + h <= self.img.height, "atlas เต็ม — เพิ่มความสูงใน build_sprites");
         for y in 0..h {
             for x in 0..w {
                 self.img.set_pixel((self.cx + x) as u32, (self.cy + y) as u32, src.get_pixel(x as u32, y as u32));
@@ -320,9 +323,10 @@ struct Sprites {
     obj: Vec<Rect>,
     icons: Vec<Rect>,
     ex: art::Extras,
+    skin: Skin,
 }
 fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
-    let mut at = Atlas { img: Image::gen_image_color(512, 512, BLANK), cx: 0, cy: 0, rowh: 0 };
+    let mut at = Atlas { img: Image::gen_image_color(512, 1024, BLANK), cx: 0, cy: 0, rowh: 0 };
     // ---- tiles
     let mut tiles = vec![];
     let defs: Vec<Box<dyn Fn(i32) -> Image>> = vec![
@@ -410,10 +414,11 @@ fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
     ex.flash_slime = [fl_slime[0], fl_slime[1], fl_slime[2], fl_slime[3]];
     ex.flash_skel = fl_skel;
     ex.flash_bat = fl_bat;
+    let skin = skin::build(&mut at, &pd, &pu, &pr, &lf, &ls, pp);
     ov.apply(&mut at, &mut tiles, &mut obj, &mut icons);
     let tex = Texture2D::from_image(&at.img);
     tex.set_filter(FilterMode::Nearest);
-    Sprites { tex, tiles, player, slime, skel, bat, obj, icons, ex }
+    Sprites { tex, tiles, player, slime, skel, bat, obj, icons, ex, skin }
 }
 
 // ======================= entities =======================
@@ -423,10 +428,10 @@ enum EK { Slime, Skel, Bat }
 struct Enemy { k: EK, x: f32, y: f32, hp: f32, spd: f32, dmg: i32, xp: i32, coin: i32, vx: f32, vy: f32, kb: f32, flash: f32, wt: f32, wdx: f32, wdy: f32, anim: f32, pal: usize, dead: bool, night: bool, burn: f32, slow: f32, stun: f32, btick: f32 }
 struct Particle { x: f32, y: f32, vx: f32, vy: f32, l: f32, c: Color }
 struct Float { x: f32, y: f32, t: String, c: Color, l: f32, icon: Option<usize>, sz: f32 }
-struct Player { x: f32, y: f32, dir: usize, flip: bool, hp: i32, maxhp: i32, xp: i32, lvl: i32, sword: usize, pick: bool, rod: bool, elem: u8, elems: u8, inv: [i32; NI], invul: f32, kbx: f32, kby: f32, kbt: f32, atk_t: f32, atk_cd: f32, anim: f32, moving: bool, regen: f32, last_hit: f32, kills: i32, weapon: u8, bow: bool, staff: u8, armor: [u8; 3], sp: i32, st: [u8; 4], wplus: [u8; 3], aplus: [u8; 3], dash_t: f32, dash_cd: f32, dash_dir: Vec2, ghost_t: f32, buff_spd: f32, buff_crit: f32, can: bool, water: i32 }
+struct Player { x: f32, y: f32, dir: usize, flip: bool, hp: i32, maxhp: i32, xp: i32, lvl: i32, sword: usize, pick: bool, rod: bool, elem: u8, elems: u8, inv: [i32; NI], invul: f32, kbx: f32, kby: f32, kbt: f32, atk_t: f32, atk_cd: f32, anim: f32, moving: bool, regen: f32, last_hit: f32, kills: i32, weapon: u8, bow: bool, staff: u8, armor: [u8; 3], outfit: u8, outfits: u8, sp: i32, st: [u8; 4], wplus: [u8; 3], aplus: [u8; 3], dash_t: f32, dash_cd: f32, dash_dir: Vec2, ghost_t: f32, buff_spd: f32, buff_crit: f32, can: bool, water: i32 }
 impl Player {
     fn new(x: f32, y: f32) -> Self {
-        Player { x, y, dir: 0, flip: false, hp: 10, maxhp: 10, xp: 0, lvl: 1, sword: 0, pick: false, rod: false, elem: 0, elems: 1, inv: [0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], invul: 0., kbx: 0., kby: 0., kbt: 0., atk_t: 0., atk_cd: 0., anim: 0., moving: false, regen: 0., last_hit: 0., kills: 0, weapon: 0, bow: false, staff: 0, armor: [0; 3], sp: 0, st: [0; 4], wplus: [0; 3], aplus: [0; 3], dash_t: 0., dash_cd: 0., dash_dir: Vec2::ZERO, ghost_t: 0., buff_spd: 0., buff_crit: 0., can: false, water: 0 }
+        Player { x, y, dir: 0, flip: false, hp: 10, maxhp: 10, xp: 0, lvl: 1, sword: 0, pick: false, rod: false, elem: 0, elems: 1, inv: [0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], invul: 0., kbx: 0., kby: 0., kbt: 0., atk_t: 0., atk_cd: 0., anim: 0., moving: false, regen: 0., last_hit: 0., kills: 0, weapon: 0, bow: false, staff: 0, armor: [0; 3], outfit: 0, outfits: 0, sp: 0, st: [0; 4], wplus: [0; 3], aplus: [0; 3], dash_t: 0., dash_cd: 0., dash_dir: Vec2::ZERO, ghost_t: 0., buff_spd: 0., buff_crit: 0., can: false, water: 0 }
     }
     fn facing(&self) -> (f32, f32) {
         DV[if self.dir == 2 && self.flip { 3 } else { self.dir }]
@@ -576,7 +581,7 @@ impl Game {
         s += &format!("p {} {} {} {} {} {} {} {} {}\n", px, py, p.hp, p.maxhp, p.xp, p.lvl, p.sword, p.pick as i32, p.kills);
         s += "inv";
         for v in p.inv { s += &format!(" {}", v); }
-        s += &format!("\ngear {} {} {} {} {} {}\n", p.weapon, p.bow as i32, p.staff, p.armor[0], p.armor[1], p.armor[2]);
+        s += &format!("\ngear {} {} {} {} {} {} {} {}\n", p.weapon, p.bow as i32, p.staff, p.armor[0], p.armor[1], p.armor[2], p.outfit, p.outfits);
         s += &format!("bcd {}\n", self.boss_cd);
         s += &format!("opt {} {} {}\n", self.sfx_on as i32, self.bgm_on as i32, self.auto_aim as i32);
         s += &format!("rpg {} {} {} {} {} {} {} {} {} {}\n", p.sp, p.st[0], p.st[1], p.st[2], p.st[3], p.wplus[0], p.wplus[1], p.wplus[2], p.aplus[0], p.aplus[1]);
@@ -653,6 +658,7 @@ impl Game {
                     p.bow = f(1) > 0.;
                     p.staff = (f(2) as u8).min(3);
                     for i in 0..3 { p.armor[i] = (f(3 + i) as u8).min(4); }
+                    p.outfits = (f(7) as u8) & 3; p.outfit = (f(6) as u8).min(2);
                     if !p.has_weapon(p.weapon) { p.weapon = 0; }
                 }
                 "bcd" => g.boss_cd = f(0),
@@ -1369,17 +1375,16 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                 if !(p.invul > 0. && ((p.invul * 15.) as i32) % 2 == 1) {
                     let f = if p.moving { 1 + (p.anim * 8.) as usize % 2 } else { 0 };
                     prect(v, sx - 4., sy - 1., 8., 2., Color::new(0., 0., 0., 0.25));
-                    blit(sp, v, sp.player[p.dir][f], sx - 6., sy - 15., p.dir == 2 && p.flip, WHITE);
-                    for (sl, &t) in p.armor.iter().enumerate() {
-                        if t == 0 { continue; }
-                        let c = hx(ATC[t as usize]);
-                        let hi = Color::new((c.r + 0.3).min(1.), (c.g + 0.3).min(1.), (c.b + 0.3).min(1.), 1.);
-                        match sl {
-                            0 => { prect(v, sx - 4., sy - 15., 8., 1., hi); prect(v, sx - 4., sy - 14., 8., 2., c); }
-                            1 => { prect(v, sx - 3., sy - 8., 6., 1., hi); prect(v, sx - 3., sy - 7., 6., 3., c); }
-                            _ => { prect(v, sx - 3., sy - 3., 6., 1., hi); prect(v, sx - 3., sy - 2., 6., 2., c); }
+                    if full_meteor(p) {
+                        // ชุดเกราะดาวตกครบ 3 ชิ้น: ออร่าม่วงเต้น + ประกายโคจร
+                        let pu_ = 0.5 + 0.5 * (t_now * 3.).sin();
+                        draw_circle(sx * v.s, (sy - 8.) * v.s, (9. + pu_ * 2.) * v.s, Color::new(0.78, 0.5, 1., 0.12 + 0.08 * pu_));
+                        for k in 0..3 {
+                            let a = t_now * 2.2 + k as f32 * 2.09;
+                            prect(v, sx + a.cos() * 9. - 0.5, sy - 8. + a.sin() * 6. - 0.5, 1., 1., Color::new(1., 0.9, 1., 0.9));
                         }
                     }
+                    draw_skin(sp, p, (sx - 6.) * v.s, (sy - 15.) * v.s, v.s, p.dir, f, p.dir == 2 && p.flip, WHITE);
                     if p.weapon > 0 {
                         let (fx, fy) = p.facing();
                         let r = sp.icons[if p.weapon == 1 { IC_BOW } else { IC_STAFF }];
@@ -1916,6 +1921,13 @@ fn debug_keys(g: &mut Game) {
         g.p.inv[ARROW] += 30;
         g.p.inv[SEED_CORN] += 5; g.p.inv[SEED_CARROT] += 5; g.p.can = true; g.p.water = WATER_MAX;
         g.toast("[debug] ได้ของ");
+    }
+    if is_key_pressed(KeyCode::F12) {
+        // วนสกิน: เกราะทุกชิ้นระดับ 0..4 แล้วสลับชุดชาวไร่/นักล่า
+        g.p.outfits = 3;
+        if g.p.armor[0] < 4 && g.p.outfit != 1 && g.p.outfit != 2 { let a = g.p.armor[0] + 1; g.p.armor = [a; 3]; }
+        else if g.p.armor[0] >= 4 { g.p.armor = [0; 3]; g.p.outfit = 1; }
+        else if g.p.outfit == 1 { g.p.outfit = 2; } else { g.p.outfit = 0; g.p.armor = [1; 3]; }
     }
     if is_key_pressed(KeyCode::F2) {
         let (pcx, pcy) = (tfloor(g.p.x).div_euclid(CELL), tfloor(g.p.y).div_euclid(CELL));
@@ -3177,5 +3189,36 @@ mod guide_tests {
         // ไม่มีอะไรให้ใช้ตรงจุดเกิด (ยกเว้นน้ำ/ฟาร์ม) → label เป็น None หรือ ตกปลา เท่านั้น
         if let Some(l) = g.use_label() { assert!(l == "ตกปลา" || !l.is_empty()); }
         assert!(g.tut_target().is_some(), "ควรมีต้นไม้ในรัศมี 18 ช่องจากจุดเกิด");
+    }
+}
+
+#[cfg(test)]
+mod skin_tests {
+    use super::*;
+    #[test]
+    fn skin_parts_armor_overrides_outfit() {
+        let mut p = Player::new(0., 0.);
+        assert_eq!(skin_parts(&p), [0, 0, 0]);
+        p.outfit = 1;
+        assert_eq!(skin_parts(&p), [5, 5, 5]);
+        p.armor = [2, 0, 4];
+        assert_eq!(skin_parts(&p), [2, 5, 4]);
+        p.outfit = 2;
+        assert_eq!(skin_parts(&p), [2, 6, 4]);
+        p.armor = [4; 3];
+        assert!(full_meteor(&p));
+    }
+    #[test]
+    fn outfit_craft_and_save_roundtrip() {
+        let mut g = Game::new_world_seed(99, Sfx::default());
+        g.p.inv[WOOD] = 10; g.p.inv[CORN] = 5;
+        let i = RECIPES.iter().position(|r| matches!(r.eff, Eff::Outfit(1))).unwrap();
+        assert_eq!(recipe_state(&g.p, &RECIPES[i]), 0);
+        g.craft(i);
+        assert_eq!((g.p.outfit, g.p.outfits), (1, 1));
+        assert_eq!(recipe_state(&g.p, &RECIPES[i]), 1);
+        let txt = g.save_string();
+        let l = Game::load_str(&txt, Sfx::default()).ok().unwrap();
+        assert_eq!((l.p.outfit, l.p.outfits), (1, 1));
     }
 }

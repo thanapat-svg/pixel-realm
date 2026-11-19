@@ -233,6 +233,30 @@ fn tab_gear(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
     }
     header(font, c, y, "ชุดเกราะ", u);
     y += 28. * u;
+    // พรีวิวตัวละคร (ใส่จริงตามเกราะ/ชุดที่สวม) + ปุ่มสลับชุดที่คราฟต์
+    let ph = 100. * u;
+    if visible(y, ph, c) {
+        draw_rectangle(c.x + 6. * u, y + 4. * u, 110. * u, ph - 8. * u, hx(0x2a2d3f));
+        let sc = 5. * u;
+        let f = ((get_time() * 2.) as usize) % 3;
+        draw_skin(sp, &g.p, c.x + 61. * u - 6. * sc, y + 8. * u, sc, 0, if f == 0 { 0 } else { f }, false, WHITE);
+        let parts = skin_parts(&g.p);
+        let nm = |v: usize| match v { 0 => "พื้นฐาน".to_string(), 1..=4 => ATN[v].to_string(), 5 => "ชาวไร่".to_string(), _ => "นักล่า".to_string() };
+        text(font, &format!("หัว: {}", nm(parts[0])), c.x + 128. * u, y + 24. * u, 13. * u, hx(0xdddddd));
+        text(font, &format!("ตัว: {}", nm(parts[1])), c.x + 128. * u, y + 44. * u, 13. * u, hx(0xdddddd));
+        text(font, &format!("ขา: {}", nm(parts[2])), c.x + 128. * u, y + 64. * u, 13. * u, hx(0xdddddd));
+        text(font, &format!("ชุด: {}", OUTFIT_N[g.p.outfit as usize]), c.x + 128. * u, y + 86. * u, 12. * u, hx(0xffcc66));
+        let owned = g.p.outfits != 0;
+        if btn(ui, font, Rect::new(c.x + c.w - 124. * u, y + 30. * u, 112. * u, 32. * u), "เปลี่ยนชุด", owned, u) {
+            // วนระหว่าง ไม่ใส่ → ชุดที่มี
+            let mut o = g.p.outfit;
+            for _ in 0..3 { o = (o + 1) % 3; if o == 0 || g.p.outfits & (1 << (o - 1)) != 0 { break; } }
+            g.p.outfit = o;
+            g.save();
+        }
+        if !owned { text(font, "คราฟต์ชุดได้ในเมนูคราฟต์", c.x + c.w - 190. * u, y + 80. * u, 11. * u, hx(0x888899)); }
+    }
+    y += ph;
     for s in 0..3 {
         if visible(y, rh, c) {
             let t = g.p.armor[s] as usize;

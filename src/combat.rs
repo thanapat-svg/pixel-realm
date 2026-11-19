@@ -247,6 +247,7 @@ pub enum Eff {
     Rod,
     Armor(usize, u8),
     Can,
+    Outfit(u8),
 }
 pub struct Recipe {
     pub name: &'static str,
@@ -256,7 +257,7 @@ pub struct Recipe {
     pub need: Option<usize>,
     pub eff: Eff,
 }
-pub const RECIPES: [Recipe; 24] = [
+pub const RECIPES: [Recipe; 26] = [
     Recipe { name: "ดาบไม้", desc: "พลังโจมตี 2", cost: &[(WOOD, 5)], need: None, eff: Eff::Sword(1) },
     Recipe { name: "อีเต้อหิน", desc: "ขุดภูเขาเปิดทางได้", cost: &[(WOOD, 4), (STONE, 4)], need: None, eff: Eff::Pick },
     Recipe { name: "ดาบหิน", desc: "พลังโจมตี 3 (ต้องมีดาบไม้)", cost: &[(WOOD, 3), (STONE, 6)], need: None, eff: Eff::Sword(2) },
@@ -281,6 +282,8 @@ pub const RECIPES: [Recipe; 24] = [
     Recipe { name: "ธาตุสายฟ้า (คทา)", desc: "เวทสายฟ้า โอกาสทำให้สตัน · ต้องมีคทา", cost: &[(GEM, 4), (SHARD, 3)], need: None, eff: Eff::Elem(2) },
     Recipe { name: "คันเบ็ด", desc: "ตกปลาที่แหล่งน้ำ (ใช้ Q / ปุ่ม \"ใช้\") — ได้ปลาไว้ทำอาหารหรือขาย", cost: &[(WOOD, 8), (STONE, 2)], need: None, eff: Eff::Rod },
     Recipe { name: "บัวรดน้ำ", desc: "รดน้ำพืชผล (เติมที่แหล่งน้ำ จุ 8 ครั้ง) — ใช้ Q หันหน้าหาแปลง", cost: &[(WOOD, 3), (STONE, 3)], need: None, eff: Eff::Can },
+    Recipe { name: "ชุดชาวไร่", desc: "หมวกฟาง+เสื้อเอี๊ยม เปลี่ยนรูปตัวละคร (เกราะทับได้)", cost: &[(WOOD, 4), (CORN, 3)], need: None, eff: Eff::Outfit(1) },
+    Recipe { name: "ชุดนักล่า", desc: "หมวกขนนก+เสื้อหนังสีเขียว เปลี่ยนรูปตัวละคร", cost: &[(WOOD, 3), (MEAT, 3), (HERB, 2)], need: None, eff: Eff::Outfit(2) },
 ];
 
 /// สูตรของโต๊ะคราฟต์ขั้นสูง (ขั้น 2) — ต้องมีของขั้นก่อนหน้า
@@ -304,6 +307,7 @@ pub fn recipe_state(p: &Player, r: &Recipe) -> u8 {
         }
         Eff::Pick => if p.pick { 1 } else { 0 },
         Eff::Can => if p.can { 1 } else { 0 },
+        Eff::Outfit(o) => if p.outfits & (1 << (o - 1)) != 0 { 1 } else { 0 },
         Eff::Rod => if p.rod { 1 } else { 0 },
         Eff::Bow => if p.bow { 1 } else { 0 },
         Eff::Staff(t) => {
@@ -361,8 +365,12 @@ impl Game {
                 self.p.weapon = 2;
             }
             Eff::Armor(s, t) => self.p.armor[s] = t,
+            Eff::Outfit(o) => {
+                self.p.outfits |= 1 << (o - 1);
+                self.p.outfit = o;
+            }
         }
-        play(if matches!(r.eff, Eff::Sword(_) | Eff::Bow | Eff::Staff(_) | Eff::Armor(..) | Eff::Elem(_)) { &self.sfx.upgrade } else { &self.sfx.craft });
+        play(if matches!(r.eff, Eff::Sword(_) | Eff::Bow | Eff::Staff(_) | Eff::Armor(..) | Eff::Elem(_) | Eff::Outfit(_)) { &self.sfx.upgrade } else { &self.sfx.craft });
         self.toast(format!("คราฟต์ {} สำเร็จ!", r.name));
         self.save();
     }
