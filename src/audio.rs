@@ -11,7 +11,8 @@ pub static SFX_ON: AtomicBool = AtomicBool::new(true);
 const SR: u32 = 22050;
 const BSR: u32 = 16000;
 pub const BGM_VOL: f32 = 0.26;
-pub const BGM_N: usize = 4;
+/// 0 กลางวัน · 1 ค่าย · 2 บอส · 3 กลางคืน · 4 ถ้ำ · 5 เมนูหลัก
+pub const BGM_N: usize = 6;
 
 fn wav_bytes(samples: &[f32], sr: u32) -> Vec<u8> {
     let n = samples.len() as u32;
@@ -93,7 +94,6 @@ pub struct Sfx {
     pub fball: Option<Sound>,
     pub deny: Option<Sound>,
     pub click: Option<Sound>,
-    pub bgm: [Option<Sound>; BGM_N],
 }
 
 async fn load(s: Vec<f32>) -> Option<Sound> {
@@ -132,11 +132,7 @@ pub async fn load_sfx() -> Sfx {
         fball: snd(520., 0.22, -380., 0.2, 1).await,
         deny: snd(160., 0.12, -70., 0.2, 0).await,
         click: snd(800., 0.04, 0., 0.1, 0).await,
-        bgm: Default::default(),
     };
-    for k in 0..BGM_N {
-        s.bgm[k] = load_sound_from_bytes(&wav_bytes(&compose(k), BSR)).await.ok();
-    }
     // วางไฟล์ assets/audio/sfx_<ชื่อ>.ogg|wav หรือ bgm_<n>.ogg|wav เพื่อแทนเสียงสังเคราะห์
     crate::assets::override_audio(&mut s).await;
     s
@@ -266,13 +262,54 @@ fn compose(kind: usize) -> Vec<f32> {
 }
 
 // ======================= ควบคุมเพลงตามสถานการณ์ =======================
+/// ผู้จัดการเพลง: โหลดทีละเพลง (WAV สเตอริโอ 2+ นาที ใช้แรมหลายสิบ MB จึงไม่โหลดค้างทุกเพลง)
+pub struct BgmMgr {
+    cur: i32,
+    snd: Option<Sound>,
+}
+
+impl BgmMgr {
+    pub fn new() -> Self {
+        BgmMgr { cur: -1, snd: None }
+    }
+    pub fn cur(&self) -> i32 {
+        self.cur
+    }
+    /// สลับไปเพลง want (-1 = เงียบ) — เพลงเก่าถูกหยุดและคืนแรม
+    pub async fn set(&mut self, want: i32) {
+        if want == self.cur {
+            return;
+        }
+        if let Some(s) = self.snd.take() {
+            stop_sound(&s);
+        }
+        self.cur = want;
+        if want < 0 {
+            return;
+        }
+        let k = want as usize;
+        let mut s = crate::assets::try_sound(&format!("bgm_{}", k)).await;
+        if s.is_none() {
+            // ไม่มีไฟล์ใน assets → ใช้ chiptune สังเคราะห์ในโค้ด
+            let kind = match k { 4 => 3, 5 => 0, n => n };
+            s = load_sound_from_bytes(&wav_bytes(&compose(kind), BSR)).await.ok();
+        }
+        if let Some(x) = &s {
+            play_sound(x, PlaySoundParams { looped: true, volume: BGM_VOL });
+        }
+        self.snd = s;
+    }
+}
+
 impl Game {
-    /// เลือกเพลงตามสถานการณ์ แล้วสลับเมื่อเปลี่ยน
-    pub fn upd_bgm(&mut self) {
-        let want: i32 = if !self.bgm_on {
+    /// เพลงที่ควรเล่นตามสถานการณ์ (-1 = ปิดเพลง)
+    pub fn bgm_scene(&self) -> i32 {
+        if !self.bgm_on {
             -1
         } else if self.bosses.iter().any(|b| !b.dead && (b.x - self.p.x).hypot(b.y - self.p.y) < 420.) {
             2
+        } else if self.w.dun.as_ref().map_or(false, |d| d.cave) {
+            4
         } else if self.w.dun.is_some() {
             3
         } else if self.w.camp_near(tfloor(self.p.x), tfloor(self.p.y), 9).is_some() {
@@ -281,20 +318,6 @@ impl Game {
             3
         } else {
             0
-        };
-        if want == self.bgm_cur {
-            return;
         }
-        if self.bgm_cur >= 0 {
-            if let Some(s) = &self.sfx.bgm[self.bgm_cur as usize] {
-                stop_sound(s);
-            }
-        }
-        if want >= 0 {
-            if let Some(s) = &self.sfx.bgm[want as usize] {
-                play_sound(s, PlaySoundParams { looped: true, volume: BGM_VOL });
-            }
-        }
-        self.bgm_cur = want;
     }
 }

@@ -30,3 +30,9 @@
 
 ## Android
 `Cargo.toml` ตั้ง `assets = "assets"` ไว้แล้ว ไฟล์ในโฟลเดอร์นี้จะถูกแพ็กเข้า APK
+
+## v6: เตรียม asset อัตโนมัติ (tools/)
+`tools/prepare_assets.sh` (รันใน GitHub Actions ก่อน build ทุกครั้ง) ทำสองอย่าง
+- `tools/gen_audio.py` สร้างเพลงสเตอริโอ 6 เพลง (bgm_0 กลางวัน · 1 ค่าย · 2 บอส · 3 กลางคืน · 4 ถ้ำ · 5 เมนู) ยาว ~2:15–2:40 + sfx 27 ไฟล์ ลง `assets/audio/` (WAV 22.05 kHz 16-bit ≈ 76 MB)
+- `tools/fetch_sprites.py` โหลดสเปรดชีต CC0 (Kenney Micro Roguelike 8x8) แล้วตัดช่องตาม `tools/sprite_map.json` ลง `assets/sprites/` (ต้นไม้ + ไอคอนดาบ/ธนู/ประตู)
+ไฟล์ที่สร้างอยู่ใน .gitignore (สร้างใหม่ทุก build) · เกมโหลดเพลงทีละเพลง (BgmMgr) · ถ้าไม่มีไฟล์ จะใช้ chiptune ในโค้ดแทน

@@ -5,7 +5,7 @@
 //! ไฟล์ที่ไม่มีจะถูกข้ามไป ไม่ทำให้เกมพัง — ดูรายละเอียดใน assets/README.md
 //!
 //! เสียง: assets/audio/sfx_<ชื่อ>.ogg|wav   (ชื่อ = ฟิลด์ใน Sfx เช่น sfx_swing, sfx_hit, sfx_chest)
-//!        assets/audio/bgm_<เลข>.ogg|wav    (เลข 0..BGM_N-1)
+//!        assets/audio/bgm_<เลข>.ogg|wav    (เลข 0..BGM_N-1 — โหลดแบบ lazy โดย BgmMgr)
 //! ภาพ:   assets/sprites/tile_<id>.png      (ไทล์พื้น id ตาม TN เช่น tile_3 = ทุ่งหญ้า)
 //!        assets/sprites/obj_<id>.png       (วัตถุ id ตามตารางใน main.rs เช่น obj_26 = หม้อทำอาหาร)
 //!        assets/sprites/icon_<n>.png       (ไอคอนไอเทม/เครื่องมือ n ตามลำดับ icons)
@@ -38,11 +38,6 @@ pub async fn override_audio(s: &mut Sfx) {
         ($($f:ident),* $(,)?) => { $( if let Some(x) = try_sound(concat!("sfx_", stringify!($f))).await { s.$f = Some(x); } )* };
     }
     ov!(swing, hit, chop, rock, hurt, kill, gem, lvl, craft, eat, fire, chest, shoot, boom, buy, door, dash, crit, pickup, upgrade, roar, battk, quest, trap, fball, deny, click);
-    for k in 0..BGM_N {
-        if let Some(x) = try_sound(&format!("bgm_{}", k)).await {
-            s.bgm[k] = Some(x);
-        }
-    }
 }
 
 /// ภาพที่โหลดจากไฟล์ (รอแทนสไปรต์ที่วาดด้วยโค้ด)

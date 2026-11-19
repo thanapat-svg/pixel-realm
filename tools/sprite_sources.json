@@ -1,0 +1,13 @@
+{
+  "_note": "รายการแหล่งภาพ CC0 (สเปรดชีตแบบกริด) สคริปต์จะลองทีละ URL จนกว่าจะโหลดได้ภาพ PNG จริง (ข้ามไฟล์ Git-LFS pointer/404) ไม่มี URL ไหนโหลดได้ = ข้ามเงียบๆ เกมใช้สไปรต์ที่วาดในโค้ดตามเดิม. เพิ่ม URL ของคุณเองได้ หรือส่งผ่านตัวแปร SPRITE_PACK_URL",
+  "sheets": {
+    "micro": {
+      "license": "CC0 (Kenney Micro Roguelike/1-Bit, ช่อง 8x8 — ภาพ 80x72 = 10x9 ช่อง, ตรวจด้วยตาแล้ว)",
+      "cell": 8,
+      "gap": 0,
+      "urls": [
+        "https://media.githubusercontent.com/media/dfkeenan/MicroRogue/master/Resources/colored_tilemap_packed.png"
+      ]
+    }
+  }
+}

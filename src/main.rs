@@ -486,7 +486,6 @@ struct Game {
     thunder: f32,
     cshake: (f32, f32),
     bgm_on: bool,
-    bgm_cur: i32,
     sfx_on: bool,
     auto_aim: bool,
     pick_cd: f32,
@@ -540,7 +539,7 @@ impl Game {
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
-            rain: 0., rain_on: false, rain_t: 90., thunder: 0., cshake: (0., 0.), bgm_on: true, bgm_cur: -1, sfx_on: true,
+            rain: 0., rain_on: false, rain_t: 90., thunder: 0., cshake: (0., 0.), bgm_on: true, sfx_on: true,
             auto_aim: true, pick_cd: 0.,
             crops: HashMap::new(), crop_t: 0., bed: None, seed_sel: 0, sleep_fx: 0., build_cur: None, cur_pos: (0., 0.), weather_kind: 1,
         }
@@ -1168,7 +1167,6 @@ impl Game {
         self.upd_comp(dt);
         self.dun_t -= dt;
         if self.dun_t <= 0. { self.dun_t = 1.; self.discover_duns(); self.discover_wps(); }
-        self.upd_bgm();
         // fx
         for p in self.parts.iter_mut() { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 120. * dt; p.l -= dt; }
         self.parts.retain(|p| p.l > 0.);
@@ -1933,6 +1931,7 @@ async fn main() {
     let mini_tex = Texture2D::from_image(&mini_img);
     mini_tex.set_filter(FilterMode::Nearest);
     let mut sfx_slot: Option<Sfx> = Some(load_sfx().await);
+    let mut bgm = BgmMgr::new();
     let mut game: Option<Game> = None;
     let has_save = std::fs::metadata(save_path()).is_ok();
     let mut bg = Game::new_world_placeholder(Sfx::default());
@@ -2162,6 +2161,12 @@ async fn main() {
                 }
             }
         }
+        let want = match (&state, &game) {
+            (State::Title, _) => 5,
+            (_, Some(g)) => g.bgm_scene(),
+            _ => -1,
+        };
+        bgm.set(want).await;
         next_frame().await;
     }
 }

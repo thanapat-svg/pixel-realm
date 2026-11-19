@@ -1,0 +1,65 @@
+{
+  "_note": "cell=[คอลัมน์,แถว] ของสเปรดชีต 'micro' (ช่อง 8x8). enabled=true เฉพาะช่องที่ตรวจกับภาพ preview แล้ว. ดู preview ได้ที่ artifact 'sprite-preview' ใน Actions",
+  "entries": [
+    {
+      "sheet": "micro",
+      "cell": [
+        4,
+        5
+      ],
+      "out": "obj_1",
+      "enabled": true,
+      "what": "ต้นไม้"
+    },
+    {
+      "sheet": "micro",
+      "cell": [
+        6,
+        4
+      ],
+      "out": "icon_25",
+      "enabled": true,
+      "what": "ไอคอนดาบ"
+    },
+    {
+      "sheet": "micro",
+      "cell": [
+        8,
+        4
+      ],
+      "out": "icon_26",
+      "enabled": true,
+      "what": "ไอคอนธนู"
+    },
+    {
+      "sheet": "micro",
+      "cell": [
+        4,
+        2
+      ],
+      "out": "icon_33",
+      "enabled": true,
+      "what": "ไอคอนประตู"
+    },
+    {
+      "sheet": "micro",
+      "cell": [
+        6,
+        7
+      ],
+      "out": "obj_37",
+      "enabled": false,
+      "what": "ปราสาท (สำรองไว้ใช้กับ v6 kingdom)"
+    },
+    {
+      "sheet": "micro",
+      "cell": [
+        5,
+        7
+      ],
+      "out": "obj_38",
+      "enabled": false,
+      "what": "บ้าน (สำรอง)"
+    }
+  ]
+}

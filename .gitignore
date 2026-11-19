@@ -1,2 +1,6 @@
 target/
 pixel_realm_save.txt
+assets/audio/*.wav
+assets/audio/*.ogg
+assets/sprites/*.png
+build/
