@@ -137,6 +137,8 @@ pub async fn load_sfx() -> Sfx {
     for k in 0..BGM_N {
         s.bgm[k] = load_sound_from_bytes(&wav_bytes(&compose(k), BSR)).await.ok();
     }
+    // วางไฟล์ assets/audio/sfx_<ชื่อ>.ogg|wav หรือ bgm_<n>.ogg|wav เพื่อแทนเสียงสังเคราะห์
+    crate::assets::override_audio(&mut s).await;
     s
 }
 

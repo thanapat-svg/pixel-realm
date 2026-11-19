@@ -9,6 +9,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 mod art;
+mod assets;
 mod extra;
 mod farm;
 mod audio;
@@ -32,14 +33,14 @@ use rpg::*;
 
 // ======================= ค่าคงที่ =======================
 const DAYLEN: f32 = 240.0;
-const TN: [&str; 13] = [
-    "ทะเลลึก", "แหล่งน้ำ", "ชายหาด", "ทุ่งหญ้า", "ป่าทึบ", "เขตหินผา", "ภูเขา", "ดินแดนหิมะ", "ทะเลทราย", "ดันเจี้ยน", "กำแพงดันเจี้ยน", "ดินไถ", "ดินเปียก",
+const TN: [&str; 15] = [
+    "ทะเลลึก", "แหล่งน้ำ", "ชายหาด", "ทุ่งหญ้า", "ป่าทึบ", "เขตหินผา", "ภูเขา", "ดินแดนหิมะ", "ทะเลทราย", "ดันเจี้ยน", "กำแพงดันเจี้ยน", "ดินไถ", "ดินเปียก", "พื้นถ้ำ", "ผนังถ้ำ",
 ];
-const TCOL: [u32; 13] = [
-    0x1d4f91, 0x2f7fd0, 0xe6d29a, 0x5fae4a, 0x3f8a3a, 0x8a8a8a, 0x5c5450, 0xeef4f8, 0xe8b86a, 0x3a3a4c, 0x14141e, 0x7a5230, 0x52341e,
+const TCOL: [u32; 15] = [
+    0x1d4f91, 0x2f7fd0, 0xe6d29a, 0x5fae4a, 0x3f8a3a, 0x8a8a8a, 0x5c5450, 0xeef4f8, 0xe8b86a, 0x3a3a4c, 0x14141e, 0x7a5230, 0x52341e, 0x3a343c, 0x1a1618,
 ];
 // tiles: 0 deep,1 water,2 sand,3 grass,4 forest,5 stone,6 mountain,7 snow,8 desert
-const SOLIDT: [bool; 13] = [true, true, false, false, false, false, true, false, false, false, true, false, false];
+const SOLIDT: [bool; 15] = [true, true, false, false, false, false, true, false, false, false, true, false, false, false, true];
 // objects: 1 tree,2 bush,3 flower,4 rock,5 ore,6 chest,7 cactus,8 pine,9 campfire,
 //   10 กำแพงไม้,11 กำแพงหิน,12 ประตูปิด,13 ประตูเปิด,14 กล่องเก็บของ,15 พ่อค้า,16 เต็นท์
 //   17 โต๊ะตีเหล็ก,18 คบเพลิง,19 ทางเข้าดันเจี้ยน,20 ทางออกดันเจี้ยน,21 หนามหุบ,22 หนามโผล่,23 ป้อมลูกไฟ,24 หีบสมบัติหายาก
@@ -189,7 +190,7 @@ impl World {
     }
     fn nat_obj(&self, tx: i32, ty: i32) -> u8 {
         if let Some(o) = self.camp_obj(tx, ty) { return o; }
-        if self.dun_in_cell(tx.div_euclid(DCELL), ty.div_euclid(DCELL)) == Some((tx, ty)) { return 19; }
+        if self.dun_in_cell(tx.div_euclid(DCELL), ty.div_euclid(DCELL)) == Some((tx, ty)) { return if self.is_cave_cell(tx.div_euclid(DCELL), ty.div_euclid(DCELL)) { 36 } else { 19 }; }
         if self.wp_in_cell(tx.div_euclid(WPC), ty.div_euclid(WPC)) == Some((tx, ty)) { return 25; }
         let t = self.tile_at(tx, ty);
         let r = hash(tx, ty, self.seed.wrapping_add(5));
@@ -317,7 +318,7 @@ struct Sprites {
     icons: Vec<Rect>,
     ex: art::Extras,
 }
-fn build_sprites() -> Sprites {
+fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
     let mut at = Atlas { img: Image::gen_image_color(512, 512, BLANK), cx: 0, cy: 0, rowh: 0 };
     // ---- tiles
     let mut tiles = vec![];
@@ -335,6 +336,8 @@ fn build_sprites() -> Sprites {
         Box::new(|i| mk_tex(0x16161f, &[0x1e1e2a, 0x10101a, 0x1a1a26], 14, 100 + i, Extra::None)),
         Box::new(|i| soil_tex(0x7a5230, 0x5e3c20, 0x8c6238, 110 + i)),
         Box::new(|i| soil_tex(0x52341e, 0x3a2414, 0x5e3e24, 120 + i)),
+        Box::new(|i| mk_tex(0x2e2a30, &[0x3a363e, 0x241f26, 0x35303a], 18, 130 + i, Extra::None)),
+        Box::new(|i| mk_tex(0x4a4440, &[0x3e3834, 0x57504a, 0x2e2926], 20, 140 + i, Extra::Mountain)),
     ];
     for d in &defs {
         tiles.push((0..4).map(|i| at.add(&d(i))).collect::<Vec<_>>());
@@ -404,6 +407,7 @@ fn build_sprites() -> Sprites {
     ex.flash_slime = [fl_slime[0], fl_slime[1], fl_slime[2], fl_slime[3]];
     ex.flash_skel = fl_skel;
     ex.flash_bat = fl_bat;
+    ov.apply(&mut at, &mut tiles, &mut obj, &mut icons);
     let tex = Texture2D::from_image(&at.img);
     tex.set_filter(FilterMode::Nearest);
     Sprites { tex, tiles, player, slime, skel, bat, obj, icons, ex }
@@ -788,7 +792,8 @@ impl Game {
     }
     fn hit_object(&mut self, tx: i32, ty: i32, dmg: i32) -> bool {
         let k = (tx, ty);
-        if self.w.dun.is_some() { return false; }
+        let in_dun = self.w.dun.is_some();
+        if in_dun && !matches!(self.w.obj_at(tx, ty), 4 | 5) { return false; }
         let o = self.w.obj_at(tx, ty);
         if (19..=25).contains(&o) || (27..=32).contains(&o) || o == 36 { return true; }
         if o == 0 || o == 3 {
@@ -822,7 +827,11 @@ impl Game {
         if o == 4 || o == 5 || o == 11 || o == 17 || o == 26 || o == 34 { play(&self.sfx.rock) } else { play(&self.sfx.chop) }
         if h < OHP[o as usize] { self.obj_dmg.insert(k, h); return true; }
         self.obj_dmg.remove(&k);
-        if self.w.placed.remove(&k).is_none() { self.w.removed.insert(k); }
+        if in_dun {
+            if let Some(d) = self.w.dun.as_mut() { d.set_obj(tx, ty, 0); }
+        } else if self.w.placed.remove(&k).is_none() {
+            self.w.removed.insert(k);
+        }
         self.burst(x, y + 8., col, 12, 70.);
         match o {
             1 => self.gain(WOOD, rnd(2, 3), x, y),
@@ -830,7 +839,12 @@ impl Game {
             2 => self.gain(BERRY, rnd(1, 3), x, y),
             7 => self.gain(BERRY, 1, x, y),
             4 => self.gain(STONE, rnd(2, 3), x, y),
-            5 => { self.gain(STONE, 1, x, y); self.gain(GEM, 1, x, y - 8.); play(&self.sfx.gem); }
+            5 => {
+                self.gain(STONE, 1, x, y);
+                self.gain(GEM, if in_dun { rnd(1, 2) } else { 1 }, x, y - 8.);
+                if in_dun && gen_range(0., 1.) < 0.2 { self.gain(SHARD, 1, x, y - 16.); }
+                play(&self.sfx.gem);
+            }
             9 => self.gain(FIRE, 1, x, y),
             17 => self.gain(STONE, 5, x, y),
             26 => self.gain(STONE, 3, x, y),
@@ -1065,7 +1079,7 @@ impl Game {
         self.time += dt;
         let hr = ((self.time / DAYLEN * 24.) + 6.) % 24.;
         self.darkv = (((hr - 12.).abs() - 5.) / 2.).clamp(0., 1.) * 0.82;
-        self.darkv = if self.w.dun.is_some() { 0.62 } else { (self.darkv + self.rain * 0.18).min(0.88) };
+        self.darkv = if let Some(d) = &self.w.dun { if d.cave { 0.8 } else { 0.62 } } else { (self.darkv + self.rain * 0.18).min(0.88) };
         if inp.eat { self.eat(); }
         if inp.fire { self.place_fire(); }
         if inp.potion { self.drink(); }
@@ -1232,21 +1246,21 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
             let o = w.obj_at(tx, ty);
             if o == 0 { continue; }
             if o == 9 {
-                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 10. - v.cy, 80. + (t_now * 11. + tx as f32).sin() * 4., true));
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 10. - v.cy, pulse_r(80., t_now, tx as f32 * 1.7 + ty as f32 * 0.9, 2.5), true));
             } else if o == 15 {
                 lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 8. - v.cy, 58., true));
             } else if o == 18 {
-                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 6. - v.cy, 66. + (t_now * 13. + tx as f32).sin() * 3., true));
-            } else if o == 19 || o == 20 {
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 6. - v.cy, pulse_r(66., t_now, tx as f32 * 1.7 + ty as f32 * 0.9, 2.), true));
+            } else if o == 19 || o == 20 || o == 36 {
                 lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 8. - v.cy, 40., false));
             } else if o == 25 {
-                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 6. - v.cy, 46. + (t_now * 3. + tx as f32).sin() * 4., false));
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 6. - v.cy, 46. + (t_now * 1.6 + tx as f32).sin() * 4., false));
             } else if o == 26 {
-                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 8. - v.cy, 44., true));
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 8. - v.cy, pulse_r(44., t_now, tx as f32 * 1.7 + ty as f32 * 0.9, 1.5), true));
             } else if o == 24 || o == 23 {
                 lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 8. - v.cy, 26., false));
             }
-            let flat = matches!(o, 3 | 19 | 20 | 21 | 22);
+            let flat = matches!(o, 3 | 19 | 20 | 21 | 22 | 36);
             list.push((ty as f32 * 16. + if flat { 0. } else { 14. }, Draw::Obj(o, tx, ty)));
         }
     }
@@ -1377,7 +1391,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         }
     }
     draw_proj(g, sp, v);
-    for pr in &g.proj { if matches!(pr.kind, 1 | 7 | 8 | 9) { lights.push((pr.x - v.cx, pr.y - v.cy, 26., false)); } }
+    for pr in &g.proj { if matches!(pr.kind, 1 | 7 | 8 | 9) { lights.push((pr.x - v.cx, pr.y - v.cy, pulse_r(26., t_now, pr.x * 0.3, 1.5), false)); } }
     if let Some(sel) = g.build_sel {
         let (tx, ty) = g.build_target();
         // กริดช่วยวางให้ตรงช่อง (เฉพาะช่องที่อยู่ในระยะ)
@@ -1416,7 +1430,16 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     draw_weather(g, v, t_now);
     // night lighting (เซลล์ 4px ให้ดูเป็นพิกเซล)
     if g.darkv > 0.02 {
-        lights.push(((g.p.x - v.cx).round(), (g.p.y - v.cy).round() - 6., 48., false));
+        // คทาเวทมนตร์: แสงรอบตัวกว้างกว่าและเต้นตามจังหวะ มีสีตามธาตุ
+        let staff = g.p.weapon == 2 && g.p.staff > 0;
+        let pr = if staff { pulse_r(62., t_now, 0., 0.) } else { 48. };
+        lights.push(((g.p.x - v.cx).round(), (g.p.y - v.cy).round() - 6., pr, false));
+        if staff {
+            let mc = hx(ELEM_C[g.p.elem as usize]);
+            for k in 1..4 {
+                draw_circle((g.p.x - v.cx).round() * v.s, ((g.p.y - v.cy).round() - 6.) * v.s, pr * v.s * 0.2 * k as f32, Color::new(mc.r, mc.g, mc.b, 0.05 * g.darkv));
+            }
+        }
         let cell = 4.;
         let mut y = 0.;
         while y < v.vh {
@@ -1720,6 +1743,10 @@ fn touch_buttons() -> [(Vec2, f32, usize); 9] {
         (vec2(sw - 245. * u, sh - 205. * u), 26. * u, 8),
     ]
 }
+/// รัศมีแสงที่ "หายใจ" เข้าออกอย่างนุ่มนวล (ph = เฟสของแหล่งแสง) + ประกายเล็กน้อยสำหรับไฟ
+fn pulse_r(base: f32, t: f32, ph: f32, flick: f32) -> f32 {
+    base * (1. + 0.08 * (t * 1.7 + ph).sin()) + flick * (t * 19. + ph * 2.7).sin() * (t * 6.3 + ph).sin()
+}
 fn tile_of(v: &View, p: Vec2) -> (i32, i32) {
     (((p.x / v.s + v.cx) / 16.).floor() as i32, ((p.y / v.s + v.cy) / 16.).floor() as i32)
 }
@@ -1899,7 +1926,8 @@ fn debug_keys(g: &mut Game) {
 #[macroquad::main(window_conf)]
 async fn main() {
     macroquad::rand::srand((miniquad::date::now() * 1000.) as u64);
-    let sp = build_sprites();
+    let sp_ov = assets::load_sprite_overrides().await;
+    let sp = build_sprites(&sp_ov);
     let font = load_ttf_font_from_bytes(include_bytes!("../assets/PixelRealmThai-Bold.ttf")).expect("font");
     let mut mini_img = Image::gen_image_color(120, 120, BLACK);
     let mini_tex = Texture2D::from_image(&mini_img);
@@ -2358,8 +2386,12 @@ mod tests {
     }
 
     fn find_dun(g: &Game) -> (i32, i32) {
-        for cy in -8..8 { for cx in -8..8 { if let Some(e) = g.w.dun_in_cell(cx, cy) { return e; } } }
+        for cy in -12..12 { for cx in -12..12 { if let Some(e) = g.w.dun_in_cell(cx, cy) { if !g.w.is_cave_cell(cx, cy) { return e; } } } }
         panic!("ไม่พบทางเข้าดันเจี้ยน");
+    }
+    fn find_cave(g: &Game) -> (i32, i32) {
+        for cy in -12..12 { for cx in -12..12 { if let Some(e) = g.w.dun_in_cell(cx, cy) { if g.w.is_cave_cell(cx, cy) { return e; } } } }
+        panic!("ไม่พบปากถ้ำ");
     }
 
     #[test]
@@ -2830,5 +2862,111 @@ mod tests {
         g.crops.insert(k, Crop { kind: 0, grown: 0., wet: 0. });
         g.upd_crops(1.);
         assert!(g.crops[&k].grown > 0.);
+    }
+    #[test]
+    fn cave_generation_is_connected_and_minable() {
+        let opened = HashSet::new();
+        for (seed, cx, cy) in [(1, 0, 0), (777, 3, -2), (42, -5, 7), (9, 11, 11), (31337, -9, -4), (5, 2, 2)] {
+            let d = Dungeon::generate_cave(seed, (cx, cy), false, &opened);
+            assert!(d.cave);
+            assert_eq!(d.tile(d.entry.0, d.entry.1), T_CFLOOR);
+            assert_eq!(d.tile(d.boss_at.0, d.boss_at.1), T_CFLOOR);
+            // ผนังรอบนอกต้องปิด
+            for x in 0..DW { assert_eq!(d.tile(x, 0), T_CWALL); assert_eq!(d.tile(x, DH - 1), T_CWALL); }
+            // เดินจากทางเข้าไปห้องบอสและหีบทุกใบได้ แม้แร่เป็นของตัน
+            let dm = dun_dist(&d, d.entry, false);
+            let ix = |x: i32, y: i32| (y * DW + x) as usize;
+            assert!(dm[ix(d.boss_at.0, d.boss_at.1)] > 20, "ห้องบอสต้องไกลพอและไปถึง seed {}", seed);
+            assert!(d.chests.len() >= 3, "หีบ 2 ใบ + หีบมินิบอส");
+            for &(x, y) in &d.chests {
+                assert!([(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|&(a, b)| dm[ix(x + a, y + b)] >= 0), "หีบไปไม่ถึง");
+            }
+            let ores = d.objs.iter().filter(|&&o| o == 4 || o == 5).count();
+            assert!(ores >= 10, "ต้องมีแร่/หินให้ขุด {} seed {}", ores, seed);
+            assert!(d.objs.iter().any(|&o| o == 5), "ต้องมีแร่อัญมณี");
+            assert!(d.objs.iter().any(|&o| o == 18) && d.objs.iter().filter(|&&o| o == 20).count() == 1);
+            assert!(d.spawns.len() >= 8, "มอนสเตอร์น้อยไป {}", d.spawns.len());
+            for &(_, x, y) in &d.spawns { assert_eq!(d.tile(tfloor(x), tfloor(y)), T_CFLOOR); }
+            // deterministic
+            let d2 = Dungeon::generate_cave(seed, (cx, cy), false, &opened);
+            assert_eq!((d.tiles == d2.tiles, d.objs == d2.objs), (true, true));
+            // หีบที่เปิดแล้วไม่โผล่อีก
+            let mut op = HashSet::new(); op.insert((cx, cy, 0));
+            let d3 = Dungeon::generate_cave(seed, (cx, cy), false, &op);
+            assert!(d3.objs.iter().filter(|&&o| o == 24).count() < d.objs.iter().filter(|&&o| o == 24).count() + 1);
+        }
+    }
+
+    #[test]
+    fn cave_entrance_enter_mine_exit() {
+        let mut g = game(2024);
+        let e = find_cave(&g);
+        assert_eq!(g.w.obj_at(e.0, e.1), 36);
+        assert!(g.w.is_cave_cell(e.0.div_euclid(DCELL), e.1.div_euclid(DCELL)));
+        g.p.x = e.0 as f32 * 16. + 8.; g.p.y = e.1 as f32 * 16. + 20.;
+        let before = (g.p.x, g.p.y);
+        g.w.placed.insert((900, 900), 10);
+        let (plc, rem) = (g.w.placed.len(), g.w.removed.len());
+        g.interact_target().filter(|t| t.1 == 36).expect("ปากถ้ำต้องโต้ตอบได้");
+        g.interact();
+        let d = g.w.dun.as_ref().expect("เข้าถ้ำ");
+        assert!(d.cave);
+        g.update(0.016, &Input::default());
+        assert!((g.darkv - 0.8).abs() < 1e-4, "ถ้ำมืดกว่าดันเจี้ยนห้อง {}", g.darkv);
+        assert!(g.en.len() >= 8);
+        assert!(g.en.iter().any(|e| e.night), "ต้องมีมอนสเตอร์ดุ");
+        // ขุดแร่ในถ้ำ
+        let ore = (0..DH).flat_map(|y| (0..DW).map(move |x| (x, y))).find(|&(x, y)| g.w.obj_at(x, y) == 5).expect("ไม่มีแร่");
+        let (gem0, st0) = (g.p.inv[GEM], g.p.inv[STONE]);
+        for _ in 0..6 { g.hit_object(ore.0, ore.1, 1); }
+        assert_eq!(g.w.obj_at(ore.0, ore.1), 0, "แร่ต้องหายหลังขุด");
+        assert!(g.p.inv[GEM] > gem0 && g.p.inv[STONE] > st0);
+        assert_eq!((g.w.placed.len(), g.w.removed.len()), (plc, rem), "การขุดในถ้ำห้ามแก้โลกข้างนอก");
+        // วัตถุอื่นในถ้ำ (คบเพลิง) ห้ามตีพัง
+        let tch = (0..DH).flat_map(|y| (0..DW).map(move |x| (x, y))).find(|&(x, y)| g.w.obj_at(x, y) == 18).unwrap();
+        assert!(!g.hit_object(tch.0, tch.1, 99));
+        assert_eq!(g.w.obj_at(tch.0, tch.1), 18);
+        // เซฟกลางถ้ำ → โหลดกลับมาอยู่ที่ปากถ้ำข้างนอก
+        let h = Game::load_str(&g.save_string(), Sfx::default()).ok().expect("load");
+        assert!(h.w.dun.is_none());
+        assert!((h.p.x - before.0).abs() < 0.01 && (h.p.y - before.1).abs() < 0.01);
+        g.exit_dungeon();
+        assert!(g.w.dun.is_none());
+        assert_eq!((g.p.x, g.p.y), before);
+        // ถ้ำดุกว่า: มอนสเตอร์เลือดเยอะกว่าดันเจี้ยนห้องที่ระยะเดียวกัน (mul x1.4)
+        let hp_cave = { g.enter_dungeon(e); let m = g.en.iter().map(|e| e.hp).fold(0., f32::max); g.exit_dungeon(); m };
+        assert!(hp_cave >= 4.);
+    }
+
+    #[test]
+    fn room_dungeons_and_caves_both_exist() {
+        let g = game(777);
+        let (mut rooms, mut caves) = (0, 0);
+        for cy in -12..12 { for cx in -12..12 {
+            if let Some(e) = g.w.dun_in_cell(cx, cy) {
+                let o = g.w.obj_at(e.0, e.1);
+                if g.w.is_cave_cell(cx, cy) { assert_eq!(o, 36); caves += 1; } else { assert_eq!(o, 19); rooms += 1; }
+            }
+        } }
+        assert!(rooms >= 3 && caves >= 3, "rooms {} caves {}", rooms, caves);
+    }
+
+    #[test]
+    fn light_pulse_is_smooth_and_asset_fit_resizes() {
+        let mut prev = pulse_r(66., 0., 1., 0.);
+        let (mut lo, mut hi) = (f32::MAX, 0f32);
+        for i in 1..2000 {
+            let r = pulse_r(66., i as f32 * 0.01, 1., 0.);
+            assert!((r - prev).abs() < 0.5, "แสงกระโดด");
+            prev = r; lo = lo.min(r); hi = hi.max(r);
+        }
+        assert!(hi - lo > 8. && lo > 55. && hi < 77., "ต้องหายใจเข้าออก {} {}", lo, hi);
+        let mut im = Image::gen_image_color(64, 64, Color::new(1., 0., 0., 1.));
+        im.set_pixel(0, 0, Color::new(0., 1., 0., 1.));
+        let f = assets::fit(&im, 16, 16);
+        assert_eq!((f.width, f.height), (16, 16));
+        assert!(f.get_pixel(8, 8).r > 0.9);
+        let up = assets::fit(&Image::gen_image_color(2, 2, Color::new(0., 0., 1., 1.)), 8, 8);
+        assert_eq!((up.width, up.get_pixel(7, 7).b), (8, 1.));
     }
 }

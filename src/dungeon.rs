@@ -9,6 +9,9 @@ pub const DW: i32 = 57;
 pub const DH: i32 = 39;
 pub const T_FLOOR: u8 = 9;
 pub const T_WALL: u8 = 10;
+/// ไทล์ถ้ำ (พื้น/ผนังหิน)
+pub const T_CFLOOR: u8 = 13;
+pub const T_CWALL: u8 = 14;
 
 pub struct DRng(u64);
 impl DRng {
@@ -43,6 +46,8 @@ pub struct Dungeon {
     /// หีบสมบัติ: ตำแหน่งตามรหัสหีบ (รหัสสุดท้าย = หีบรางวัลมินิบอส)
     pub chests: Vec<(i32, i32)>,
     pub spawns: Vec<(EK, f32, f32)>,
+    /// true = ถ้ำที่สร้างด้วย cellular automata (มืดกว่า มีแร่ มอนสเตอร์ดุกว่า)
+    pub cave: bool,
 }
 impl Dungeon {
     pub fn tile(&self, x: i32, y: i32) -> u8 {
@@ -51,7 +56,7 @@ impl Dungeon {
     pub fn obj(&self, x: i32, y: i32) -> u8 {
         if x < 0 || y < 0 || x >= DW || y >= DH { 0 } else { self.objs[(y * DW + x) as usize] }
     }
-    fn set_obj(&mut self, x: i32, y: i32, o: u8) {
+    pub fn set_obj(&mut self, x: i32, y: i32, o: u8) {
         if x >= 0 && y >= 0 && x < DW && y < DH {
             self.objs[(y * DW + x) as usize] = o;
         }
@@ -69,7 +74,7 @@ impl Dungeon {
         let mut r = DRng::new((seed as u64) ^ ((cell.0 as i64 as u64) << 32) ^ (cell.1 as i64 as u64).wrapping_mul(7919));
         let mut d = Dungeon {
             cell, theme, tiles: vec![T_WALL; (DW * DH) as usize], objs: vec![0; (DW * DH) as usize], entry: (0, 0), boss_at: (0, 0),
-            boss_kind: if matches!(theme, 3 | 4 | 8) { 0 } else { 1 }, spikes: vec![], turrets: vec![], chests: vec![], spawns: vec![],
+            boss_kind: if matches!(theme, 3 | 4 | 8) { 0 } else { 1 }, spikes: vec![], turrets: vec![], chests: vec![], spawns: vec![], cave: false,
         };
         let (cw, ch) = (DW / 3, DH / 3);
         // ห้อง 3x3 เรียงงู (0,0)->(2,0)->(2,1)->(0,1)->(0,2)->(2,2)
@@ -183,12 +188,256 @@ impl Dungeon {
     }
 }
 
+fn shuffle<T>(v: &mut Vec<T>, r: &mut DRng) {
+    for i in (1..v.len()).rev() {
+        let j = r.range(0, i as i32) as usize;
+        v.swap(i, j);
+    }
+}
+fn largest_component(floor: &[bool]) -> Vec<(i32, i32)> {
+    let mut seen = vec![false; floor.len()];
+    let mut best: Vec<(i32, i32)> = vec![];
+    for sy in 0..DH {
+        for sx in 0..DW {
+            let si = (sy * DW + sx) as usize;
+            if !floor[si] || seen[si] {
+                continue;
+            }
+            let mut comp = vec![];
+            let mut st = vec![(sx, sy)];
+            seen[si] = true;
+            while let Some((x, y)) = st.pop() {
+                comp.push((x, y));
+                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if nx < 0 || ny < 0 || nx >= DW || ny >= DH {
+                        continue;
+                    }
+                    let ni = (ny * DW + nx) as usize;
+                    if floor[ni] && !seen[ni] {
+                        seen[ni] = true;
+                        st.push((nx, ny));
+                    }
+                }
+            }
+            if comp.len() > best.len() {
+                best = comp;
+            }
+        }
+    }
+    best
+}
+/// ระยะทางเดิน (BFS) จาก `from` ผ่านพื้นที่เดินได้ (ไม่ทะลุกำแพง/แร่/วัตถุตัน) — -1 = ไปไม่ถึง
+pub fn dun_dist(d: &Dungeon, from: (i32, i32), ignore_ore: bool) -> Vec<i32> {
+    let mut dist = vec![-1; (DW * DH) as usize];
+    let mut q = std::collections::VecDeque::new();
+    dist[(from.1 * DW + from.0) as usize] = 0;
+    q.push_back(from);
+    while let Some((x, y)) = q.pop_front() {
+        let dd = dist[(y * DW + x) as usize];
+        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            let (nx, ny) = (x + dx, y + dy);
+            let ni = (ny * DW + nx) as usize;
+            if nx < 0 || ny < 0 || nx >= DW || ny >= DH || dist[ni] >= 0 || SOLIDT[d.tile(nx, ny) as usize] {
+                continue;
+            }
+            if !ignore_ore && OSOLID[d.obj(nx, ny) as usize] {
+                continue;
+            }
+            dist[ni] = dd + 1;
+            q.push_back((nx, ny));
+        }
+    }
+    dist
+}
+
+impl Dungeon {
+    /// ถ้ำ: สุ่มถมกำแพง ~46% แล้วทำให้เรียบ 4 รอบ (cellular automata) เก็บเฉพาะโพรงใหญ่สุด
+    /// มีแร่/หินให้ขุดตามผนัง คบเพลิงห่างๆ หีบ 2 ใบ + หีบมินิบอส และมอนสเตอร์หนาแน่น
+    pub fn generate_cave(seed: i32, cell: (i32, i32), cleared: bool, opened: &HashSet<(i32, i32, i32)>) -> Dungeon {
+        let mut r = DRng::new((seed as u64) ^ ((cell.0 as i64 as u64) << 32) ^ (cell.1 as i64 as u64).wrapping_mul(104729) ^ 0xCA7E);
+        let idx = |x: i32, y: i32| (y * DW + x) as usize;
+        let edge = |x: i32, y: i32| x <= 1 || y <= 1 || x >= DW - 2 || y >= DH - 2;
+        let mut floor = vec![false; (DW * DH) as usize];
+        let mut comp: Vec<(i32, i32)> = vec![];
+        for _try in 0..40 {
+            for y in 0..DH {
+                for x in 0..DW {
+                    floor[idx(x, y)] = !edge(x, y) && r.f() > 0.46;
+                }
+            }
+            for _ in 0..4 {
+                let old = floor.clone();
+                for y in 1..DH - 1 {
+                    for x in 1..DW - 1 {
+                        let mut walls = 0;
+                        for dy in -1..=1 {
+                            for dx in -1..=1 {
+                                if !old[idx(x + dx, y + dy)] {
+                                    walls += 1;
+                                }
+                            }
+                        }
+                        floor[idx(x, y)] = walls < 5 && !edge(x, y);
+                    }
+                }
+            }
+            comp = largest_component(&floor);
+            if comp.len() >= 380 {
+                break;
+            }
+        }
+        if comp.len() < 200 {
+            // ทางสำรอง: โพรงวงรีกลางแผนที่
+            for y in 0..DH {
+                for x in 0..DW {
+                    let (dx, dy) = ((x - DW / 2) as f32 / 22., (y - DH / 2) as f32 / 14.);
+                    floor[idx(x, y)] = dx * dx + dy * dy < 1. && !edge(x, y);
+                }
+            }
+            comp = largest_component(&floor);
+        }
+        let mut d = Dungeon {
+            cell, theme: 5, tiles: vec![T_CWALL; (DW * DH) as usize], objs: vec![0; (DW * DH) as usize], entry: (0, 0), boss_at: (0, 0),
+            boss_kind: 1, spikes: vec![], turrets: vec![], chests: vec![], spawns: vec![], cave: true,
+        };
+        for &(x, y) in &comp {
+            d.tiles[idx(x, y)] = T_CFLOOR;
+        }
+        // ทางออก = ซ้ายสุดที่มีพื้นอยู่ทางขวา ; จุดเกิด = ช่องถัดไป
+        let mut sorted = comp.clone();
+        sorted.sort();
+        let ex = *sorted.iter().find(|&&(x, y)| d.tile(x + 1, y) == T_CFLOOR).unwrap_or(&sorted[0]);
+        d.set_obj(ex.0, ex.1, 20);
+        d.entry = (ex.0 + 1, ex.1);
+        // ห้องบอส = ช่องที่ไกลที่สุด + ขยายเป็นลานกลม
+        let dist0 = dun_dist(&d, d.entry, true);
+        let mut far = d.entry;
+        for &(x, y) in &comp {
+            if dist0[idx(x, y)] > dist0[idx(far.0, far.1)] {
+                far = (x, y);
+            }
+        }
+        d.boss_at = far;
+        for dy in -3..=3i32 {
+            for dx in -3..=3i32 {
+                let (x, y) = (far.0 + dx, far.1 + dy);
+                if dx * dx + dy * dy <= 9 && !edge(x, y) {
+                    d.tiles[idx(x, y)] = T_CFLOOR;
+                }
+            }
+        }
+        let dist = dun_dist(&d, d.entry, true);
+        let dd = |x: i32, y: i32| dist[idx(x, y)];
+        let near_boss = |x: i32, y: i32| (x - far.0).abs().max((y - far.1).abs()) <= 4;
+        let floors: Vec<(i32, i32)> = (0..DH).flat_map(|y| (0..DW).map(move |x| (x, y))).filter(|&(x, y)| d.tile(x, y) == T_CFLOOR && dd(x, y) >= 0).collect();
+        let max_d = floors.iter().map(|&(x, y)| dd(x, y)).max().unwrap_or(1).max(1);
+        let touches_wall = |d: &Dungeon, x: i32, y: i32| [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|&(a, b)| d.tile(x + a, y + b) == T_CWALL);
+        // คบเพลิงติดผนังด้านบน ห่างกัน >= 9 ช่อง (ใกล้ทางเข้า 1 อัน)
+        let mut cand: Vec<(i32, i32)> = floors.iter().copied().filter(|&(x, y)| d.tile(x, y - 1) == T_CWALL && dd(x, y) >= 3).collect();
+        shuffle(&mut cand, &mut r);
+        let mut torches: Vec<(i32, i32)> = vec![];
+        if let Some(&t) = cand.iter().find(|&&(x, y)| dd(x, y) <= 7) {
+            torches.push(t);
+        }
+        for &(x, y) in &cand {
+            if torches.len() >= 9 {
+                break;
+            }
+            if torches.iter().all(|&(a, b)| (a - x).abs().max((b - y).abs()) >= 9) {
+                torches.push((x, y));
+            }
+        }
+        for &(x, y) in &torches {
+            d.set_obj(x, y, 18);
+        }
+        // หีบ: กลางทาง + ไกลทางเข้า (ติดผนัง)
+        for (id, frac) in [(0, 0.5f32), (1, 0.8)] {
+            let target = (max_d as f32 * frac) as i32;
+            let mut best: Option<(i32, i32, i32)> = None;
+            for &(x, y) in &floors {
+                if d.obj(x, y) == 0 && touches_wall(&d, x, y) && !near_boss(x, y) {
+                    let e = (dd(x, y) - target).abs();
+                    if best.map_or(true, |b| e < b.2) {
+                        best = Some((x, y, e));
+                    }
+                }
+            }
+            if let Some((x, y, _)) = best {
+                d.chests.push((x, y));
+                if !opened.contains(&(cell.0, cell.1, id)) {
+                    d.set_obj(x, y, 24);
+                }
+            }
+        }
+        // หีบรางวัลมินิบอส (รหัสสุดท้าย): ช่องในลานบอสที่ไกลที่สุดจากทางเข้า
+        let mut bc = (far.0, far.1 + 1);
+        let mut bd = -1;
+        for dy in -2..=2i32 {
+            for dx in -2..=2i32 {
+                let (x, y) = (far.0 + dx, far.1 + dy);
+                if (dx, dy) != (0, 0) && d.tile(x, y) == T_CFLOOR && d.obj(x, y) == 0 && dd(x, y) > bd {
+                    bd = dd(x, y);
+                    bc = (x, y);
+                }
+            }
+        }
+        let bid = d.chests.len() as i32;
+        d.chests.push(bc);
+        if cleared && !opened.contains(&(cell.0, cell.1, bid)) {
+            d.set_obj(bc.0, bc.1, 24);
+        }
+        // แร่/หินตามผนัง (ไม่ติดกัน และห้ามปิดทางไปบอส)
+        let mut cand: Vec<(i32, i32)> = floors.iter().copied().filter(|&(x, y)| d.obj(x, y) == 0 && touches_wall(&d, x, y) && dd(x, y) >= 5 && !near_boss(x, y)).collect();
+        shuffle(&mut cand, &mut r);
+        let mut ores: Vec<(i32, i32)> = vec![];
+        for &(x, y) in &cand {
+            if ores.len() >= 34 {
+                break;
+            }
+            let crowded = (-1..=1).any(|dy| (-1..=1).any(|dx| matches!(d.obj(x + dx, y + dy), 4 | 5 | 18 | 24 | 20)));
+            if crowded {
+                continue;
+            }
+            let o = if r.f() < 0.55 { 5 } else { 4 };
+            d.set_obj(x, y, o);
+            ores.push((x, y));
+        }
+        // กันแร่ปิดทางเดิน: ถ้าไปห้องบอส/หีบไม่ถึง ให้ถอดแร่ออกทีละก้อน
+        loop {
+            let dm = dun_dist(&d, d.entry, false);
+            let ok = dm[idx(far.0, far.1)] >= 0 && d.chests.iter().all(|&(x, y)| d.obj(x, y) != 0 || true) && d.chests.iter().all(|&(x, y)| {
+                [(1, 0), (-1, 0), (0, 1), (0, -1), (0, 0)].iter().any(|&(a, b)| dm[idx(x + a, y + b)] >= 0)
+            });
+            if ok || ores.is_empty() {
+                break;
+            }
+            let (x, y) = ores.pop().unwrap();
+            d.set_obj(x, y, 0);
+        }
+        // มอนสเตอร์หนาแน่น (เจอมากกว่าห้องปกติ)
+        let mut cand: Vec<(i32, i32)> = floors.iter().copied().filter(|&(x, y)| d.obj(x, y) == 0 && dd(x, y) >= 12 && !near_boss(x, y)).collect();
+        shuffle(&mut cand, &mut r);
+        let n = r.range(14, 18) as usize;
+        for &(x, y) in cand.iter().take(n) {
+            let q = r.f();
+            let k = if q < 0.25 { EK::Slime } else if q < 0.7 { EK::Skel } else { EK::Bat };
+            d.spawns.push((k, x as f32 * 16. + 8., y as f32 * 16. + 12.));
+        }
+        d
+    }
+}
+
 /// หนามโผล่ตามจังหวะเวลา
 pub fn spike_on(time: f32, x: i32, y: i32) -> bool {
     ((time * 0.6 + hash(x, y, 5) as f32 * 3.).fract()) < 0.45
 }
 
 impl World {
+    /// เซลล์นี้เป็นถ้ำ (ปากถ้ำ obj 36) หรือดันเจี้ยนห้อง (obj 19)
+    pub fn is_cave_cell(&self, cx: i32, cy: i32) -> bool {
+        hash(cx, cy, self.seed.wrapping_add(4242)) < 0.45
+    }
     /// ทางเข้าดันเจี้ยนในเซลล์ (จำผลไว้)
     pub fn dun_in_cell(&self, cx: i32, cy: i32) -> Option<(i32, i32)> {
         if self.dun.is_some() {
@@ -249,8 +498,11 @@ impl Game {
         let cell = (tile.0.div_euclid(DCELL), tile.1.div_euclid(DCELL));
         let theme = self.w.tile_at(tile.0, tile.1);
         let cleared = self.dun_clear.contains(&cell);
-        let d = Dungeon::generate(self.w.seed, cell, theme, cleared, &self.dun_chests);
-        let mul = 1.25 + (tile.0 as f32 - self.spawn.0 / 16.).hypot(tile.1 as f32 - self.spawn.1 / 16.) / 250.;
+        let cave = self.w.is_cave_cell(cell.0, cell.1);
+        let d = if cave { Dungeon::generate_cave(self.w.seed, cell, cleared, &self.dun_chests) } else { Dungeon::generate(self.w.seed, cell, theme, cleared, &self.dun_chests) };
+        let mut mul = 1.25 + (tile.0 as f32 - self.spawn.0 / 16.).hypot(tile.1 as f32 - self.spawn.1 / 16.) / 250.;
+        if cave { mul *= 1.4; }
+        self.obj_dmg.clear();
         self.dun_ret = (self.p.x, self.p.y);
         self.en.clear();
         self.bosses.clear();
@@ -263,15 +515,20 @@ impl Game {
         self.w.dun = Some(Box::new(d));
         self.p.x = ex as f32 * 16. + 8.;
         self.p.y = ey as f32 * 16. + 12.;
-        for (k, x, y) in spawns {
-            self.make_enemy(k, x, y, mul, 0, false);
+        for (i, (k, x, y)) in spawns.into_iter().enumerate() {
+            // ในถ้ำ 40% เป็นมอนสเตอร์ "ดุ" (เวอร์ชันกลางคืน: เลือด/ดาเมจสูง ดรอปเศษดาว)
+            self.make_enemy(k, x, y, mul, 0, cave && i % 5 < 2);
         }
         if !cleared {
             let hp = (BHP[bk as usize] * 0.6 * mul).ceil();
             self.spawn_boss_hp(bk, bx, by, hp);
         }
         self.tp_comp();
-        self.toast(format!("เข้าสู่ดันเจี้ยน{}", TN[theme as usize]));
+        if cave {
+            self.toast("เข้าสู่ถ้ำใต้ดิน — มืด มีแร่ให้ขุด มอนสเตอร์ดุกว่า!");
+        } else {
+            self.toast(format!("เข้าสู่ดันเจี้ยน{}", TN[theme as usize]));
+        }
         play(&self.sfx.door);
     }
 
@@ -281,6 +538,7 @@ impl Game {
         }
         self.p.x = self.dun_ret.0;
         self.p.y = self.dun_ret.1;
+        self.obj_dmg.clear();
         self.en.clear();
         self.bosses.clear();
         self.proj.clear();
