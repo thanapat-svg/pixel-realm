@@ -118,7 +118,7 @@ impl Game {
         }
     }
     pub fn shake_off(&self) -> (f32, f32) {
-        if self.cshake.1 > 0. {
+        if self.cshake.1 > 0. && crate::prefs::shake() {
             (gen_range(-1., 1.) * self.cshake.0, gen_range(-1., 1.) * self.cshake.0)
         } else {
             (0., 0.)

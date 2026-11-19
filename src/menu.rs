@@ -549,6 +549,39 @@ fn tab_settings(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: R
         }
         y += rh;
     }
+    // ---- กราฟิก/ประสิทธิภาพ (ค่าส่วนกลาง ใช้ร่วมกับหน้าเมนูหลัก)
+    let grows: [(&str, &str, String); 6] = [
+        ("เฟรมเรต", "30 ประหยัดแบต · 60 ลื่น · ไม่จำกัด = ตามรีเฟรชเรตจอ", prefs::fps_name().to_string()),
+        ("เอฟเฟกต์ฝน/หิมะ", "ปิดแล้วเครื่องแรงน้อยจะลื่นขึ้น (ผลช้าลง/มืดยังอยู่)", if prefs::weather_fx() { "เปิด" } else { "ปิด" }.to_string()),
+        ("แสงไดนามิก", "สูง = ละเอียด · ต่ำ = เร็วขึ้น · ปิด = มืดเรียบ", prefs::light_name().to_string()),
+        ("ขนาดปุ่มทัช", "ปรับให้ใหญ่/เล็กตามมือ", prefs::touch_name().to_string()),
+        ("กล้องสั่น", "ตอนโดนตี/ระเบิด", if prefs::shake() { "เปิด" } else { "ปิด" }.to_string()),
+        ("แสดง FPS", "มุมซ้ายล่าง", if prefs::show_fps() { "เปิด" } else { "ปิด" }.to_string()),
+    ];
+    let mut gflip = usize::MAX;
+    for (i, (n, d, val)) in grows.iter().enumerate() {
+        if visible(y, rh, c) {
+            text(font, n, c.x + 8. * u, y + 20. * u, 15. * u, hx(0xffcc66));
+            text(font, d, c.x + 8. * u, y + 38. * u, 11. * u, hx(0xaaaaaa));
+            if btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 9. * u, 92. * u, 32. * u), val, true, u) { gflip = i; }
+            sep(c, y + rh - 2.);
+        }
+        y += rh;
+    }
+    match gflip {
+        0 => prefs::cycle_fps(),
+        1 => prefs::toggle(&prefs::WEATHER_FX),
+        2 => prefs::cycle_light(),
+        3 => prefs::cycle_touch(),
+        4 => prefs::toggle(&prefs::SHAKE),
+        5 => prefs::toggle(&prefs::SHOW_FPS),
+        _ => {}
+    }
+    if visible(y, rh, c) {
+        text(font, "บันทึกอัตโนมัติ แล้วกลับหน้าเมนูหลัก", c.x + 8. * u, y + 28. * u, 13. * u, hx(0xdddddd));
+        if btn(ui, font, Rect::new(c.x + c.w - 124. * u, y + 9. * u, 112. * u, 32. * u), "เมนูหลัก", true, u) { g.to_title = true; }
+    }
+    y += rh;
     if visible(y, rh, c) {
         let n = g.comp.as_ref().map(|c| COMP_N[c.kind as usize]).unwrap_or("ไม่มี");
         text(font, &format!("ผู้ติดตาม: {}", n), c.x + 8. * u, y + 28. * u, 14. * u, hx(0xdddddd));

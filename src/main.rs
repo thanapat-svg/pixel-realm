@@ -19,6 +19,7 @@ mod camp;
 mod combat;
 mod dungeon;
 mod menu;
+mod prefs;
 mod rpg;
 use extra::*;
 use farm::*;
@@ -486,6 +487,7 @@ struct Game {
     thunder: f32,
     cshake: (f32, f32),
     bgm_on: bool,
+    to_title: bool,
     sfx_on: bool,
     auto_aim: bool,
     pick_cd: f32,
@@ -539,7 +541,7 @@ impl Game {
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
-            rain: 0., rain_on: false, rain_t: 90., thunder: 0., cshake: (0., 0.), bgm_on: true, sfx_on: true,
+            rain: 0., rain_on: false, rain_t: 90., thunder: 0., cshake: (0., 0.), bgm_on: true, to_title: false, sfx_on: true,
             auto_aim: true, pick_cd: 0.,
             crops: HashMap::new(), crop_t: 0., bed: None, seed_sel: 0, sleep_fx: 0., build_cur: None, cur_pos: (0., 0.), weather_kind: 1,
         }
@@ -1425,7 +1427,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         c.a = (p.l * 2.).min(1.);
         prect(v, (p.x - v.cx).round(), (p.y - v.cy).round(), 1., 1., c);
     }
-    draw_weather(g, v, t_now);
+    if prefs::weather_fx() { draw_weather(g, v, t_now); }
     // night lighting (เซลล์ 4px ให้ดูเป็นพิกเซล)
     if g.darkv > 0.02 {
         // คทาเวทมนตร์: แสงรอบตัวกว้างกว่าและเต้นตามจังหวะ มีสีตามธาตุ
@@ -1438,22 +1440,28 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                 draw_circle((g.p.x - v.cx).round() * v.s, ((g.p.y - v.cy).round() - 6.) * v.s, pr * v.s * 0.2 * k as f32, Color::new(mc.r, mc.g, mc.b, 0.05 * g.darkv));
             }
         }
-        let cell = 4.;
-        let mut y = 0.;
-        while y < v.vh {
-            let mut x = 0.;
-            while x < v.vw {
-                let (cx, cy) = (x + 2., y + 2.);
-                let mut lit = 0f32;
-                for &(lx, ly, lr, _) in &lights {
-                    let d = (cx - lx).hypot(cy - ly);
-                    if d < lr { lit = lit.max(((1. - d / lr) * 1.6).min(1.)); }
+        let lq = prefs::light_q();
+        if lq == 0 {
+            // ปิดแสงไดนามิก: มืดเรียบ (อ่อนกว่าเดิมเล็กน้อยให้ยังมองเห็น)
+            prect(v, 0., 0., v.vw, v.vh, Color::new(0.03, 0.04, 0.15, g.darkv * 0.62));
+        } else {
+            let cell = if lq == 1 { 10. } else { 4. };
+            let mut y = 0.;
+            while y < v.vh {
+                let mut x = 0.;
+                while x < v.vw {
+                    let (cx, cy) = (x + cell / 2., y + cell / 2.);
+                    let mut lit = 0f32;
+                    for &(lx, ly, lr, _) in &lights {
+                        let d = (cx - lx).hypot(cy - ly);
+                        if d < lr { lit = lit.max(((1. - d / lr) * 1.6).min(1.)); }
+                    }
+                    let a = g.darkv * (1. - lit);
+                    if a > 0.01 { prect(v, x, y, cell, cell, Color::new(0.03, 0.04, 0.15, a)); }
+                    x += cell;
                 }
-                let a = g.darkv * (1. - lit);
-                if a > 0.01 { prect(v, x, y, cell, cell, Color::new(0.03, 0.04, 0.15, a)); }
-                x += cell;
+                y += cell;
             }
-            y += cell;
         }
         for &(lx, ly, lr, fire) in &lights {
             if fire {
@@ -1724,21 +1732,27 @@ fn update_minimap(g: &Game, img: &mut Image, tex: &Texture2D) {
 }
 
 // ---------- touch controls ----------
-struct TouchUI { active: bool, joy_id: Option<u64>, joy_c: Vec2, joy_v: Vec2, atk_id: Option<u64>, aim: Vec2 }
+struct TouchUI { active: bool, joy_id: Option<u64>, joy_c: Vec2, joy_v: Vec2, atk_id: Option<u64>, aim: Vec2, flash: [f32; 9] }
 /// 0 โจมตี/เล็ง · 1 กิน · 2 กองไฟ · 3 เมนู · 4 แผนที่ · 5 สลับอาวุธ · 6 ใช้ · 7 วางสิ่งปลูกสร้าง
+/// หน่วยขนาดปุ่มทัช: อิงความสูงจอ (ปุ่มโจมตี ≈ 16 มม. บนมือถือทั่วไป) × ตัวเลือกขนาดปุ่มในตั้งค่า
+fn tunit() -> f32 {
+    (screen_height() / 450.).clamp(1., 3.2) * prefs::touch_mul()
+}
 fn touch_buttons() -> [(Vec2, f32, usize); 9] {
-    let u = ui_scale();
+    let t = tunit();
     let (sw, sh) = (screen_width(), screen_height());
+    let mm = minimap_rect(false);
+    let ty = mm.y + 4. * t + 26. * t;
     [
-        (vec2(sw - 75. * u, sh - 85. * u), 42. * u, 0),
-        (vec2(sw - 165. * u, sh - 130. * u), 28. * u, 1),
-        (vec2(sw - 165. * u, sh - 55. * u), 28. * u, 2),
-        (vec2(sw - 75. * u, sh - 180. * u), 26. * u, 3),
-        (vec2(sw - 245. * u, sh - 55. * u), 26. * u, 4),
-        (vec2(sw - 165. * u, sh - 205. * u), 26. * u, 5),
-        (vec2(sw - 245. * u, sh - 130. * u), 28. * u, 6),
-        (vec2(sw - 75. * u, sh - 260. * u), 26. * u, 7),
-        (vec2(sw - 245. * u, sh - 205. * u), 26. * u, 8),
+        (vec2(sw - 80. * t, sh - 84. * t), 50. * t, 0),   // โจมตี (ใหญ่สุด หัวแม่มือขวา)
+        (vec2(sw - 238. * t, sh - 54. * t), 28. * t, 1),  // กิน
+        (vec2(sw - 238. * t, sh - 124. * t), 28. * t, 2), // กองไฟ
+        (vec2(mm.x - 36. * t, ty), 26. * t, 3),           // เมนู (มุมขวาบน ไม่ปนกับปุ่มเล่น)
+        (vec2(mm.x - 36. * t - 64. * t, ty), 26. * t, 4), // แผนที่
+        (vec2(sw - 80. * t, sh - 184. * t), 28. * t, 5),  // สลับอาวุธ
+        (vec2(sw - 156. * t, sh - 140. * t), 32. * t, 6), // ใช้
+        (vec2(sw - 80. * t, sh - 244. * t), 28. * t, 7),  // วางสิ่งปลูกสร้าง
+        (vec2(sw - 170. * t, sh - 56. * t), 32. * t, 8),  // พุ่ง
     ]
 }
 /// รัศมีแสงที่ "หายใจ" เข้าออกอย่างนุ่มนวล (ph = เฟสของแหล่งแสง) + ประกายเล็กน้อยสำหรับไฟ
@@ -1752,26 +1766,32 @@ fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool) {
     let ts = touches();
     if !ts.is_empty() { tu.active = true; }
     let btns = touch_buttons();
-    let u = ui_scale();
+    let u = tunit();
+    for f in tu.flash.iter_mut() { *f = (*f - get_frame_time()).max(0.); }
     for t in ts {
         match t.phase {
             TouchPhase::Started => {
                 let mut on_btn = false;
+                // เลือกปุ่มที่ใกล้ที่สุด (สัดส่วนต่อรัศมี) ปุ่มเดียวต่อการแตะ กันกดซ้อนปุ่มติดกัน
+                let mut best: Option<(f32, usize)> = None;
                 for (c, r, id) in btns {
                     if id == 7 && !build { continue; }
-                    if t.position.distance(c) < r * 1.15 {
-                        on_btn = true;
-                        match id {
-                            0 => { tu.atk_id = Some(t.id); tu.aim = Vec2::ZERO; }
-                            1 => inp.eat = true,
-                            2 => inp.fire = true,
-                            3 => inp.menu = Some(0),
-                            4 => inp.map = true,
-                            5 => inp.swap = true,
-                            6 => inp.act = true,
-                            8 => inp.dash = true,
-                            _ => inp.place = true,
-                        }
+                    let q = t.position.distance(c) / r;
+                    if q < 1.3 && best.map_or(true, |(bq, _)| q < bq) { best = Some((q, id)); }
+                }
+                if let Some((_, id)) = best {
+                    on_btn = true;
+                    tu.flash[id] = 0.16;
+                    match id {
+                        0 => { tu.atk_id = Some(t.id); tu.aim = Vec2::ZERO; }
+                        1 => inp.eat = true,
+                        2 => inp.fire = true,
+                        3 => inp.menu = Some(0),
+                        4 => inp.map = true,
+                        5 => inp.swap = true,
+                        6 => inp.act = true,
+                        8 => inp.dash = true,
+                        _ => inp.place = true,
                     }
                 }
                 if !on_btn && build && t.position.x >= screen_width() * 0.5 { inp.tile_tap = Some(t.position); }
@@ -1783,14 +1803,14 @@ fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool) {
             }
             TouchPhase::Moved | TouchPhase::Stationary => {
                 if tu.joy_id == Some(t.id) {
-                    let m = 45. * u;
+                    let m = 52. * u;
                     let d = t.position - tu.joy_c;
                     tu.joy_v = if d.length() > m { d.normalize() } else { d / m };
                 }
                 if tu.atk_id == Some(t.id) {
                     // ลากนิ้วออกจากปุ่มโจมตี = เล็งทิศ (ธนู/คทา)
                     let d = t.position - btns[0].0;
-                    tu.aim = if d.length() > 14. * u { d.normalize() } else { Vec2::ZERO };
+                    tu.aim = if d.length() > 16. * u { d.normalize() } else { Vec2::ZERO };
                 }
             }
             TouchPhase::Ended | TouchPhase::Cancelled => {
@@ -1807,44 +1827,52 @@ fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool) {
 }
 fn draw_touch(tu: &TouchUI, sp: &Sprites, font: &Font, build: bool, weapon: u8, dash_cd: f32) {
     if !tu.active { return; }
-    let u = ui_scale();
-    // ปุ่มทั้งหมดโปร่งแสง 50% เพื่อไม่บังฉาก
-    const TA: f32 = 0.5;
-    let wh = Color::new(1., 1., 1., TA);
+    let u = tunit();
+    const TA: f32 = 0.62;
+    let wh = Color::new(1., 1., 1., TA + 0.2);
     let ic = |i: usize, x: f32, y: f32, z: f32| draw_texture_ex(&sp.tex, x, y, wh, DrawTextureParams { source: Some(sp.icons[i]), dest_size: Some(vec2(z, z)), ..Default::default() });
-    let tc = |s: &str, x: f32, y: f32, z: f32, c: Color| text_c(font, s, x, y, z, Color::new(c.r, c.g, c.b, TA));
+    let tc = |s: &str, x: f32, y: f32, z: f32, c: Color| text_c(font, s, x, y, z, Color::new(c.r, c.g, c.b, 0.9));
+    let m = 52. * u;
     if tu.joy_id.is_some() {
-        let m = 45. * u;
-        draw_circle(tu.joy_c.x, tu.joy_c.y, m + 10. * u, Color::new(1., 1., 1., 0.06));
-        draw_circle_lines(tu.joy_c.x, tu.joy_c.y, m + 10. * u, 2., Color::new(1., 1., 1., 0.15));
+        draw_circle(tu.joy_c.x, tu.joy_c.y, m + 12. * u, Color::new(1., 1., 1., 0.10));
+        draw_circle_lines(tu.joy_c.x, tu.joy_c.y, m + 12. * u, 3., Color::new(1., 1., 1., 0.35));
         let k = tu.joy_c + tu.joy_v * m;
-        draw_circle(k.x, k.y, 20. * u, Color::new(1., 1., 1., 0.22));
+        draw_circle(k.x, k.y, 24. * u, Color::new(1., 1., 1., 0.4));
+    } else {
+        // จอยสติ๊กลอย: แสดงวงจางๆ ที่มุมซ้ายล่างให้รู้ว่าแตะค้างตรงไหนก็ได้ครึ่งจอซ้าย
+        let c = vec2(110. * u, screen_height() - 100. * u);
+        draw_circle(c.x, c.y, m, Color::new(1., 1., 1., 0.07));
+        draw_circle_lines(c.x, c.y, m, 3., Color::new(1., 1., 1., 0.22));
+        draw_circle(c.x, c.y, 20. * u, Color::new(1., 1., 1., 0.14));
     }
     for (c, r, id) in touch_buttons() {
         if id == 7 && !build { continue; }
-        let held = id == 0 && tu.atk_id.is_some();
-        draw_circle(c.x, c.y, r, if id == 0 { Color::new(0.8, 0.25, 0.15, if held { 0.35 } else { 0.25 }) } else if id == 7 { Color::new(0.1, 0.5, 0.2, 0.3) } else { Color::new(0., 0., 0., 0.22) });
-        draw_circle_lines(c.x, c.y, r, 2., Color::new(1., 1., 1., 0.18));
+        let held = (id == 0 && tu.atk_id.is_some()) || tu.flash[id] > 0.;
+        let base = if id == 0 { Color::new(0.85, 0.25, 0.15, 0.38) } else if id == 7 { Color::new(0.1, 0.55, 0.25, 0.4) } else { Color::new(0.05, 0.05, 0.1, 0.42) };
+        draw_circle(c.x, c.y, r, base);
+        if held { draw_circle(c.x, c.y, r, Color::new(1., 1., 1., 0.28)); }
+        draw_circle_lines(c.x, c.y, r, 3., Color::new(1., 1., 1., if held { 0.8 } else { 0.4 }));
+        let lab = |s: &str| tc(s, c.x, c.y + r * 0.88, 11. * u, hx(0xdddddd));
         match id {
             0 => {
                 ic([ICON_SWORD, IC_BOW, IC_STAFF][weapon as usize], c.x - r * 0.55, c.y - r * 0.55, r * 1.1);
                 if held && tu.aim.length() > 0.5 {
                     let e = c + tu.aim * r * 1.8;
-                    draw_line(c.x, c.y, e.x, e.y, 3. * u, Color::new(1., 1., 0.6, 0.5));
-                    draw_circle(e.x, e.y, 5. * u, Color::new(1., 1., 0.6, 0.55));
+                    draw_line(c.x, c.y, e.x, e.y, 3. * u, Color::new(1., 1., 0.6, 0.6));
+                    draw_circle(e.x, e.y, 6. * u, Color::new(1., 1., 0.6, 0.7));
                 }
             }
-            1 => ic(BERRY, c.x - r * 0.5, c.y - r * 0.5, r),
-            2 => ic(FIRE, c.x - r * 0.5, c.y - r * 0.5, r),
-            3 => tc("เมนู", c.x, c.y + 5. * u, 13. * u, WHITE),
+            1 => { ic(BERRY, c.x - r * 0.5, c.y - r * 0.6, r); lab("กิน"); }
+            2 => { ic(FIRE, c.x - r * 0.5, c.y - r * 0.6, r); lab("ไฟ"); }
+            3 => tc("เมนู", c.x, c.y + 5. * u, 14. * u, WHITE),
             4 => tc("แผนที่", c.x, c.y + 5. * u, 13. * u, WHITE),
-            5 => tc("สลับ", c.x, c.y + 5. * u, 13. * u, WHITE),
-            6 => tc("ใช้", c.x, c.y + 5. * u, 14. * u, WHITE),
+            5 => tc("สลับ", c.x, c.y + 5. * u, 14. * u, WHITE),
+            6 => tc("ใช้", c.x, c.y + 6. * u, 18. * u, WHITE),
             8 => {
-                if dash_cd > 0. { draw_circle(c.x, c.y, r * (dash_cd / 1.).min(1.), Color::new(0.3, 0.3, 0.3, 0.3)); }
-                tc("พุ่ง", c.x, c.y + 5. * u, 14. * u, if dash_cd > 0. { hx(0x999999) } else { hx(0x88e0ff) });
+                if dash_cd > 0. { draw_circle(c.x, c.y, r * (1. - dash_cd.min(1.)), Color::new(0.5, 0.5, 0.5, 0.3)); }
+                tc("พุ่ง", c.x, c.y + 6. * u, 17. * u, if dash_cd > 0. { hx(0x999999) } else { hx(0x88e0ff) });
             }
-            _ => tc("สร้าง", c.x, c.y + 5. * u, 13. * u, WHITE),
+            _ => tc("สร้าง", c.x, c.y + 5. * u, 14. * u, WHITE),
         }
     }
 }
@@ -1933,12 +1961,14 @@ async fn main() {
     let mut sfx_slot: Option<Sfx> = Some(load_sfx().await);
     let mut bgm = BgmMgr::new();
     let mut game: Option<Game> = None;
-    let has_save = std::fs::metadata(save_path()).is_ok();
+    prefs::load();
+    let mut save_sum = prefs::save_summary(DAYLEN);
+    let mut tview = 0u8;
     let mut bg = Game::new_world_placeholder(Sfx::default());
     bg.w = World::new(gen_range(1, i32::MAX));
     bg.p.invul = 0.07; // ซ่อนผู้เล่นบนหน้าเมนู
     let mut state = State::Title;
-    let mut tu = TouchUI { active: false, joy_id: None, joy_c: Vec2::ZERO, joy_v: Vec2::ZERO, atk_id: None, aim: Vec2::ZERO };
+    let mut tu = TouchUI { active: false, joy_id: None, joy_c: Vec2::ZERO, joy_v: Vec2::ZERO, atk_id: None, aim: Vec2::ZERO, flash: [0.; 9] };
     let mut ui = UiState::new();
     let mut t_now = 0f32;
     let mut mouse_armed = false;
@@ -1946,6 +1976,7 @@ async fn main() {
     let mut map_sc = 2i32;
 
     loop {
+        let frame_t0 = get_time();
         let dt = get_frame_time().min(0.05);
         t_now += dt;
         clear_background(BLACK);
@@ -1961,41 +1992,102 @@ async fn main() {
                 bg.p.y = 30.;
                 let v = make_view(bg.p.x, bg.p.y);
                 render_world(&bg, &sp, &v, t_now, &font);
-                draw_rectangle(0., 0., sw, sh, Color::new(0., 0., 0., 0.55));
-                let (w, h) = ((540. * u).min(sw * 0.97), (400. * u).min(sh * 0.97));
-                let (x, y) = (sw / 2. - w / 2., sh / 2. - h / 2.);
-                draw_rectangle(x, y, w, h, Color::new(0.11, 0.12, 0.17, 0.95));
-                draw_rectangle_lines(x, y, w, h, 3., hx(0xffcc66));
-                text_c(&font, "PIXEL REALM", sw / 2., y + 46. * u, 36. * u, hx(0xffcc66));
-                text_c(&font, "สำรวจโลกกว้าง · สร้างฐาน · ล่าบอส · ค้าขายกับพ่อค้าเร่", sw / 2., y + 72. * u, 13. * u, hx(0xdddddd));
-                let lines = if tu.active {
-                    vec![
-                        "แตะค้างด้านซ้ายเพื่อเดิน · ปุ่มดาบ = โจมตี (ลากนิ้วเพื่อเล็งธนู/คทา)",
-                        "ปุ่มเบอร์รี่ = กิน/ใช้ยา · ไฟ = กองไฟ · ใช้ = ประตู/กล่อง/พ่อค้า · สลับ = อาวุธ",
-                        "ปุ่มเมนู = คราฟต์ / สร้างฐาน / สเตตัส / ตั้งค่า · พุ่ง = หลบ (อมตะชั่วครู่) · แตะโจมตีเล็งมอนใกล้สุดให้เอง",
-                    ]
-                } else {
-                    vec![
-                        "WASD / ลูกศร = เดิน · Space / J / เมาส์ซ้าย = โจมตี (ธนู-คทายิงตามเมาส์)",
-                        "E = กิน/ใช้ยา · F = กองไฟ · Q = ใช้ (ประตู/กล่อง/พ่อค้า) · Tab = สลับอาวุธ",
-                        "C = คราฟต์ · B = สร้างฐาน (R = วาง) · I = กระเป๋า · P = สเตตัส · O = ตั้งค่า/เสียง · Shift = พุ่ง · M = แผนที่",
-                    ]
-                };
-                let mut ly = y + 105. * u;
-                for l in lines.iter().chain(["ตีต้นไม้ได้ไม้ ตีหินได้หิน หินแร่สีฟ้าให้อัญมณี · กลางคืนมีโครงกระดูกและค้างคาว", "บอสซ่อนอยู่ลึกในป่าทึบและเขตหินผา ปราบได้ของหายากไว้คราฟต์ของระดับสูงสุด", "แคมป์พ่อค้ามีเควสต์ย่อยและจ้างผู้ติดตาม · ทางเข้าดันเจี้ยนลับซ่อนอยู่ตามไบโอม · วางทั่งในฐานเพื่อตีบวกอาวุธ"].iter()) {
-                    text_c(&font, l, sw / 2., ly, 13. * u, hx(0xcccccc));
-                    ly += 24. * u;
-                }
-                let bw = 150. * u;
-                let by = y + h - 60. * u;
-                let mut start: Option<bool> = None;
-                if has_save {
-                    if button(&font, Rect::new(sw / 2. - bw - 8. * u, by, bw, 42. * u), "เล่นต่อ", true, u) || is_key_pressed(KeyCode::Enter) { start = Some(false); }
-                    if button(&font, Rect::new(sw / 2. + 8. * u, by, bw, 42. * u), "โลกใหม่", true, u) { start = Some(true); }
-                } else if button(&font, Rect::new(sw / 2. - bw / 2., by, bw, 42. * u), "เริ่มเกม", true, u) || is_key_pressed(KeyCode::Enter) {
-                    start = Some(true);
-                }
+                draw_rectangle(0., 0., sw, sh, Color::new(0., 0., 0., 0.5));
+                let u = u.min(sh / 470.).max(0.8);
                 if touches().iter().any(|_| true) { tu.active = true; }
+                let mut start: Option<bool> = None;
+                let bw = (300. * u).min(sw * 0.9);
+                let bh = 48. * u;
+                let gap = 12. * u;
+                let bx = sw / 2. - bw / 2.;
+                let panel = |x: f32, y: f32, w: f32, h: f32| {
+                    draw_rectangle(x, y, w, h, Color::new(0.11, 0.12, 0.17, 0.95));
+                    draw_rectangle_lines(x, y, w, h, 3., hx(0xffcc66));
+                };
+                match tview {
+                    0 => {
+                        // โลโก้ (เงาซ้อน + เด้งเบาๆ)
+                        let ly = sh * 0.17 + (t_now * 1.6).sin() * 3. * u;
+                        text_c(&font, "PIXEL REALM", sw / 2. + 3. * u, ly + 3. * u, 58. * u, Color::new(0., 0., 0., 0.7));
+                        text_c(&font, "PIXEL REALM", sw / 2., ly, 58. * u, hx(0xffcc66));
+                        text_c(&font, "สำรวจ · สร้างฐาน · ล่าบอส · ตั้งรกราก", sw / 2., ly + 30. * u, 15. * u, hx(0xdddddd));
+                        let n = 5.;
+                        let mut y = (sh * 0.30).max(ly + 50. * u).min(sh - n * (bh + gap) - 26. * u);
+                        let sum = save_sum;
+                        let lab = match sum { Some((d, l)) => format!("เล่นต่อ  ·  วันที่ {} · Lv {}", d, l), None => "เล่นต่อ".to_string() };
+                        if button(&font, Rect::new(bx, y, bw, bh), &lab, sum.is_some(), u) || (sum.is_some() && is_key_pressed(KeyCode::Enter)) { start = Some(false); }
+                        y += bh + gap;
+                        if button(&font, Rect::new(bx, y, bw, bh), "เกมใหม่", true, u) || (sum.is_none() && is_key_pressed(KeyCode::Enter)) {
+                            if sum.is_some() { tview = 3; } else { start = Some(true); }
+                        }
+                        y += bh + gap;
+                        if button(&font, Rect::new(bx, y, bw, bh), "ตั้งค่า", true, u) { tview = 1; }
+                        y += bh + gap;
+                        if button(&font, Rect::new(bx, y, bw, bh), "วิธีเล่น", true, u) { tview = 2; }
+                        y += bh + gap;
+                        if button(&font, Rect::new(bx, y, bw, bh), "ออกจากเกม", true, u) { std::process::exit(0); }
+                        text_c(&font, "v6 · เกมวาดด้วยโค้ดทั้งหมด", sw / 2., sh - 10. * u, 11. * u, hx(0x999999));
+                    }
+                    1 => {
+                        let (w, h) = ((420. * u).min(sw * 0.97), (350. * u).min(sh * 0.97));
+                        let (x, y) = (sw / 2. - w / 2., sh / 2. - h / 2.);
+                        panel(x, y, w, h);
+                        text_c(&font, "ตั้งค่า", sw / 2., y + 34. * u, 24. * u, hx(0xffcc66));
+                        let rh = 40. * u;
+                        let mut ry = y + 56. * u;
+                        let rows: [(&str, String); 6] = [
+                            ("เฟรมเรต", prefs::fps_name().to_string()),
+                            ("เอฟเฟกต์ฝน/หิมะ", if prefs::weather_fx() { "เปิด" } else { "ปิด" }.to_string()),
+                            ("แสงไดนามิก", prefs::light_name().to_string()),
+                            ("ขนาดปุ่มทัช", prefs::touch_name().to_string()),
+                            ("กล้องสั่น", if prefs::shake() { "เปิด" } else { "ปิด" }.to_string()),
+                            ("แสดง FPS", if prefs::show_fps() { "เปิด" } else { "ปิด" }.to_string()),
+                        ];
+                        for (i, (n, val)) in rows.iter().enumerate() {
+                            text(&font, n, x + 18. * u, ry + 26. * u, 15. * u, hx(0xeeeeee));
+                            if button(&font, Rect::new(x + w - 150. * u, ry + 4. * u, 132. * u, 32. * u), val, true, u) {
+                                match i { 0 => prefs::cycle_fps(), 1 => prefs::toggle(&prefs::WEATHER_FX), 2 => prefs::cycle_light(), 3 => prefs::cycle_touch(), 4 => prefs::toggle(&prefs::SHAKE), _ => prefs::toggle(&prefs::SHOW_FPS) }
+                            }
+                            ry += rh;
+                        }
+                        if button(&font, Rect::new(sw / 2. - 70. * u, y + h - 52. * u, 140. * u, 38. * u), "กลับ", true, u) || is_key_pressed(KeyCode::Escape) { tview = 0; }
+                    }
+                    2 => {
+                        let (w, h) = ((640. * u).min(sw * 0.97), (380. * u).min(sh * 0.97));
+                        let (x, y) = (sw / 2. - w / 2., sh / 2. - h / 2.);
+                        panel(x, y, w, h);
+                        text_c(&font, "วิธีเล่น", sw / 2., y + 34. * u, 24. * u, hx(0xffcc66));
+                        let lines: Vec<&str> = if tu.active {
+                            vec![
+                                "ซ้าย: แตะค้างตรงไหนก็ได้เพื่อเดิน (จอยลอย)",
+                                "ขวา: ปุ่มแดงใหญ่ = โจมตี · ลากนิ้วจากปุ่มเพื่อเล็งธนู/คทา",
+                                "พุ่ง = หลบ · ใช้ = ประตู/กล่อง/พ่อค้า/เตียง · สลับ = อาวุธ",
+                                "กิน = ใช้ยา/อาหาร · ไฟ = วางกองไฟ · เมนู (ขวาบน) = คราฟต์/สร้าง/กระเป๋า/ตั้งค่า",
+                            ]
+                        } else {
+                            vec![
+                                "WASD/ลูกศร = เดิน · Space/J/เมาส์ซ้าย = โจมตี · Shift = พุ่ง",
+                                "E = กิน · F = กองไฟ · Q = ใช้ · Tab = สลับอาวุธ · M = แผนที่",
+                                "C = คราฟต์ · B = สร้างฐาน (R = วาง) · I = กระเป๋า · P = สเตตัส · O = ตั้งค่า",
+                            ]
+                        };
+                        let mut ly = y + 70. * u;
+                        for l in lines.iter().chain(["ตีต้นไม้ได้ไม้ ตีหินได้หิน หินแร่สีฟ้าให้อัญมณี · กลางคืนมีโครงกระดูกและค้างคาว", "บอสซ่อนอยู่ในป่าทึบและเขตหินผา · แคมป์พ่อค้ามีเควสต์และจ้างผู้ติดตาม", "ปลูกผัก (จอบ+เมล็ด+กระป๋องรดน้ำ) · นอนเตียงตอนกลางคืน · ถ้ำและดันเจี้ยนมีแร่และหีบหายาก"].iter()) {
+                            text_c(&font, l, sw / 2., ly, 13. * u, hx(0xcccccc));
+                            ly += 27. * u;
+                        }
+                        if button(&font, Rect::new(sw / 2. - 70. * u, y + h - 52. * u, 140. * u, 38. * u), "กลับ", true, u) || is_key_pressed(KeyCode::Escape) { tview = 0; }
+                    }
+                    _ => {
+                        let (w, h) = ((460. * u).min(sw * 0.97), (190. * u).min(sh * 0.97));
+                        let (x, y) = (sw / 2. - w / 2., sh / 2. - h / 2.);
+                        panel(x, y, w, h);
+                        text_c(&font, "เริ่มเกมใหม่?", sw / 2., y + 42. * u, 24. * u, hx(0xffcc66));
+                        text_c(&font, "เซฟเดิมจะถูกแทนที่", sw / 2., y + 76. * u, 15. * u, hx(0xdddddd));
+                        if button(&font, Rect::new(sw / 2. - 160. * u, y + h - 62. * u, 150. * u, 42. * u), "เริ่มใหม่", true, u) { start = Some(true); }
+                        if button(&font, Rect::new(sw / 2. + 10. * u, y + h - 62. * u, 150. * u, 42. * u), "ยกเลิก", true, u) || is_key_pressed(KeyCode::Escape) { tview = 0; }
+                    }
+                }
                 if let Some(fresh) = start {
                     let sfx = sfx_slot.take().unwrap_or_default();
                     let mut g = if fresh { Game::new_world(sfx) } else {
@@ -2006,6 +2098,7 @@ async fn main() {
                     g.save();
                     game = Some(g);
                     state = State::Play;
+                    tview = 0;
                     mouse_armed = false;
                 }
             }
@@ -2031,6 +2124,8 @@ async fn main() {
                     inp.menu = if is_key_pressed(KeyCode::C) { Some(0) } else if is_key_pressed(KeyCode::B) { Some(1) } else if is_key_pressed(KeyCode::I) { Some(2) } else if is_key_pressed(KeyCode::P) { Some(6) } else if is_key_pressed(KeyCode::O) { Some(7) } else { None };
                     #[cfg(debug_assertions)]
                     debug_keys(g);
+                    #[cfg(debug_assertions)]
+                    if is_key_pressed(KeyCode::F11) { tu.active = !tu.active; }
                     handle_touch(&mut tu, &mut inp, g.build_sel.is_some());
                     // เมาส์ซ้าย = โจมตี/ยิงไปทางเมาส์ (เริ่มทำงานหลังปล่อยปุ่มครั้งแรก กันคลิกจากเมนูหลุดมา)
                     let mp: Vec2 = mouse_position().into();
@@ -2158,6 +2253,17 @@ async fn main() {
                         state = State::Play;
                         mouse_armed = false;
                     }
+                    if g.to_title {
+                        g.to_title = false;
+                        g.save();
+                        let mut gg = game.take().unwrap();
+                        sfx_slot = Some(std::mem::take(&mut gg.sfx));
+                        save_sum = prefs::save_summary(DAYLEN);
+                        ui.reset_context();
+                        state = State::Title;
+                        tview = 0;
+                        continue;
+                    }
                 }
             }
         }
@@ -2167,6 +2273,14 @@ async fn main() {
             _ => -1,
         };
         bgm.set(want).await;
+        if prefs::show_fps() {
+            text(&font, &format!("{} FPS", get_fps()), 8., sh - 8., 14. * ui_scale(), hx(0x66ff66));
+        }
+        if let Some(tg) = prefs::frame_target() {
+            // เผื่อเวลา vsync ~4ms: ถ้าเครื่องช้ากว่าเป้า จะไม่หน่วงเพิ่ม
+            let rem = tg - (get_time() - frame_t0) - 0.004;
+            if rem > 0.001 { std::thread::sleep(std::time::Duration::from_secs_f64(rem)); }
+        }
         next_frame().await;
     }
 }
@@ -2973,5 +3087,29 @@ mod tests {
         assert!(f.get_pixel(8, 8).r > 0.9);
         let up = assets::fit(&Image::gen_image_color(2, 2, Color::new(0., 0., 1., 1.)), 8, 8);
         assert_eq!((up.width, up.get_pixel(7, 7).b), (8, 1.));
+    }
+}
+
+#[cfg(test)]
+mod prefs_tests {
+    use super::*;
+    #[test]
+    fn frame_target_modes() {
+        prefs::FPS_MODE.store(0, std::sync::atomic::Ordering::Relaxed);
+        assert!((prefs::frame_target().unwrap() - 1. / 30.).abs() < 1e-9);
+        prefs::FPS_MODE.store(2, std::sync::atomic::Ordering::Relaxed);
+        assert!(prefs::frame_target().is_none());
+        prefs::FPS_MODE.store(1, std::sync::atomic::Ordering::Relaxed);
+    }
+    #[test]
+    fn touch_buttons_dont_overlap() {
+        // ปุ่มหลักต้องไม่ซ้อนกันที่ขนาดจอมือถือทั่วไป (ใช้ค่ากลางของ screen ใน test ไม่ได้ จึงตรวจเรขาคณิตด้วย t=2.4)
+        let t = 2.4f32;
+        let (sw, sh) = (2400f32, 1080f32);
+        let b = [(sw - 80. * t, sh - 84. * t, 50. * t), (sw - 238. * t, sh - 54. * t, 28. * t), (sw - 238. * t, sh - 124. * t, 28. * t), (sw - 80. * t, sh - 184. * t, 28. * t), (sw - 156. * t, sh - 140. * t, 32. * t), (sw - 170. * t, sh - 56. * t, 32. * t)];
+        for i in 0..b.len() { for j in i + 1..b.len() {
+            let d = ((b[i].0 - b[j].0).powi(2) + (b[i].1 - b[j].1).powi(2)).sqrt();
+            assert!(d > b[i].2 + b[j].2, "ปุ่ม {} ซ้อน {}", i, j);
+        } }
     }
 }
