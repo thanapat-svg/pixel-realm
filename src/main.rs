@@ -27,6 +27,7 @@ mod prefs;
 mod rpg;
 mod skin;
 mod social;
+mod trees;
 use extra::*;
 use farm::*;
 use guide::*;
@@ -43,6 +44,7 @@ use npc::*;
 use rpg::*;
 use skin::*;
 use social::*;
+use trees::*;
 
 // ======================= ค่าคงที่ =======================
 const DAYLEN: f32 = 240.0;
@@ -58,8 +60,8 @@ const SOLIDT: [bool; 15] = [true, true, false, false, false, false, true, false,
 //   10 กำแพงไม้,11 กำแพงหิน,12 ประตูปิด,13 ประตูเปิด,14 กล่องเก็บของ,15 พ่อค้า,16 เต็นท์
 //   37 ปราสาท,38 กำแพงเมือง,39 บ่อน้ำ
 //   17 โต๊ะตีเหล็ก,18 คบเพลิง,19 ทางเข้าดันเจี้ยน,20 ทางออกดันเจี้ยน,21 หนามหุบ,22 หนามโผล่,23 ป้อมลูกไฟ,24 หีบสมบัติหายาก
-const OSOLID: [bool; 40] = [false, true, true, false, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, false, false, false, false, true, true, true, true, false, false, false, false, false, false, true, true, false, false, true, true, true];
-const OHP: [i32; 40] = [0, 3, 1, 0, 3, 4, 1, 2, 3, 2, 5, 8, 4, 4, 5, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 1, 1, 1, 1, 4, 8, 0, 0, 20, 8, 6];
+const OSOLID: [bool; 50] = [false, true, true, false, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, false, false, false, false, true, true, true, true, false, false, false, false, false, false, true, true, false, false, true, true, true, true, true, true, true, true, true, true, true, true, true];
+const OHP: [i32; 50] = [0, 3, 1, 0, 3, 4, 1, 2, 3, 2, 5, 8, 4, 4, 5, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 1, 1, 1, 1, 4, 8, 0, 0, 20, 8, 6, 3, 3, 3, 4, 2, 3, 6, 1, 0, 0];
 
 const WOOD: usize = 0;
 const STONE: usize = 1;
@@ -105,7 +107,7 @@ const IC_HOE: usize = 38;
 const IC_BED: usize = 39;
 const IC_ATABLE: usize = 40;
 const IC_CAN: usize = 41;
-const INAME: [&str; NI] = ["ไม้", "หิน", "เบอร์รี่", "อัญมณี", "เหรียญ", "กองไฟ", "ลูกธนู", "เจลราชาสไลม์", "แกนโกเลม", "ยาฟื้นฟู", "พิมพ์เขียวเกราะ", "พิมพ์เขียวอาวุธ", "เศษดาว", "เนื้อสัตว์", "เห็ด", "สมุนไพร", "สเต็กเนื้อย่าง", "ซุปเห็ดสายลม", "ชาสมุนไพรคมเขี้ยว", "ปลาย่าง", "ปลา", "เมล็ดข้าวโพด", "เมล็ดแครอท", "ข้าวโพด", "แครอท"];
+const INAME: [&str; NI] = ["ไม้", "หิน", "ผลไม้", "อัญมณี", "เหรียญ", "กองไฟ", "ลูกธนู", "เจลราชาสไลม์", "แกนโกเลม", "ยาฟื้นฟู", "พิมพ์เขียวเกราะ", "พิมพ์เขียวอาวุธ", "เศษดาว", "เนื้อสัตว์", "เห็ด", "สมุนไพร", "สเต็กเนื้อย่าง", "ซุปเห็ดสายลม", "ชาสมุนไพรคมเขี้ยว", "ปลาย่าง", "ปลา", "เมล็ดข้าวโพด", "เมล็ดแครอท", "ข้าวโพด", "แครอท"];
 
 const SWN: [&str; 6] = ["มือเปล่า", "ดาบไม้", "ดาบหิน", "ดาบอัญมณี", "ดาบแกนโกเลม", "ดาบคริสตัลดาว"];
 const SWD: [i32; 6] = [1, 2, 3, 5, 8, 12];
@@ -209,12 +211,12 @@ impl World {
         let t = self.tile_at(tx, ty);
         let r = hash(tx, ty, self.seed.wrapping_add(5));
         match t {
-            3 => if r < 0.035 { 1 } else if r < 0.05 { 2 } else if r < 0.13 { 3 } else if r > 0.9993 { 6 } else { 0 },
-            4 => if r < 0.27 { 1 } else if r < 0.32 { 2 } else if r < 0.35 { 3 } else if r > 0.998 { 6 } else { 0 },
-            2 => if r > 0.9985 { 6 } else { 0 },
-            8 => if r < 0.025 { 7 } else if r > 0.998 { 6 } else { 0 },
-            5 => if r < 0.10 { 4 } else if r < 0.125 { 5 } else if r > 0.997 { 6 } else { 0 },
-            7 => if r < 0.06 { 8 } else if r < 0.075 { 5 } else if r > 0.996 { 6 } else { 0 },
+            3 => if r < 0.035 { self.tree_at(tx, ty, 3) } else if r < 0.05 { 2 } else if r < 0.13 { 3 } else if r > 0.9993 { 6 } else { 0 },
+            4 => if r < 0.27 { self.tree_at(tx, ty, 4) } else if r < 0.32 { 2 } else if r < 0.35 { 3 } else if r > 0.998 { 6 } else { 0 },
+            2 => if r < 0.012 { T_PALM } else if r > 0.9985 { 6 } else { 0 },
+            8 => if r < 0.025 { 7 } else if r < 0.031 { T_DEAD } else if r > 0.998 { 6 } else if (0.40..0.75).contains(&r) && self.water_near2(tx, ty) { T_PALM } else { 0 },
+            5 => if r < 0.10 { 4 } else if r < 0.125 { 5 } else if r < 0.145 { self.tree_at(tx, ty, 5) } else if r > 0.997 { 6 } else { 0 },
+            7 => if r < 0.06 { self.tree_at(tx, ty, 7) } else if r < 0.075 { 5 } else if r < 0.085 { T_DEAD } else if r > 0.996 { 6 } else { 0 },
             _ => 0,
         }
     }
@@ -399,7 +401,7 @@ fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
     let fl_bat = [at.add(&art::white_of(&bat_img[0])), at.add(&art::white_of(&bat_img[1]))];
     // ---- objects
     let rp: &[(char, u32)] = &[('k', 0x3a3a40), ('L', 0x9a9aa4), ('l', 0xc8c8d0), ('D', 0x6a6a74), ('c', 0x4ef0ff), ('C', 0xb0ffff)];
-    let mut obj = vec![Rect::new(0., 0., 1., 1.); 40];
+    let mut obj = vec![Rect::new(0., 0., 1., 1.); 50];
     obj[1] = at.add(&spr(&["......gggg......", "....gGGGGGGg....", "...GGGgGGGGGG...", "..GGGGGGGgGGGG..", ".GGgGGGGGGGGGGG.", ".GGGGGGGGGGgGGG.", "GGGGGgGGGGGGGGGG", "GGGGGGGGGGGGgGGG", "GGgGGGGGGGGGGGGG", "GGGGGGGGgGGGGGGd", ".GGGGGGGGGGGGGd.", ".dGGGgGGGGGGGdd.", "..ddGGGGGGGGdd..", "...dddGGGGddd...", ".....ddTTdd.....", "......TTTT......", "......TTtT......", "......TTTT......", "......TtTT......", "......TTTT......", ".....TTTTTT.....", "....tt....tt...."],
         &[('g', 0x7cd06a), ('G', 0x3f9a3f), ('d', 0x2a6a2a), ('T', 0x7a4a24), ('t', 0x5a3418)]));
     obj[2] = at.add(&spr(&["................", "................", "................", "................", "................", "................", "......gggg......", "....gggggggg....", "...ggrgggggrg...", "..gggggggggggg..", "..ggggrggggggg..", ".gggggggggrgggg.", ".ggrgggggggggg..", "..dgggggggggd...", "...dddddddddd...", "................"], &[('g', 0x3d9440), ('r', 0xe8344a), ('d', 0x2a6a2a)]));
@@ -420,6 +422,7 @@ fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
         at.add(&spr(&["....y...", "...yo...", "..yoro..", ".yorrRo.", ".orRRro.", "..oRRo..", "lLlLLlLl", ".lLllLl."], firep)),
     ];
     let mut ex = art::build_extra(&mut at, &mut obj, &mut icons);
+    trees::build_trees(&mut at, &mut obj);
     ex.flash_slime = [fl_slime[0], fl_slime[1], fl_slime[2], fl_slime[3]];
     ex.flash_skel = fl_skel;
     ex.flash_bat = fl_bat;
@@ -525,6 +528,7 @@ struct Game {
     pick_cd: f32,
     // ---- v5 ฟาร์ม/เตียง/Grid Snap/สภาพอากาศ
     crops: HashMap<(i32, i32), Crop>,
+    fruit: HashMap<(i32, i32), i32>,
     crop_t: f32,
     bed: Option<(i32, i32)>,
     seed_sel: u8,
@@ -575,7 +579,7 @@ impl Game {
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
             rain: 0., rain_on: false, rain_t: 90., thunder: 0., cshake: (0., 0.), bgm_on: true, to_title: false, npcs: vec![], rels: HashMap::new(), news: vec![], npc_next: 1, npc_seen: HashSet::new(), lost_told: HashSet::new(), lost_hint_t: 1., last_day: -1, tax_pool: 0, wed_day: 0, last_child: -99, tut: TUT_DONE, tut_ev0: [0; EV_N], ev: [0; EV_N], tut_flash: 0., hitstop: 0., sfx_on: true,
             auto_aim: true, pick_cd: 0.,
-            crops: HashMap::new(), crop_t: 0., bed: None, seed_sel: 0, sleep_fx: 0., build_cur: None, cur_pos: (0., 0.), weather_kind: 1,
+            crops: HashMap::new(), fruit: HashMap::new(), crop_t: 0., bed: None, seed_sel: 0, sleep_fx: 0., build_cur: None, cur_pos: (0., 0.), weather_kind: 1,
         }
     }
     fn new_world(sfx: Sfx) -> Self {
@@ -618,6 +622,7 @@ impl Game {
         s += "crops";
         for ((x, y), c) in &self.crops { s += &format!(" {},{},{},{:.1},{:.1}", x, y, c.kind, c.grown, c.wet); }
         s += "\n";
+        s += &self.fruit_save_str();
         s += "wps";
         for (x, y) in &self.wp_found { s += &format!(" {},{}", x, y); }
         s += "\nqn";
@@ -704,6 +709,7 @@ impl Game {
                 "nsoc" | "nrel" | "nnews" => g.soc_load_line(tag, &rest),
                 "farm" => { g.p.can = f(0) > 0.; g.p.water = (f(1) as i32).clamp(0, WATER_MAX); g.seed_sel = (f(2) as u8).min(1); }
                 "bed" => g.bed = Some((f(0) as i32, f(1) as i32)),
+                "fruit" => g.fruit_load_line(&rest),
                 "crops" => for v in &rest {
                     let n: Vec<f32> = v.split(',').filter_map(|x| x.parse().ok()).collect();
                     if n.len() == 5 && (n[2] as u8) < 2 { g.crops.insert((n[0] as i32, n[1] as i32), Crop { kind: n[2] as u8, grown: n[3], wet: n[4] }); }
@@ -802,7 +808,7 @@ impl Game {
     // ---------- actions ----------
     fn eat(&mut self) {
         if self.p.inv[BERRY] <= 0 {
-            if self.p.inv[POTION] > 0 { self.drink(); } else { self.toast("ไม่มีเบอร์รี่"); }
+            if self.p.inv[POTION] > 0 { self.drink(); } else { self.toast("ไม่มีผลไม้"); }
             return;
         }
         if self.p.hp >= self.p.maxhp && self.p.hunger >= 95. { self.toast(if self.survival_mode() == 0 { "เลือดเต็มแล้ว" } else { "อิ่มแล้ว เลือดก็เต็ม" }); return; }
@@ -867,7 +873,7 @@ impl Game {
         }
         let h = self.obj_dmg.get(&k).copied().unwrap_or(0) + dmg;
         self.shake = (k, 0.2);
-        let col = hx(match o { 1 => 0x3f9a3f, 2 => 0x3d9440, 4 => 0x9a9aa4, 5 => 0x4ef0ff, 6 => 0xc88a40, 7 => 0x3c9a4a, 8 => 0x2f6b4f, 10 => 0x9a6a38, 11 => 0x9a9aa6, 12 | 13 => 0xa06a30, 14 => 0xc88a40, 17 => 0x8a909c, 26 => 0x6a6a74, _ => 0xffa630 });
+        let col = hx(match o { 1 => 0x3f9a3f, 2 => 0x3d9440, 4 => 0x9a9aa4, 5 => 0x4ef0ff, 6 => 0xc88a40, 7 => 0x3c9a4a, 8 => 0x2f6b4f, 10 => 0x9a6a38, 11 => 0x9a9aa6, 12 | 13 => 0xa06a30, 14 => 0xc88a40, 17 => 0x8a909c, 26 => 0x6a6a74, 40..=47 => tree_col(o), _ => 0xffa630 });
         let (x, y) = (tx as f32 * 16. + 8., ty as f32 * 16.);
         self.burst(x, y + 6., col, 5, 50.);
         if o == 4 || o == 5 || o == 11 || o == 17 || o == 26 || o == 34 { play(&self.sfx.rock) } else { play(&self.sfx.chop) }
@@ -882,6 +888,13 @@ impl Game {
         match o {
             1 => self.gain(WOOD, rnd(2, 3), x, y),
             8 => self.gain(WOOD, 2, x, y),
+            40 | 43 | 44 | 45 | 46 | 47 => { let (a, b) = wood_range(o); self.gain(WOOD, rnd(a, b), x, y); }
+            41 => {
+                self.gain(WOOD, rnd(2, 3), x, y);
+                if self.fruit_ready(k) { self.gain(BERRY, rnd(1, 2), x, y - 8.); }
+                self.fruit.remove(&k);
+            }
+            42 => { self.gain(WOOD, 2, x, y); self.fruit.remove(&k); }
             2 => self.gain(BERRY, rnd(1, 3), x, y),
             7 => self.gain(BERRY, 1, x, y),
             4 => self.gain(STONE, rnd(2, 3), x, y),
@@ -1386,6 +1399,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                 let sx = if g.shake.0 == (tx, ty) && g.shake.1 > 0. { (g.shake.1 * 80.).sin().round() } else { 0. };
                 let near_m = o == 15 && (g.p.x - (tx as f32 * 16. + 8.)).hypot(g.p.y - (ty as f32 * 16. + 8.)) < 48.;
                 let o = if o == 21 || o == 22 { if spike_on(g.time, tx, ty) { 22 } else { 21 } } else { o };
+                let o = g.display_obj(o, (tx, ty));
                 let r = if o == 15 { sp.ex.merchant[if near_m && (t_now * 3.) as i32 % 2 == 0 { 1 } else { 0 }] } else { sp.obj[o as usize] };
                 let (px, py) = if matches!(o, 19 | 20 | 21 | 22) { (px, py - (r.h - 16.).max(0.) + (r.h - 16.).max(0.)) } else { (px, py) };
                 blit(sp, v, r, px + sx, py + 16. - r.h, false, WHITE);
@@ -4393,5 +4407,193 @@ mod body_tests {
         assert_eq!(skin::ROLE_PARTS.len(), 4);
         assert_eq!(skin::ROLE_PARTS[0], [0, 0, 0]);
         assert!(skin::ROLE_PARTS.iter().all(|p| p.iter().all(|&v| v < skin::NV)));
+    }
+}
+
+#[cfg(test)]
+mod tree_tests {
+    use super::*;
+
+    fn g0() -> Game { Game::new_world_seed(777, Sfx::default()) }
+
+    #[test]
+    fn species_tables_are_complete_and_biome_appropriate() {
+        for tile in [3u8, 4, 5, 7, 8] {
+            let mut seen = std::collections::BTreeSet::new();
+            for i in 0..1000 { seen.insert(pick_species(tile, i as f64 / 1000.)); }
+            assert!(seen.iter().all(|&o| is_tree(o)), "ไบโอม {} ได้วัตถุที่ไม่ใช่ต้นไม้ {:?}", tile, seen);
+            match tile {
+                3 => { assert!(seen.len() >= 5, "ทุ่งหญ้าต้องหลากหลาย {:?}", seen); assert!(!seen.contains(&T_SPRUCE) && !seen.contains(&T_PALM) && !seen.contains(&T_DEAD)); }
+                4 => { assert!(seen.len() >= 6 && seen.contains(&T_SPRUCE) && seen.contains(&T_OLD) && seen.contains(&T_MAPLE)); assert!(!seen.contains(&T_PALM)); }
+                5 => assert_eq!(seen, [T_SPRUCE, T_DEAD].into_iter().collect()),
+                7 => assert_eq!(seen, [8, T_SPRUCE].into_iter().collect()),
+                _ => assert_eq!(seen, [T_DEAD].into_iter().collect()),
+            }
+        }
+        assert_eq!(pick_species(1, 0.5), 1, "ไทล์อื่นๆ ตกกลับเป็นโอ๊ก");
+        let share = |tile: u8, id: u8| (0..1000).filter(|&i| pick_species(tile, i as f64 / 1000.) == id).count();
+        assert!(share(4, T_SPRUCE) > 200 && share(3, T_APPLE) < 120, "ป่าเต็มไปด้วยสปรูซ · ต้นแอปเปิลหายากในทุ่ง");
+    }
+
+    #[test]
+    fn world_has_varied_trees_per_biome() {
+        let g = g0();
+        let mut by_tile: HashMap<u8, std::collections::BTreeMap<u8, i32>> = HashMap::new();
+        for y in -220..220 { for x in -220..220 {
+            let o = g.w.obj_at(x, y);
+            if is_tree(o) { *by_tile.entry(g.w.tile_at(x, y)).or_default().entry(o).or_insert(0) += 1; }
+        } }
+        let kinds = |t: u8| by_tile.get(&t).map_or(0, |m| m.len());
+        assert!(kinds(4) >= 6, "ป่าทึบหลากหลาย: {:?}", by_tile.get(&4));
+        assert!(kinds(3) >= 5, "ทุ่งหญ้า: {:?}", by_tile.get(&3));
+        assert!(by_tile.get(&2).map_or(false, |m| m.contains_key(&T_PALM)), "ชายหาดมีมะพร้าว");
+        assert!(by_tile.get(&8).map_or(false, |m| m.contains_key(&T_DEAD)), "ทะเลทรายมีต้นไม้ตาย");
+        assert!(by_tile.keys().all(|&t| matches!(t, 2 | 3 | 4 | 5 | 7 | 8)), "ต้นไม้ขึ้นบนน้ำ/ภูเขาไม่ได้ {:?}", by_tile.keys());
+        // ในบรรดาต้นไม้ของป่า โอ๊กยังเป็นส่วนใหญ่ไม่ได้ทั้งหมด
+        let f = by_tile.get(&4).unwrap();
+        let total: i32 = f.values().sum();
+        assert!(*f.get(&1).unwrap() * 100 / total < 40);
+        // มะพร้าวในทะเลทรายอยู่ติดน้ำเท่านั้น
+        for y in -300..300 { for x in -300..300 {
+            if g.w.tile_at(x, y) == 8 && g.w.obj_at(x, y) == T_PALM { assert!(g.w.water_near2(x, y), "มะพร้าวกลางทะเลทรายต้องติดโอเอซิส ({}, {})", x, y); }
+        } }
+    }
+
+    #[test]
+    fn tree_world_is_deterministic() {
+        let (a, b) = (g0(), g0());
+        for y in -60..60 { for x in -60..60 { assert_eq!(a.w.obj_at(x, y), b.w.obj_at(x, y)); } }
+    }
+
+    #[test]
+    fn tree_stats_tables_and_sprites_are_consistent() {
+        for o in 40..=47usize { assert!(OSOLID[o] && OHP[o] > 0, "ต้นไม้ {} ต้องชนได้และตีได้", o); }
+        assert!(OHP[T_OLD as usize] > OHP[T_BIRCH as usize] && OHP[T_SAPLING as usize] == 1);
+        assert_eq!(OSOLID.len(), 50);
+        for o in 40..=47u8 { let (a, b) = wood_range(o); assert!(a >= 1 && b >= a, "{}", o); assert!(!tree_name(o).is_empty()); }
+        assert!(wood_range(T_OLD).0 >= 5 && wood_range(T_SAPLING).1 == 1 && wood_range(T_SPRUCE).1 >= 4);
+        // สไปรต์ทุกชิ้นกว้าง 16 พิกเซล วางเข้าแอตลาสได้ ไม่ซ้ำกัน
+        let mut at = Atlas { img: Image::gen_image_color(512, 1024, BLANK), cx: 0, cy: 0, rowh: 0 };
+        let mut obj = vec![Rect::new(0., 0., 1., 1.); 50];
+        trees::build_trees(&mut at, &mut obj);
+        for o in 40..=49usize { assert!(obj[o].w == 16. && obj[o].h >= 14. && obj[o].h <= 22., "{} {:?}", o, obj[o]); }
+        let mut pos: Vec<(i32, i32)> = (40..=49).map(|o| (obj[o].x as i32, obj[o].y as i32)).collect();
+        pos.sort(); pos.dedup();
+        assert_eq!(pos.len(), 10);
+        let px = |r: Rect| (0..r.h as u32).flat_map(|y| (0..r.w as u32).map(move |x| (x, y))).filter(|&(x, y)| at.img.get_pixel(r.x as u32 + x, r.y as u32 + y).a > 0.).count();
+        assert!(px(obj[T_OLD as usize]) > px(obj[T_SAPLING as usize]) * 5, "ต้นเก่าแก่ใหญ่กว่าต้นกล้ามาก");
+        assert!(px(obj[T_APPLE as usize]) == px(obj[T_APPLE_BARE as usize]), "ต้นไม่มีผลเป็นรูปทรงเดียวกัน");
+    }
+
+    fn put(g: &mut Game, o: u8) -> (i32, i32) {
+        let k = (tfloor(g.p.x) + 1, tfloor(g.p.y));
+        g.w.removed.remove(&k);
+        g.w.placed.insert(k, o);
+        g.p.x = k.0 as f32 * 16. + 8. - 14.; g.p.y = k.1 as f32 * 16. + 12.;
+        g.p.dir = 2; g.p.flip = false;
+        k
+    }
+    fn chop(g: &mut Game, k: (i32, i32)) { for _ in 0..12 { if g.w.obj_at(k.0, k.1) == 0 { break; } g.hit_object(k.0, k.1, 1); } }
+
+    #[test]
+    fn chopping_each_species_gives_wood_scaled_to_tree_size() {
+        for o in [T_BIRCH, T_SPRUCE, T_DEAD, T_MAPLE, T_OLD, T_SAPLING, T_PALM, T_APPLE] {
+            let mut g = g0();
+            g.p.x = 200.; g.p.y = 200.;
+            let k = put(&mut g, o);
+            let before = g.p.inv[WOOD];
+            let hits = (0..20).take_while(|_| { g.hit_object(k.0, k.1, 1); g.w.obj_at(k.0, k.1) != 0 }).count() + 1;
+            assert_eq!(hits as i32, OHP[o as usize], "{} ต้องตี {} ครั้ง", tree_name(o), OHP[o as usize]);
+            let got = g.p.inv[WOOD] - before;
+            let (a, b) = wood_range(o);
+            assert!(got >= a && got <= b, "{}: ได้ไม้ {} (ช่วง {}..{})", tree_name(o), got, a, b);
+        }
+    }
+
+    #[test]
+    fn apple_tree_gives_fruit_without_felling_and_regrows() {
+        let mut g = g0();
+        g.p.x = 200.; g.p.y = 200.;
+        let k = put(&mut g, T_APPLE);
+        assert!(g.fruit_ready(k));
+        assert_eq!(g.display_obj(T_APPLE, k), T_APPLE);
+        assert_eq!(g.interact_target().map(|t| t.1), Some(T_APPLE));
+        assert_eq!(g.use_label().as_deref(), Some("เก็บผล"));
+        let b0 = g.p.inv[BERRY];
+        assert!(g.pick_fruit(k, T_APPLE));
+        let got = g.p.inv[BERRY] - b0;
+        assert!((2..=4).contains(&got), "{}", got);
+        assert_eq!(g.w.obj_at(k.0, k.1), T_APPLE, "ต้นยังอยู่");
+        assert!(!g.fruit_ready(k));
+        assert_eq!(g.display_obj(T_APPLE, k), T_APPLE_BARE);
+        assert!(g.interact_target().is_none(), "ผลยังไม่สุก ไม่ขึ้นปุ่มใช้");
+        assert!(!g.pick_fruit(k, T_APPLE));
+        assert_eq!(g.p.inv[BERRY] - b0, got);
+        g.time += DAYLEN * 1.1;
+        assert!(!g.fruit_ready(k), "ผ่านไป 1 วัน ยังไม่สุก");
+        g.time += DAYLEN * 1.1;
+        assert!(g.fruit_ready(k) && g.pick_fruit(k, T_APPLE));
+        // โค่นตอนผลยังสุก → ได้ผลไม้เพิ่ม · โค่นตอนยังไม่สุก → ได้แต่ไม้
+        g.time += DAYLEN * 3.;
+        let (w1, b1) = (g.p.inv[WOOD], g.p.inv[BERRY]);
+        chop(&mut g, k);
+        assert!(g.p.inv[WOOD] > w1 && g.p.inv[BERRY] > b1, "โค่นต้นที่มีผลได้ทั้งไม้และผลไม้");
+        assert!(!g.fruit.contains_key(&k));
+        let mut h = g0();
+        h.p.x = 200.; h.p.y = 200.;
+        let k2 = put(&mut h, T_APPLE);
+        h.pick_fruit(k2, T_APPLE);
+        let b2 = h.p.inv[BERRY];
+        chop(&mut h, k2);
+        assert_eq!(h.p.inv[BERRY], b2, "ไม่มีผลก็ไม่ได้ผลไม้");
+    }
+
+    #[test]
+    fn coconut_palm_is_clean_drinking_water_and_does_not_work_when_full() {
+        let mut g = g0();
+        g.p.x = 200.; g.p.y = 200.;
+        let k = put(&mut g, T_PALM);
+        g.p.thirst = 20.; g.p.hunger = 50.;
+        assert_eq!(g.use_label().as_deref(), Some("ดื่มมะพร้าว"));
+        assert!(g.pick_fruit(k, T_PALM));
+        assert!((g.p.thirst - 48.).abs() < 0.01 && (g.p.hunger - 56.).abs() < 0.01 && g.p.sick == 0.);
+        assert_eq!(g.display_obj(T_PALM, k), T_PALM_BARE);
+        assert_eq!(g.w.obj_at(k.0, k.1), T_PALM);
+        let mut f = g0();
+        f.p.x = 200.; f.p.y = 200.;
+        let k = put(&mut f, T_PALM);
+        f.p.thirst = 100.; f.p.hunger = 100.;
+        assert!(!f.pick_fruit(k, T_PALM) && f.fruit_ready(k), "อิ่มและไม่กระหาย ไม่เปลืองผล");
+        assert!(!f.pick_fruit(k, T_SPRUCE), "ต้นอื่นไม่มีผล");
+    }
+
+    #[test]
+    fn fruit_timers_save_and_old_saves_load() {
+        let mut g = g0();
+        g.fruit.insert((5, -7), 3);
+        g.fruit.insert((12, 40), 1);
+        let txt = g.save_string();
+        assert!(txt.contains("fruit 12,40,1 5,-7,3") || txt.contains("fruit 5,-7,3 12,40,1"));
+        let l = Game::load_str(&txt, Sfx::default()).ok().unwrap();
+        assert_eq!(l.fruit, g.fruit);
+        let old: String = txt.lines().filter(|x| !x.starts_with("fruit")).map(|x| format!("{}\n", x)).collect();
+        assert!(Game::load_str(&old, Sfx::default()).ok().unwrap().fruit.is_empty());
+        let bad = txt.replace("fruit 12,40,1 5,-7,3", "fruit 1,2 x,y,z 3,4,5").replace("fruit 5,-7,3 12,40,1", "fruit 1,2 x,y,z 3,4,5");
+        assert_eq!(Game::load_str(&bad, Sfx::default()).ok().unwrap().fruit.len(), 1);
+    }
+
+    #[test]
+    fn tutorial_arrow_accepts_every_wood_tree() {
+        let mut g = g0();
+        g.tut = 0;
+        // หาจุดที่ไม่มีต้นไม้สายไม้เลยในรัศมี 18 ช่อง (เช่นกลางทะเล) แล้ววางเบิร์ชไว้ต้นเดียว
+        let wood_tree = |o: u8| matches!(o, 1 | 8 | 40 | 41 | 42 | 43 | 45 | 46);
+        let spot = (-60..60).flat_map(|y| (-60..60).map(move |x| (x * 5, y * 5))).find(|&(x, y)| (-18..=18).all(|d| (-18..=18).all(|e| !wood_tree(g.w.obj_at(x + d, y + e)))));
+        let (x, y) = spot.expect("ต้องมีที่ว่างจากต้นไม้ในโลกทดสอบ");
+        g.p.x = x as f32 * 16. + 8.; g.p.y = y as f32 * 16. + 8.;
+        assert!(g.tut_target().is_none());
+        g.w.placed.insert((x + 5, y), T_BIRCH);
+        let t = g.tut_target().expect("ลูกศรบทเรียนต้องชี้ต้นเบิร์ชด้วย");
+        assert_eq!(t, ((x + 5) as f32 * 16. + 8., y as f32 * 16. + 8.));
     }
 }

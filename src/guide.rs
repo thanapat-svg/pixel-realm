@@ -55,7 +55,7 @@ impl Game {
 
     /// ตำแหน่งเป้าของข้อที่ต้องหาในโลก (ต้นไม้/หินใกล้สุดในรัศมี 18 ช่อง)
     pub fn tut_target(&self) -> Option<(f32, f32)> {
-        let want: &[u8] = match self.tut { 0 => &[1], 1 => &[4], _ => return None };
+        let want: &[u8] = match self.tut { 0 => &[1, 8, 40, 41, 42, 43, 45, 46], 1 => &[4], _ => return None };
         if self.w.dun.is_some() { return None; }
         let (ptx, pty) = (tfloor(self.p.x), tfloor(self.p.y));
         let mut best: Option<(i32, (i32, i32))> = None;
@@ -78,7 +78,7 @@ impl Game {
         if let Some((_, o)) = self.interact_target() {
             return Some(match o {
                 12 => "เปิด", 13 => "ปิด", 14 => "กล่อง", 17 => "ตีบวก", 25 => "วาร์ป", 26 => "ทำอาหาร",
-                19 | 36 => "เข้า", 20 => "ออก", 33 => "นอน", 39 => "ดื่ม", 34 => "โต๊ะ", 24 => "เปิดหีบ", _ => "คุย",
+                19 | 36 => "เข้า", 20 => "ออก", 33 => "นอน", 39 => "ดื่ม", 41 => "เก็บผล", 42 => "ดื่มมะพร้าว", 34 => "โต๊ะ", 24 => "เปิดหีบ", _ => "คุย",
             }.to_string());
         }
         if let Some(h) = self.farm_hint(true) {

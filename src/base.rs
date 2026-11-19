@@ -96,9 +96,10 @@ impl Game {
         for ty in pty - 2..=pty + 2 {
             for tx in ptx - 2..=ptx + 2 {
                 let o = self.w.obj_at(tx, ty);
-                if !matches!(o, 12 | 13 | 14 | 15 | 17 | 19 | 20 | 24 | 25 | 26 | 33 | 34 | 36 | 39) {
+                if !matches!(o, 12 | 13 | 14 | 15 | 17 | 19 | 20 | 24 | 25 | 26 | 33 | 34 | 36 | 39 | 41 | 42) {
                     continue;
                 }
+                if (o == 41 || o == 42) && !self.fruit_ready((tx, ty)) { continue; }
                 let d = (tx as f32 * 16. + 8. - self.p.x).hypot(ty as f32 * 16. + 8. - (self.p.y - 3.));
                 if d < 28. && best.map_or(true, |b| d < b.0) {
                     best = Some((d, (tx, ty), o));
@@ -160,6 +161,7 @@ impl Game {
             }
             33 => self.sleep(k),
             39 => self.drink_well(),
+            41 | 42 => { self.pick_fruit(k, o); }
             34 => {
                 play(&self.sfx.click);
                 self.req = Some(Req::Adv);
@@ -204,6 +206,8 @@ pub fn interact_hint(o: u8, touch: bool) -> String {
         36 => format!("{}: เข้าถ้ำใต้ดิน (มืด · มีแร่ · มอนสเตอร์ดุ!)", key),
         33 => format!("{}: นอน (ข้ามไปเช้า)", key),
         39 => format!("{}: ดื่มน้ำจากบ่อ", key),
+        41 => format!("{}: เก็บแอปเปิล (ไม่ต้องโค่นต้น)", key),
+        42 => format!("{}: ดื่มน้ำมะพร้าว", key),
         34 => format!("{}: ใช้โต๊ะคราฟต์ขั้นสูง", key),
         20 => format!("{}: ออกจากดันเจี้ยน", key),
         24 => format!("{}: เปิดหีบหายาก", key),
