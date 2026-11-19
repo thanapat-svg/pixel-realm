@@ -13,6 +13,7 @@ pub struct UiState {
     pub cook: bool,
     pub adv: bool,
     pub npc: Option<u32>,
+    pub gift_open: bool,
     pub greet: usize,
     press: Option<Vec2>,
     last: Vec2,
@@ -23,7 +24,7 @@ pub struct UiState {
 }
 impl UiState {
     pub fn new() -> Self {
-        UiState { tab: 0, scroll: 0., max_scroll: 0., chest: None, shop: false, forge: false, cook: false, adv: false, npc: None, greet: 0, press: None, last: Vec2::ZERO, drag: 0., click: None, clip: Rect::new(0., 0., 1., 1.), close: false }
+        UiState { tab: 0, scroll: 0., max_scroll: 0., chest: None, shop: false, forge: false, cook: false, adv: false, npc: None, gift_open: false, greet: 0, press: None, last: Vec2::ZERO, drag: 0., click: None, clip: Rect::new(0., 0., 1., 1.), close: false }
     }
     pub fn open(&mut self, tab: usize) {
         self.tab = tab;
@@ -829,6 +830,16 @@ fn tab_town(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
         }
         y += 44. * u;
     }
+    if !g.news.is_empty() {
+        header(font, c, y, "ข่าวหมู่บ้าน", u);
+        y += 28. * u;
+        for (d, t) in g.news.iter().rev().take(8) {
+            let ws = wrap_th(font, &format!("วันที่ {}: {}", d + 1, t), 11. * u, c.w - 24. * u);
+            let hh = ws.len() as f32 * 14. * u + 6. * u;
+            if visible(y, hh, c) { for (k, w) in ws.iter().enumerate() { text(font, w, c.x + 8. * u, y + 13. * u + k as f32 * 14. * u, 11. * u, hx(0xc9d1e6)); } }
+            y += hh;
+        }
+    }
     header(font, c, y, "ผู้คน", u);
     y += 28. * u;
     let rows: Vec<(u32, String, u8, i32, u8, bool, bool, u8)> = g.npcs.iter().map(|n| (n.id, NPC_NAMES[n.name as usize].to_string(), n.state, n.mood, n.hearts, n.married, n.child, n.role)).collect();
@@ -862,21 +873,45 @@ fn tab_npc_dialog(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c:
     let nm = NPC_NAMES[n.name as usize];
     header(font, c, y, &format!("{} — {}{}", nm, if n.state == ST_FOLLOW { "ผู้ติดตาม" } else { ROLE_N[n.role as usize] }, if n.married { " · คู่สมรส" } else { "" }), u);
     y += 30. * u;
-    let say = if n.state == ST_FOLLOW { "ขอบคุณที่ช่วยไว้! ถ้ามีเตียงว่างที่ฐาน ฉันอยากไปอยู่ด้วย" }
-        else if n.mood < 25 { "ฉันไม่ไหวแล้ว... หิวและเหนื่อยเหลือเกิน" }
-        else if n.mood < 60 { "ก็พออยู่ได้ ถ้ามีอาหารเพียงพอกว่านี้คงดี" }
-        else if n.married { "วันนี้อากาศดีนะที่รัก" } else { "ที่นี่อยู่สบายดี ขอบคุณนะ" };
+    let say = g.npc_say(&n);
     if visible(y, 30. * u, c) { text(font, &format!("\"{}\"", say), c.x + 8. * u, y + 18. * u, 13. * u, hx(0xdddddd)); }
     y += 30. * u;
+    let op = opinion(&n);
     if visible(y, 40. * u, c) {
         text(font, &format!("สนิท {}/10", n.hearts), c.x + 8. * u, y + 14. * u, 12. * u, hx(0xff9ab0));
         bar(c.x + 8. * u, y + 20. * u, 160. * u, 9. * u, n.hearts as f32 / 10., hx(0xff6688));
         text(font, &format!("ความสุข {}", n.mood), c.x + 190. * u, y + 14. * u, 12. * u, hx(0xaaaaaa));
         bar(c.x + 190. * u, y + 20. * u, 160. * u, 9. * u, n.mood as f32 / 100., mood_col(n.mood));
     }
-    y += 44. * u;
+    y += 40. * u;
+    // นิสัย/ของโปรด: ยิ่งสนิทยิ่งรู้จักมากขึ้น (เหมือนรู้จักคนจริงๆ)
+    {
+        let known = (n.hearts as usize / 2 + 1).min(5);
+        let trs: Vec<&str> = n.soc.traits_ranked().into_iter().take(known).map(|(k, hi)| Soc::trait_name(k, hi)).collect();
+        let mut info = vec![format!("ความรู้สึกต่อคุณ: {}", if n.married { "คู่สมรส" } else { opinion_label(op) })];
+        info.push(format!("นิสัย: {}{}", trs.join(" · "), if known < 5 { " · (ยังรู้จักไม่หมด)" } else { "" }));
+        info.push(format!("ของที่ชอบ: {}", if n.hearts >= 4 { INAME[n.soc.love as usize] } else { "ยังไม่รู้ (สนิท 4 ขึ้นไปถึงจะรู้)" }));
+        info.push(format!("ของที่ไม่ชอบ: {}", if n.hearts >= 6 { INAME[n.soc.hate as usize] } else { "ยังไม่รู้ (สนิท 6 ขึ้นไปถึงจะรู้)" }));
+        if n.soc.anger >= 20 { info.push("กำลังโกรธคุณอยู่ — ให้เวลาหรือขอโทษ".to_string()); }
+        if n.soc.grudge >= 30 { info.push("ยังแค้นเรื่องเก่าที่คุณทำไว้ — ต้องใช้เวลา/ขอโทษหลายครั้ง".to_string()); }
+        if n.state == ST_HOME {
+            let mut foes: Vec<String> = vec![];
+            for o in g.npcs.iter().filter(|o| o.id != n.id && o.state == ST_HOME && !o.child) {
+                let r = g.rel_between(n.id, o.id);
+                if r <= -30 { foes.push(NPC_NAMES[o.name as usize].to_string()); }
+            }
+            if !foes.is_empty() { info.push(format!("เข้ากับ {} ไม่ได้", foes.join(", "))); }
+        }
+        for l in info {
+            let ws = wrap_th(font, &l, 11. * u, c.w - 24. * u);
+            let hh = ws.len() as f32 * 14. * u + 4. * u;
+            if visible(y, hh, c) { for (k, w) in ws.iter().enumerate() { text(font, w, c.x + 8. * u, y + 12. * u + k as f32 * 14. * u, 11. * u, hx(0xb9c3d9)); } }
+            y += hh;
+        }
+        y += 6. * u;
+    }
     #[derive(Clone, Copy, PartialEq)]
-    enum A { Talk, Gift, Invite, Marry, Shop, Dismiss, Back }
+    enum A { Talk, GiftToggle, Give(usize), Apology, Invite, Marry, Shop, Dismiss, Back }
     let mut act: Option<A> = None;
     let mut buy: Option<usize> = None;
     let rh = 44. * u;
@@ -889,13 +924,32 @@ fn tab_npc_dialog(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c:
         }
         *y += rh;
     };
-    row(ui, &mut y, "คุย", "วันละครั้ง · สนิทขึ้น +1 · อารมณ์ดีขึ้น", if n.talked { "คุยแล้ว" } else { "คุย" }, !n.talked, A::Talk, &mut act);
-    row(ui, &mut y, "ให้ของขวัญ", "อัญมณี +2 · ข้าวโพด/แครอท/เบอร์รี่ +1 · วันละครั้ง", if n.gifted { "ให้แล้ว" } else { "มอบ" }, !n.gifted, A::Gift, &mut act);
+    row(ui, &mut y, "คุย", "วันละครั้ง · คนขี้อายเปิดใจช้ากว่า · คนที่กำลังโกรธจะไม่ยอมคุย", if n.talked { "คุยแล้ว" } else { "คุย" }, !n.talked, A::Talk, &mut act);
+    row(ui, &mut y, "ให้ของขวัญ", "เลือกของที่ตรงใจ — ของที่ไม่ชอบทำให้โกรธ · ให้ซ้ำๆ จะเบื่อ · วันละครั้ง", if n.gifted { "ให้แล้ว" } else if ui.gift_open { "ซ่อน" } else { "เลือกของ" }, !n.gifted, A::GiftToggle, &mut act);
+    if ui.gift_open && !n.gifted {
+        for &it in GIFTS.iter() {
+            if g.p.inv[it] < 1 { continue; }
+            if visible(y, 36. * u, c) {
+                let mark = if it == n.soc.love as usize && n.hearts >= 4 { " · ของโปรดของเขา" } else if it == n.soc.hate as usize && n.hearts >= 6 { " · ของที่เขาไม่ชอบ!" } else { "" };
+                text(font, &format!("{} x{}{}", INAME[it], g.p.inv[it], mark), c.x + 24. * u, y + 22. * u, 12. * u, hx(0xdddddd));
+                if btn(ui, font, Rect::new(c.x + c.w - 124. * u, y + 3. * u, 112. * u, 30. * u), "มอบ", true, u) { act = Some(A::Give(it)); }
+            }
+            y += 36. * u;
+        }
+        if GIFTS.iter().all(|&it| g.p.inv[it] < 1) {
+            if visible(y, 28. * u, c) { text(font, "ไม่มีของที่ให้ได้ในกระเป๋า (อัญมณี ผลผลิต ปลา เนื้อ อาหารปรุง)", c.x + 24. * u, y + 18. * u, 11. * u, hx(0x999999)); }
+            y += 28. * u;
+        }
+    }
+    if n.state == ST_HOME || n.state == ST_FOLLOW {
+        let sorry = n.soc.anger > 0 || n.soc.grudge > 0;
+        row(ui, &mut y, "ขอโทษ", if sorry { "ได้ผลหรือไม่ขึ้นกับนิสัยและความสนิท · วันละครั้ง" } else { "ตอนนี้ไม่มีเรื่องค้างคาใจ" }, "ขอโทษ", sorry && n.soc.apol_day != day_of(g), A::Apology, &mut act);
+    }
     if n.state == ST_FOLLOW {
         let fb = g.free_beds().len();
         row(ui, &mut y, "ชวนมาอยู่ที่ฐาน", &format!("เตียงว่าง {} (สร้างเตียงในเมนูสร้าง)", fb), "ชวน", fb > 0, A::Invite, &mut act);
     } else if !n.child {
-        let can = n.hearts >= 8 && n.mood >= 50 && !g.npcs.iter().any(|x| x.married);
+        let can = n.hearts >= 8 && n.mood >= 50 && n.soc.grudge < 15 && n.soc.anger == 0 && !g.npcs.iter().any(|x| x.married);
         row(ui, &mut y, "ขอแต่งงาน", &format!("สนิท 8/10 ขึ้นไป · {} เหรียญ + {} อัญมณี · แต่งได้คนเดียว (มีลูกหลังแต่ง 3 วัน)", MARRY_COIN, MARRY_GEM), if n.married { "แต่งแล้ว" } else { "ขอแต่งงาน" }, can && !n.married, A::Marry, &mut act);
         if n.role == 3 {
             row(ui, &mut y, "ร้านค้า", "พ่อค้าเฉพาะทางของหมู่บ้าน (ด้านล่าง)", "เปิดร้าน", false, A::Shop, &mut act);
@@ -904,8 +958,9 @@ fn tab_npc_dialog(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c:
             for (i, o) in VILLAGE_OFFERS.iter().enumerate() {
                 if visible(y, rh, c) {
                     text(font, o.name, c.x + 8. * u, y + 18. * u, 14. * u, hx(0xffffff));
-                    text(font, &format!("{} · {} เหรียญ", o.desc, o.price), c.x + 8. * u, y + 35. * u, 11. * u, hx(0xaaaaaa));
-                    if btn(ui, font, Rect::new(c.x + c.w - 124. * u, y + 6. * u, 112. * u, 32. * u), "ซื้อ", g.p.inv[COIN] >= o.price, u) { buy = Some(i); }
+                    let pr = g.npc_price(id, o.price);
+                    text(font, &match pr { Some(p) => format!("{} · {} เหรียญ{}", o.desc, p, if p < o.price { " (ลดให้คนสนิท)" } else if p > o.price { " (แพงกว่าปกติเพราะยังไม่สนิท)" } else { "" }), None => "เขาไม่ขายให้คุณตอนนี้".to_string() }, c.x + 8. * u, y + 35. * u, 11. * u, hx(0xaaaaaa));
+                    if btn(ui, font, Rect::new(c.x + c.w - 124. * u, y + 6. * u, 112. * u, 32. * u), "ซื้อ", pr.map_or(false, |p| g.p.inv[COIN] >= p), u) { buy = Some(i); }
                     sep(c, y + rh - 2.);
                 }
                 y += rh;
@@ -914,14 +969,16 @@ fn tab_npc_dialog(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c:
     }
     row(ui, &mut y, "ให้ย้ายออก", "ถ้าไม่ต้องการแล้ว (ย้ายออกถาวร)", "ย้ายออก", true, A::Dismiss, &mut act);
     row(ui, &mut y, "กลับ", "ภาพรวมชุมชน", "กลับ", true, A::Back, &mut act);
-    if let Some(i) = buy { g.npc_buy(i); }
+    if let Some(i) = buy { g.npc_buy(id, i); }
     match act {
         Some(A::Talk) => g.npc_talk(id),
-        Some(A::Gift) => g.npc_gift(id),
+        Some(A::GiftToggle) => ui.gift_open = !ui.gift_open,
+        Some(A::Give(it)) => { g.npc_gift_item(id, it); ui.gift_open = false; }
+        Some(A::Apology) => g.npc_apologize(id),
         Some(A::Invite) => g.npc_invite(id),
         Some(A::Marry) => g.npc_marry(id),
         Some(A::Dismiss) => { g.npc_dismiss(id); ui.npc = None; }
-        Some(A::Back) => { ui.npc = None; ui.scroll = 0.; }
+        Some(A::Back) => { ui.npc = None; ui.scroll = 0.; ui.gift_open = false; }
         _ => {}
     }
     y - top

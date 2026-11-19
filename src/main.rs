@@ -24,6 +24,7 @@ mod npc;
 mod prefs;
 mod rpg;
 mod skin;
+mod social;
 use extra::*;
 use farm::*;
 use guide::*;
@@ -37,6 +38,7 @@ use menu::*;
 use npc::*;
 use rpg::*;
 use skin::*;
+use social::*;
 
 // ======================= ค่าคงที่ =======================
 const DAYLEN: f32 = 240.0;
@@ -498,6 +500,8 @@ struct Game {
     bgm_on: bool,
     to_title: bool,
     npcs: Vec<Npc>,
+    rels: HashMap<(u32, u32), i32>,
+    news: Vec<(i32, String)>,
     npc_next: u32,
     npc_seen: HashSet<(i32, i32)>,
     lost_told: HashSet<(i32, i32)>,
@@ -564,7 +568,7 @@ impl Game {
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
-            rain: 0., rain_on: false, rain_t: 90., thunder: 0., cshake: (0., 0.), bgm_on: true, to_title: false, npcs: vec![], npc_next: 1, npc_seen: HashSet::new(), lost_told: HashSet::new(), lost_hint_t: 1., last_day: -1, tax_pool: 0, wed_day: 0, last_child: -99, tut: TUT_DONE, tut_ev0: [0; EV_N], ev: [0; EV_N], tut_flash: 0., hitstop: 0., sfx_on: true,
+            rain: 0., rain_on: false, rain_t: 90., thunder: 0., cshake: (0., 0.), bgm_on: true, to_title: false, npcs: vec![], rels: HashMap::new(), news: vec![], npc_next: 1, npc_seen: HashSet::new(), lost_told: HashSet::new(), lost_hint_t: 1., last_day: -1, tax_pool: 0, wed_day: 0, last_child: -99, tut: TUT_DONE, tut_ev0: [0; EV_N], ev: [0; EV_N], tut_flash: 0., hitstop: 0., sfx_on: true,
             auto_aim: true, pick_cd: 0.,
             crops: HashMap::new(), crop_t: 0., bed: None, seed_sel: 0, sleep_fx: 0., build_cur: None, cur_pos: (0., 0.), weather_kind: 1,
         }
@@ -688,6 +692,7 @@ impl Game {
                 "rod" => g.p.rod = f(0) > 0.,
                 "tut" => g.tut = f(0) as u8,
                 "town" | "npc" | "npcseen" => g.npc_load_line(tag, &rest),
+                "nsoc" | "nrel" | "nnews" => g.soc_load_line(tag, &rest),
                 "farm" => { g.p.can = f(0) > 0.; g.p.water = (f(1) as i32).clamp(0, WATER_MAX); g.seed_sel = (f(2) as u8).min(1); }
                 "bed" => g.bed = Some((f(0) as i32, f(1) as i32)),
                 "crops" => for v in &rest {
@@ -948,6 +953,11 @@ impl Game {
                 hit = true;
                 self.hit_boss(i, dmg);
             }
+        }
+        if !hit {
+            // ฟันโดนชาวบ้าน (เฉพาะตอนไม่ได้โดนมอนสเตอร์) — มีผลต่อความรู้สึกของเขา
+            let victim = self.npcs.iter().position(|n| n.state != ST_LOST && (n.x - fx).hypot(n.y - 6. - fy) < 12.);
+            if let Some(vi) = victim { self.npc_hit(vi); hit = true; }
         }
         if !hit {
             let (tx, ty) = (tfloor(self.p.x + dx * 11.), tfloor(self.p.y - 3. + dy * 11.));
@@ -2010,14 +2020,16 @@ fn debug_keys(g: &mut Game) {
             g.w.placed.insert(b, 33);
             if n < 4 {
                 let id = g.npc_next; g.npc_next += 1;
-                g.npcs.push(npc::Npc { id, name: (id % 12) as u8, look: (id % npc::LOOKS as u32) as u8, x: b.0 as f32 * 16. + 8., y: b.1 as f32 * 16. + 18., state: npc::ST_HOME, hearts: 3, mood: 70, married: false, child: false, role: 0, bed: b, anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false });
+                g.npcs.push(npc::Npc { id, name: (id % 12) as u8, look: (id % npc::LOOKS as u32) as u8, x: b.0 as f32 * 16. + 8., y: b.1 as f32 * 16. + 18., state: npc::ST_HOME, hearts: 3, mood: 70, married: false, child: false, role: 0, bed: b, anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false, soc: Soc::generate(id, (id % 12) as u8) });
                 n += 1;
             }
         }
         let mut c = [0; NI]; c[CORN] = 20; c[CARROT] = 20;
         g.chests.insert((tx + 4, ty - 1), c);
         g.p.inv[COIN] += 200; g.p.inv[GEM] += 10;
+        for it in [BERRY, CORN, CARROT, FISH, MEAT, HERB] { g.p.inv[it] += 3; }
         g.assign_roles_pub();
+        if g.npcs.len() > 1 { g.npcs[1].soc.anger = 60; g.npcs[1].soc.grudge = 35; } // ให้เห็นไอคอนโกรธ
         g.toast(format!("[debug] หมู่บ้านทดสอบ: {} คน", n));
     }
     if is_key_pressed(KeyCode::F3) { let (x, y) = (g.p.x + 90., g.p.y); g.spawn_boss(0, x, y); }
@@ -3303,7 +3315,7 @@ mod npc_tests {
     use super::*;
 
     fn mk(id: u32, state: u8, bed: (i32, i32)) -> npc::Npc {
-        npc::Npc { id, name: (id % 12) as u8, look: 0, x: bed.0 as f32 * 16. + 8., y: bed.1 as f32 * 16. + 18., state, hearts: 2, mood: 60, married: false, child: false, role: 0, bed, anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false }
+        npc::Npc { id, name: (id % 12) as u8, look: 0, x: bed.0 as f32 * 16. + 8., y: bed.1 as f32 * 16. + 18., state, hearts: 2, mood: 60, married: false, child: false, role: 0, bed, anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false, soc: Soc::generate(id, (id % 12) as u8) }
     }
     fn home(g: &mut Game, n: i32) {
         for k in 0..n {
@@ -3516,5 +3528,273 @@ mod npc_tests {
         for _ in 0..60 { g.npc_tick(0.05); }
         let d1 = (g.npcs[0].x - g.p.x).abs();
         assert!(d1 < d0, "คนที่ตามต้องเดินเข้าหาผู้เล่น ({} → {})", d0, d1);
+    }
+}
+
+#[cfg(test)]
+mod social_tests {
+    use super::*;
+
+    fn mk(id: u32, bed: (i32, i32)) -> npc::Npc {
+        npc::Npc { id, name: (id % 12) as u8, look: 0, x: bed.0 as f32 * 16. + 8., y: bed.1 as f32 * 16. + 18., state: npc::ST_HOME, hearts: 3, mood: 70, married: false, child: false, role: 0, bed, anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false, soc: Soc::generate(id, (id % 12) as u8) }
+    }
+    fn town(g: &mut Game, n: u32) {
+        for k in 0..n { let b = (500 + k as i32 * 2, 500); g.w.placed.insert(b, 33); g.npcs.push(mk(k + 1, b)); }
+        g.npc_next = n + 1;
+    }
+
+    #[test]
+    fn soc_generate_is_deterministic_and_varied() {
+        let a = Soc::generate(5, 3);
+        let b = Soc::generate(5, 3);
+        assert_eq!((a.tr, a.love, a.hate), (b.tr, b.love, b.hate));
+        assert_ne!(a.love, a.hate);
+        assert!(a.tr.iter().all(|&t| (10..=95).contains(&t)));
+        // คนละ id ต้องต่างกันพอสมควร (50 คน ต้องมีนิสัยเด่นอย่างน้อย 4 แบบ)
+        let mut seen = HashSet::new();
+        for id in 1..=50 { seen.insert(Soc::generate(id, (id % 12) as u8).top_trait()); }
+        assert!(seen.len() >= 4, "{:?}", seen);
+        let loves: HashSet<u8> = (1..=50).map(|id| Soc::generate(id, 0).love).collect();
+        assert!(loves.len() >= 5);
+    }
+
+    #[test]
+    fn loved_gift_beats_neutral_and_hated_gift_angers() {
+        let mut g = Game::new_world_seed(1, Sfx::default());
+        town(&mut g, 2);
+        let (love, hate) = (g.npcs[0].soc.love as usize, g.npcs[0].soc.hate as usize);
+        let neutral = GIFTS.iter().copied().find(|&i| i != love && i != hate).unwrap();
+        for it in [love, hate, neutral] { g.p.inv[it] = 5; }
+        // ชอบ
+        let h0 = g.npcs[0].hearts;
+        g.npc_gift_item(1, love);
+        assert_eq!(g.npcs[0].hearts, h0 + 3);
+        assert!(g.npcs[0].gifted);
+        g.npc_gift_item(1, love); // วันละครั้ง
+        assert_eq!(g.p.inv[love], 4);
+        // ไม่ชอบ → โกรธ
+        let hate2 = g.npcs[1].soc.hate as usize;
+        g.p.inv[hate2] = 5;
+        let h = g.npcs[1].hearts;
+        g.npc_gift_item(2, hate2);
+        assert_eq!(g.npcs[1].hearts, h.saturating_sub(1));
+        assert!(g.npcs[1].soc.anger >= 15);
+        // กลาง ๆ ได้ตามค่าพื้นฐาน
+        let mut g2 = Game::new_world_seed(1, Sfx::default());
+        town(&mut g2, 2);
+        let nl = g2.npcs[0].soc.love as usize; let nh = g2.npcs[0].soc.hate as usize;
+        let neu = GIFTS.iter().copied().find(|&i| i != nl && i != nh).unwrap();
+        g2.p.inv[neu] = 2;
+        g2.npc_gift_item(1, neu);
+        assert_eq!(g2.npcs[0].hearts as i32, 3 + gift_base(neu));
+    }
+
+    #[test]
+    fn repeated_same_gift_gets_boring() {
+        let mut g = Game::new_world_seed(1, Sfx::default());
+        town(&mut g, 1);
+        let neu = GIFTS.iter().copied().find(|&i| i != g.npcs[0].soc.love as usize && i != g.npcs[0].soc.hate as usize && gift_base(i) == 2).unwrap();
+        g.p.inv[neu] = 9;
+        g.npc_gift_item(1, neu);
+        let h1 = g.npcs[0].hearts;
+        for _ in 0..2 { g.npcs[0].gifted = false; g.npc_gift_item(1, neu); }
+        let h3 = g.npcs[0].hearts;
+        // ครั้งที่ 3 (bore>=2) ได้แค่ครึ่งเดียว: +1 แทน +2
+        assert_eq!(h3 as i32 - (h1 as i32 + 2), 1, "ครั้งที่ 2 ได้เต็ม ครั้งที่ 3 ได้ครึ่ง");
+    }
+
+    #[test]
+    fn angry_npc_refuses_then_apology_and_time_heal() {
+        let mut g = Game::new_world_seed(1, Sfx::default());
+        town(&mut g, 1);
+        g.npcs[0].x = g.p.x; g.npcs[0].y = g.p.y;
+        let id = 1;
+        let mut c = [0; NI]; c[CORN] = 9; g.chests.insert((501, 500), c); // มีอาหาร จะได้ไม่โกรธเพราะหิวเพิ่ม
+        g.npc_hit(0);
+        assert!(g.npcs[0].soc.anger >= 45 && g.npcs[0].soc.grudge >= 12);
+        assert_eq!(g.npcs[0].hearts, 1);
+        assert!(refuses(&g.npcs[0]));
+        g.npc_talk(id);
+        assert!(!g.npcs[0].talked, "คนที่โกรธไม่ยอมคุย");
+        g.p.inv[GEM] = 3;
+        g.npc_gift_item(id, GEM);
+        assert!(!g.npcs[0].gifted, "ไม่รับของขวัญตอนโกรธ");
+        // รอ 2 รุ่งเช้า ความโกรธ (ระยะสั้น) หาย แต่ความแค้นยังเหลือ
+        for d in 1..=3 { g.time = DAYLEN * (d as f32 + 0.5); g.npc_dawn(); }
+        assert_eq!(g.npcs[0].soc.anger, 0, "โกรธ 45 หายใน 3 วัน");
+        let gr = g.npcs[0].soc.grudge;
+        assert!(gr >= 3 && gr < 12, "แค้นจางช้ากว่าโกรธ: {}", gr);
+        g.npcs[0].talked = false;
+        g.npc_talk(id);
+        assert!(g.npcs[0].talked, "หายโกรธแล้วคุยได้");
+    }
+
+    #[test]
+    fn apology_chance_depends_on_kindness_and_once_a_day() {
+        let mut g = Game::new_world_seed(1, Sfx::default());
+        town(&mut g, 1);
+        g.npcs[0].soc.anger = 60; g.npcs[0].soc.grudge = 20; g.npcs[0].soc.tr[T_KIND] = 95; g.npcs[0].hearts = 6;
+        g.time = DAYLEN * 3.1;
+        g.npc_apologize(1);
+        let a1 = g.npcs[0].soc.anger;
+        assert!(a1 < 60);
+        g.npc_apologize(1);
+        assert_eq!(g.npcs[0].soc.anger, a1, "ขอโทษซ้ำวันเดิมไม่ได้ผล");
+        // ไม่มีเรื่องค้างคาใจ → ไม่ทำอะไร
+        let mut g2 = Game::new_world_seed(1, Sfx::default());
+        town(&mut g2, 1);
+        g2.npc_apologize(1);
+        assert_eq!(g2.npcs[0].soc.apol_day, -1);
+    }
+
+    #[test]
+    fn opinion_labels_and_price_follow_feelings() {
+        let mut g = Game::new_world_seed(1, Sfx::default());
+        town(&mut g, 1);
+        g.npcs[0].hearts = 2; assert_eq!(opinion_label(opinion(&g.npcs[0])), "คุ้นเคย");
+        g.npcs[0].hearts = 5; assert_eq!(opinion_label(opinion(&g.npcs[0])), "เพื่อน");
+        g.npcs[0].hearts = 8; assert_eq!(opinion_label(opinion(&g.npcs[0])), "เพื่อนสนิท");
+        g.npcs[0].soc.tr[T_GREED] = 50;
+        let p_friend = g.npc_price(1, 100).unwrap();
+        g.npcs[0].hearts = 1; g.npcs[0].soc.grudge = 0;
+        let p_stranger = g.npc_price(1, 100).unwrap();
+        assert!(p_friend < 100 && p_stranger > p_friend, "{} {}", p_friend, p_stranger);
+        g.npcs[0].hearts = 0; g.npcs[0].soc.grudge = 40;
+        assert!(g.npc_price(1, 100).is_none(), "ไม่ขายให้คนที่ตัวเองเกลียด");
+        assert!(!Game::willing(&{ let mut n = g.npcs[0].clone(); n.soc.grudge = 50; n }), "ยาม/ชาวไร่หยุดงานเมื่อเกลียดผู้นำ");
+    }
+
+    #[test]
+    fn friendship_fades_without_contact_but_talking_resets() {
+        let mut g = Game::new_world_seed(1, Sfx::default());
+        town(&mut g, 1);
+        g.npcs[0].hearts = 5; g.npcs[0].soc.last_talk = 1;
+        g.time = DAYLEN * 3.5; g.npc_dawn();
+        assert_eq!(g.npcs[0].hearts, 5, "ยังไม่ถึง 6 วัน");
+        g.time = DAYLEN * 8.5; g.npc_dawn();
+        assert_eq!(g.npcs[0].hearts, 4, "ไม่คุยเกิน 6 วัน สนิทลดลง");
+        // ฝ่ายคู่สมรสที่ถูกทิ้งไว้เสียอารมณ์แทน
+        g.npcs[0].married = true; g.npcs[0].soc.last_talk = 1; let m0 = g.npcs[0].mood;
+        g.time = DAYLEN * 12.5; g.npc_dawn();
+        assert!(g.npcs[0].mood < m0 + 8, "คู่สมรสที่ไม่ได้คุยด้วยเศร้า: {} → {}", m0, g.npcs[0].mood);
+    }
+
+    #[test]
+    fn marriage_triggers_jealousy_or_joy_by_closeness_and_kindness() {
+        let mut g = Game::new_world_seed(1, Sfx::default());
+        town(&mut g, 4);
+        g.p.inv[COIN] = 500; g.p.inv[GEM] = 20;
+        g.npcs[0].hearts = 9; g.npcs[0].mood = 90;
+        // id2: สนิทมาก+ไม่ใจดี → อิจฉา · id3: สนิทมาก+ใจดี → ยอมรับ · id4: สนิทปานกลาง → ยินดี
+        g.npcs[1].hearts = 9; g.npcs[1].soc.tr[T_KIND] = 20;
+        g.npcs[2].hearts = 9; g.npcs[2].soc.tr[T_KIND] = 90;
+        g.npcs[3].hearts = 5;
+        let (m2, m3, m4) = (g.npcs[1].mood, g.npcs[2].mood, g.npcs[3].mood);
+        g.npc_marry(1);
+        assert!(g.npcs[0].married);
+        assert!(g.npcs[1].soc.anger >= 30 && g.npcs[1].soc.grudge >= 15 && g.npcs[1].hearts == 6 && g.npcs[1].mood < m2);
+        assert!(g.npcs[2].soc.anger == 0 && g.npcs[2].hearts == 9 && g.npcs[2].mood < m3);
+        assert!(g.npcs[3].mood > m4 && g.npcs[3].hearts == 6);
+        assert!(g.news.iter().any(|(_, t)| t.contains("อิจฉา")));
+        // คนที่ยังมีเรื่องค้างคาใจ แต่งไม่ได้
+        let mut g2 = Game::new_world_seed(1, Sfx::default());
+        town(&mut g2, 1);
+        g2.p.inv[COIN] = 500; g2.p.inv[GEM] = 20;
+        g2.npcs[0].hearts = 9; g2.npcs[0].mood = 90; g2.npcs[0].soc.grudge = 30;
+        g2.npc_marry(1);
+        assert!(!g2.npcs[0].married);
+    }
+
+    #[test]
+    fn quarrels_happen_between_incompatible_neighbours_and_logged() {
+        let mut g = Game::new_world_seed(1, Sfx::default());
+        town(&mut g, 2);
+        // บังคับให้ไม่ถูกกัน + ใจร้อนทั้งคู่
+        for n in g.npcs.iter_mut() { n.soc.tr[T_TEMPER] = 95; n.soc.tr[T_KIND] = 10; n.mood = 90; }
+        g.add_rel(1, 2, -60);
+        let r0 = g.rel_between(1, 2);
+        assert!(r0 <= -30, "{}", r0);
+        let mut quarrels = 0;
+        for d in 1..40 {
+            g.time = DAYLEN * (d as f32 + 0.5);
+            let before = g.news.len();
+            g.social_dawn();
+            if g.news.len() > before && g.news.last().unwrap().1.contains("ทะเลาะ") { quarrels += 1; }
+            if g.npcs.len() < 2 { break; }
+        }
+        assert!(quarrels >= 1 || g.npcs.len() < 2, "คู่ที่ไม่ถูกกันและใจร้อนต้องทะเลาะ/แยกทางใน 40 วัน");
+    }
+
+    #[test]
+    fn deep_hatred_makes_one_leave_with_news() {
+        let mut g = Game::new_world_seed(1, Sfx::default());
+        town(&mut g, 2);
+        for n in g.npcs.iter_mut() { n.soc.tr[T_TEMPER] = 95; n.soc.tr[T_KIND] = 5; n.mood = 100; }
+        g.npcs[0].soc.tr[T_BRAVE] = 10; g.npcs[0].soc.tr[T_SOCIAL] = 10;  // คนแรกอ่อนแอกว่า
+        g.npcs[1].soc.tr[T_BRAVE] = 90; g.npcs[1].soc.tr[T_SOCIAL] = 90;
+        g.add_rel(1, 2, -150);
+        for d in 1..60 {
+            g.time = DAYLEN * (d as f32 + 0.5);
+            g.social_dawn();
+            if g.npcs.len() < 2 { break; }
+        }
+        assert_eq!(g.npcs.len(), 1);
+        assert_eq!(g.npcs[0].id, 2, "คนที่กล้า/เข้าสังคมน้อยกว่าเป็นฝ่ายย้ายออก");
+        assert!(g.news.iter().any(|(_, t)| t.contains("ทนอยู่ร่วมกับ")));
+    }
+
+    #[test]
+    fn hunger_makes_residents_resent_the_leader_hot_tempered_faster() {
+        let mut g = Game::new_world_seed(1, Sfx::default());
+        town(&mut g, 2);
+        for n in g.npcs.iter_mut() { n.hearts = 0; n.soc.tr[T_KIND] = 10; }
+        g.npcs[0].soc.tr[T_TEMPER] = 95; // id1 ใจร้อน
+        g.npcs[1].soc.tr[T_TEMPER] = 5;  // id2 ใจเย็น
+        for d in 1..5 {
+            g.time = DAYLEN * (d as f32 + 0.5);
+            g.npc_dawn(); // ไม่มีอาหารเลย
+            for n in g.npcs.iter_mut() { n.mood = 100; }
+        }
+        let (hot, calm) = (g.npcs[0].soc.grudge, g.npcs[1].soc.grudge);
+        assert!(calm > 0 && hot > calm, "ใจร้อนแค้นเร็วกว่า: {} vs {}", hot, calm);
+    }
+
+    #[test]
+    fn roles_follow_aptitude_in_a_village() {
+        let mut g = Game::new_world_seed(1, Sfx::default());
+        town(&mut g, 6);
+        for (i, n) in g.npcs.iter_mut().enumerate() { n.soc.tr[T_BRAVE] = 20 + i as u8 * 10; n.soc.tr[T_GREED] = 30; n.soc.tr[T_SOCIAL] = 30; }
+        g.npcs[1].soc.tr[T_GREED] = 95; g.npcs[1].soc.tr[T_SOCIAL] = 95; // พ่อค้าโดยธรรมชาติ
+        g.assign_roles_pub();
+        assert_eq!(g.npcs[1].role, 3);
+        let guards: Vec<u32> = g.npcs.iter().filter(|n| n.role == 2).map(|n| n.id).collect();
+        assert_eq!(guards.len(), 1 + 0, "{:?}", guards);
+        assert_eq!(guards[0], 6, "ยามคือคนที่กล้าที่สุด");
+        assert!(g.npcs.iter().filter(|n| n.role == 1).count() >= 3);
+    }
+
+    #[test]
+    fn rescue_never_duplicates_a_name_and_news_wrap_state_roundtrips() {
+        let mut g = Game::new_world_seed(4242, Sfx::default());
+        town(&mut g, 3);
+        g.npcs[0].soc.anger = 33; g.npcs[0].soc.grudge = 21; g.npcs[0].soc.last_gift = 4; g.npcs[0].soc.bore = 2; g.npcs[0].soc.tr = [11, 22, 33, 44, 55];
+        g.add_rel(1, 2, -17);
+        g.news_add("ทดสอบ ข่าว มีช่องว่าง".to_string());
+        let txt = g.save_string();
+        let l = Game::load_str(&txt, Sfx::default()).ok().unwrap();
+        assert_eq!(l.npcs[0].soc.tr, [11, 22, 33, 44, 55]);
+        assert_eq!((l.npcs[0].soc.anger, l.npcs[0].soc.grudge, l.npcs[0].soc.last_gift, l.npcs[0].soc.bore), (33, 21, 4, 2));
+        assert_eq!((l.npcs[0].soc.love, l.npcs[0].soc.hate), (g.npcs[0].soc.love, g.npcs[0].soc.hate));
+        assert_eq!(l.rel_between(1, 2), g.rel_between(1, 2));
+        assert!(l.news.iter().any(|(_, t)| t == "ทดสอบ ข่าว มีช่องว่าง"));
+        // เซฟรุ่นก่อน v7 (ไม่มีบรรทัด nsoc) โหลดได้ และสร้างนิสัยให้ตามเดิม
+        let old: String = txt.lines().filter(|l| !l.starts_with("nsoc") && !l.starts_with("nrel") && !l.starts_with("nnews")).map(|l| format!("{}\n", l)).collect();
+        let lo = Game::load_str(&old, Sfx::default()).ok().unwrap();
+        assert_eq!(lo.npcs.len(), 3);
+        assert_eq!(lo.npcs[1].soc.tr, Soc::generate(2, (2 % 12) as u8).tr);
+        // ชื่อไม่ซ้ำ: ทุกชื่อในรายการมีเพศกำกับ และไม่มีชื่อซ้ำกัน
+        let set: HashSet<&&str> = NPC_NAMES.iter().collect();
+        assert_eq!(set.len(), NPC_NAMES.len());
+        assert_eq!(NPC_FEM.len(), NPC_NAMES.len());
     }
 }

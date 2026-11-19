@@ -2,7 +2,11 @@
 //! → เตียง+อาหารกำหนดความสุข → ระดับ ค่าย (1-3 คน) / หมู่บ้าน (4-10) / อาณาจักร (>10 + ปราสาท + กำแพง)
 use super::*;
 
-pub const NPC_NAMES: [&str; 12] = ["มะลิ", "ตะวัน", "บุญเรือง", "น้ำฝน", "สายลม", "ปลายฟ้า", "ทองดี", "จันทร์เพ็ญ", "กล้า", "ใบบัว", "ไผ่", "รวงข้าว"];
+pub const NPC_NAMES: [&str; 36] = ["มะลิ", "ตะวัน", "บุญเรือง", "น้ำฝน", "สายลม", "ปลายฟ้า", "ทองดี", "จันทร์เพ็ญ", "กล้า", "ใบบัว", "ไผ่", "รวงข้าว",
+    "ดวงใจ", "ภูผา", "ขวัญ", "สมชาย", "แก้ว", "ธงชัย", "ลำดวน", "เก่ง", "ส้มโอ", "ต้นกล้า", "มุกดา", "วิชัย", "ฟ้าใส", "ชาติ", "น้ำผึ้ง", "แสงทอง", "ดาวเรือง", "คำปัน", "ชบา", "ภูมิ", "อ้อม", "นที", "พิมพ์", "อาทิตย์"];
+/// เพศตามชื่อ (true = หญิง) — ใช้กับรูปร่างใน v7c
+pub const NPC_FEM: [bool; 36] = [true, false, false, true, false, true, false, true, false, true, false, true,
+    true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false];
 pub const ROLE_N: [&str; 4] = ["ชาวบ้าน", "ชาวไร่", "ทหารยาม", "พ่อค้า"];
 pub const TIER_N: [&str; 4] = ["ยังไม่มีชุมชน", "ค่าย", "หมู่บ้าน", "อาณาจักร"];
 pub const LOOKS: usize = 6;
@@ -40,6 +44,7 @@ pub struct Npc {
     pub gifted: bool,
     pub moving: bool,
     pub left: bool,
+    pub soc: Soc,
 }
 
 pub const VILLAGE_OFFERS: [Offer; 5] = [
@@ -50,7 +55,7 @@ pub const VILLAGE_OFFERS: [Offer; 5] = [
     Offer { name: "อัญมณี x1", desc: "พ่อค้าเฉพาะทางหามาให้", item: GEM, qty: 1, price: 45, once: false },
 ];
 
-fn day_of(g: &Game) -> i32 { (g.time / DAYLEN) as i32 }
+pub fn day_of(g: &Game) -> i32 { (g.time / DAYLEN) as i32 }
 
 impl World {
     /// NPC หลงทางในเซลล์ (กำหนดแน่นอนจาก seed) → (x, y, ชื่อ, หน้าตา)
@@ -108,14 +113,18 @@ impl Game {
         }
     }
     pub fn assign_roles_pub(&mut self) { self.assign_roles(); }
+    /// แบ่งงานตามความถนัดจริง: คนกล้า = ยาม · คนโลภ+ช่างพูด = พ่อค้า · ที่เหลือทำไร่
     fn assign_roles(&mut self) {
         let t = self.tier();
-        let mut i = 0;
-        for n in self.npcs.iter_mut().filter(|n| n.state == ST_HOME) {
-            if n.child { n.role = 0; continue; }
-            n.role = if t <= 1 { 1 } else if i == 0 { 3 } else if i % 3 == 1 { 2 } else { 1 };
-            i += 1;
-        }
+        let adults: Vec<usize> = (0..self.npcs.len()).filter(|&i| self.npcs[i].state == ST_HOME && !self.npcs[i].child).collect();
+        for i in 0..self.npcs.len() { if self.npcs[i].state == ST_HOME { self.npcs[i].role = if self.npcs[i].child { 0 } else { 1 }; } }
+        if t <= 1 || adults.is_empty() { return; }
+        let m = *adults.iter().max_by_key(|&&i| { let s = &self.npcs[i].soc.tr; (s[T_GREED] as i32 + s[T_SOCIAL] as i32, -(self.npcs[i].id as i32)) }).unwrap();
+        self.npcs[m].role = 3;
+        let mut rest: Vec<usize> = adults.into_iter().filter(|&i| i != m).collect();
+        rest.sort_by_key(|&i| (-(self.npcs[i].soc.tr[T_BRAVE] as i32), self.npcs[i].id));
+        let guards = (rest.len() / 3).max(1).min(rest.len());
+        for &i in rest.iter().take(guards) { self.npcs[i].role = 2; }
     }
 
     // ---------------- ค้นหา/โต้ตอบ ----------------
@@ -150,7 +159,13 @@ impl Game {
                 self.npc_seen.insert(c);
                 let id = self.npc_next;
                 self.npc_next += 1;
-                self.npcs.push(Npc { id, name, look, x, y, state: ST_FOLLOW, hearts: 2, mood: 60, married: false, child: false, role: 0, bed: (0, 0), anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false });
+                // ไม่ให้ชื่อซ้ำกับคนที่มีอยู่แล้ว
+                let mut name = name;
+                for _ in 0..NPC_NAMES.len() {
+                    if !self.npcs.iter().any(|x| x.name == name) { break; }
+                    name = (name + 1) % NPC_NAMES.len() as u8;
+                }
+                self.npcs.push(Npc { id, name, look, x, y, state: ST_FOLLOW, hearts: 2, mood: 60, married: false, child: false, role: 0, bed: (0, 0), anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false, soc: Soc { last_talk: day_of(self), ..Soc::generate(id, name) } });
                 self.toast(format!("ช่วย{}ไว้แล้ว! คุยแล้วเลือก \"ชวนมาอยู่ที่ฐาน\" (ต้องมีเตียงว่าง)", NPC_NAMES[name as usize]));
                 play(&self.sfx.quest);
                 self.burst(x, y - 8., hx(0xffee66), 12, 60.);
@@ -166,33 +181,7 @@ impl Game {
         false
     }
 
-    fn idx(&self, id: u32) -> Option<usize> { self.npcs.iter().position(|n| n.id == id) }
-    pub fn npc_talk(&mut self, id: u32) {
-        let Some(i) = self.idx(id) else { return };
-        if self.npcs[i].talked { self.toast("วันนี้คุยกันไปแล้ว พรุ่งนี้ค่อยมาใหม่"); return; }
-        let n = &mut self.npcs[i];
-        n.talked = true;
-        n.hearts = (n.hearts + 1).min(10);
-        n.mood = (n.mood + 8).min(100);
-        let nm = NPC_NAMES[n.name as usize];
-        self.toast(format!("คุยกับ{} — สนิทกันขึ้น", nm));
-        play(&self.sfx.pickup);
-        self.save();
-    }
-    pub fn npc_gift(&mut self, id: u32) {
-        let Some(i) = self.idx(id) else { return };
-        if self.npcs[i].gifted { self.toast("วันนี้ให้ของขวัญไปแล้ว"); return; }
-        let (item, hearts) = if self.p.inv[GEM] > 0 { (GEM, 2u8) } else if self.p.inv[CORN] > 0 { (CORN, 1) } else if self.p.inv[CARROT] > 0 { (CARROT, 1) } else if self.p.inv[BERRY] > 0 { (BERRY, 1) } else { self.toast("ไม่มีของขวัญ (อัญมณี/ข้าวโพด/แครอท/เบอร์รี่)"); return; };
-        self.p.inv[item] -= 1;
-        let n = &mut self.npcs[i];
-        n.gifted = true;
-        n.hearts = (n.hearts + hearts).min(10);
-        n.mood = (n.mood + 14).min(100);
-        let nm = NPC_NAMES[n.name as usize];
-        self.toast(format!("มอบ{}ให้{} — ดีใจมาก!", INAME[item], nm));
-        play(&self.sfx.gem);
-        self.save();
-    }
+    pub fn idx(&self, id: u32) -> Option<usize> { self.npcs.iter().position(|n| n.id == id) }
     pub fn npc_invite(&mut self, id: u32) {
         let Some(i) = self.idx(id) else { return };
         let beds = self.free_beds();
@@ -223,6 +212,7 @@ impl Game {
         if self.npcs.iter().any(|x| x.married) { self.toast("แต่งงานได้คนเดียว"); return; }
         if n.hearts < 8 { self.toast("ต้องสนิทกันถึง 8/10 ก่อน (คุย/ให้ของขวัญทุกวัน)"); return; }
         if n.mood < 50 { self.toast("ตอนนี้เขายังไม่มีความสุขพอ — ดูแลอาหาร/เตียงก่อน"); return; }
+        if n.soc.grudge >= 15 || n.soc.anger > 0 { self.toast("เขายังมีเรื่องค้างคาใจกับคุณ — ขอโทษ/ง้อให้หายก่อน"); return; }
         if self.p.inv[COIN] < MARRY_COIN || self.p.inv[GEM] < MARRY_GEM { self.toast(format!("ต้องใช้ {} เหรียญ + {} อัญมณี (แหวน+งานเลี้ยง)", MARRY_COIN, MARRY_GEM)); return; }
         self.p.inv[COIN] -= MARRY_COIN;
         self.p.inv[GEM] -= MARRY_GEM;
@@ -237,12 +227,15 @@ impl Game {
         self.toast(format!("ยินดีด้วย! คุณแต่งงานกับ{}แล้ว", nm));
         play(&self.sfx.lvl);
         self.burst(x, y - 10., hx(0xff88aa), 24, 90.);
+        let sid = self.npcs[i].id;
+        self.social_on_marry(sid);
         self.save();
     }
-    pub fn npc_buy(&mut self, i: usize) {
+    pub fn npc_buy(&mut self, id: u32, i: usize) {
         let o = &VILLAGE_OFFERS[i];
-        if self.p.inv[COIN] < o.price { self.toast("เหรียญไม่พอ"); play(&self.sfx.deny); return; }
-        self.p.inv[COIN] -= o.price;
+        let Some(price) = self.npc_price(id, o.price) else { self.toast("พ่อค้าไม่ยอมขายให้คุณตอนนี้ (เขาไม่พอใจคุณ)"); play(&self.sfx.deny); return; };
+        if self.p.inv[COIN] < price { self.toast("เหรียญไม่พอ"); play(&self.sfx.deny); return; }
+        self.p.inv[COIN] -= price;
         self.p.inv[o.item] += o.qty;
         play(&self.sfx.buy);
         self.toast(format!("ซื้อ {} แล้ว", o.name));
@@ -257,6 +250,7 @@ impl Game {
         self.save();
     }
     pub fn npc_dismiss(&mut self, id: u32) {
+        if self.idx(id).is_some() { self.social_on_dismiss(id); }
         if let Some(i) = self.idx(id) {
             let nm = NPC_NAMES[self.npcs[i].name as usize];
             self.npcs.remove(i);
@@ -279,6 +273,9 @@ impl Game {
             let n = &mut self.npcs[i];
             n.mood += if bed_ok { 3 } else { -25 };
             n.mood += if fed { 5 } else { -20 };
+            // คนในปกครองโทษผู้นำเมื่อลำบาก — ยิ่งใจร้อนยิ่งแค้นเร็ว
+            if !bed_ok { n.soc.grudge = (n.soc.grudge + 3 + n.soc.tr[T_TEMPER] as i32 / 30).min(100); }
+            if !fed { n.soc.grudge = (n.soc.grudge + 2 + n.soc.tr[T_TEMPER] as i32 / 40).min(100); n.soc.anger = (n.soc.anger + 8).min(100); }
             if n.married { n.mood += 4; }
             if n.hearts >= 5 { n.mood += 2; }
             n.mood = n.mood.clamp(0, 100);
@@ -298,8 +295,10 @@ impl Game {
             }
         }
         self.assign_roles();
+        let news_n = self.social_dawn();
+        self.assign_roles();
         // ชาวไร่: รดน้ำ เก็บเกี่ยว ปลูกซ้ำ
-        let farmers: Vec<(i32, i32)> = self.npcs.iter().filter(|n| n.state == ST_HOME && n.role == 1 && n.mood >= 20).map(|n| n.bed).collect();
+        let farmers: Vec<(i32, i32)> = self.npcs.iter().filter(|n| n.state == ST_HOME && n.role == 1 && n.mood >= 20 && Game::willing(n)).map(|n| n.bed).collect();
         let mut harvested = 0;
         for bed in farmers {
             let keys: Vec<(i32, i32)> = self.crops.keys().copied().filter(|k| (k.0 - bed.0).abs() <= 14 && (k.1 - bed.1).abs() <= 14).take(10).collect();
@@ -329,7 +328,7 @@ impl Game {
                 if let Some(b) = self.free_beds().first().copied() {
                     let id = self.npc_next;
                     self.npc_next += 1;
-                    self.npcs.push(Npc { id, name: (id as usize * 5 % NPC_NAMES.len()) as u8, look: (id % LOOKS as u32) as u8, x: sx + 4., y: sy, state: ST_HOME, hearts: 10, mood: 90, married: false, child: true, role: 0, bed: b, anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false });
+                    self.npcs.push(Npc { id, name: (id as usize * 5 % NPC_NAMES.len()) as u8, look: (id % LOOKS as u32) as u8, x: sx + 4., y: sy, state: ST_HOME, hearts: 10, mood: 90, married: false, child: true, role: 0, bed: b, anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false, soc: Soc::generate(id, (id as usize * 5 % NPC_NAMES.len()) as u8) });
                     self.last_child = day;
                     self.toast(format!("ครอบครัวของคุณมีสมาชิกใหม่: {}!", NPC_NAMES[self.npcs.last().unwrap().name as usize]));
                     play(&self.sfx.lvl);
@@ -339,6 +338,7 @@ impl Game {
         if !ids.is_empty() {
             let mut s = format!("รุ่งเช้า: ชาวบ้าน {} คน อิ่ม {} หิว {}", ids.len(), fed_n, hungry_n);
             if harvested > 0 { s += &format!(" · ชาวไร่เก็บผลผลิต {}", harvested); }
+            if news_n > 0 { s += &format!(" · มีข่าวในหมู่บ้าน {} เรื่อง", news_n); }
             self.toast(s);
         }
         self.save();
@@ -392,7 +392,7 @@ impl Game {
                     if d > 26. { tx = px; ty = py; spd = 70.; }
                 }
                 _ => {
-                    if n.role == 2 && n.mood >= 20 {
+                    if n.role == 2 && n.mood >= 20 && Game::willing(n) {
                         // ทหารยาม: เข้าหามอนสเตอร์ใกล้บ้าน ฟันให้
                         let tgt = enemies.iter().filter(|e| (e.1 - home.0).hypot(e.2 - home.1) < 170.).min_by(|a, b| ((a.1 - n.x).hypot(a.2 - n.y)).partial_cmp(&((b.1 - n.x).hypot(b.2 - n.y))).unwrap());
                         if let Some(&(ei, ex, ey)) = tgt {
@@ -447,7 +447,13 @@ pub fn draw_npc(g: &Game, sp: &Sprites, v: &View, i: usize, t_now: f32) {
         prect(v, sx + 1., sy - 20. * k - bob, 2., 1., hx(0xff6688));
         prect(v, sx - 1., sy - 19. * k - bob, 3., 1., hx(0xff6688));
     }
-    if n.state == ST_HOME && n.mood < 25 {
+    if n.soc.anger >= 40 {
+        // สัญลักษณ์โกรธ: กากบาทแดงเต้น ๆ
+        let p = ((t_now * 8.).sin() * 0.8).round();
+        let (cx, cy) = (sx + 4., sy - 19. * k - bob + p);
+        prect(v, cx - 1., cy - 3., 2., 7., hx(0xff3030));
+        prect(v, cx - 3., cy - 1., 6., 2., hx(0xff3030));
+    } else if n.state == ST_HOME && n.mood < 25 {
         text_c_world(v, "!", sx, sy - 19. * k - bob, hx(0xff4444), t_now);
     }
 }
@@ -477,6 +483,7 @@ impl Game {
         for n in &self.npcs {
             s += &format!("npc {} {} {} {} {} {} {} {} {} {} {} {} {}\n", n.id, n.name, n.look, n.x, n.y, n.state, n.hearts, n.mood, n.married as u8, n.child as u8, n.role, n.bed.0, n.bed.1);
         }
+        s += &self.soc_save_str();
         if !self.npc_seen.is_empty() {
             s += "npcseen";
             for (x, y) in &self.npc_seen { s += &format!(" {},{}", x, y); }
@@ -488,7 +495,7 @@ impl Game {
         let f = |i: usize| rest.get(i).and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.);
         match tag {
             "town" => { self.npc_next = f(0) as u32; self.last_day = f(1) as i32; self.tax_pool = f(2) as i32; self.wed_day = f(3) as i32; self.last_child = f(4) as i32; }
-            "npc" => self.npcs.push(Npc { id: f(0) as u32, name: (f(1) as u8) % NPC_NAMES.len() as u8, look: (f(2) as u8) % LOOKS as u8, x: f(3), y: f(4), state: (f(5) as u8).min(2), hearts: (f(6) as u8).min(10), mood: f(7) as i32, married: f(8) > 0., child: f(9) > 0., role: (f(10) as u8).min(3), bed: (f(11) as i32, f(12) as i32), anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false }),
+            "npc" => self.npcs.push(Npc { id: f(0) as u32, name: (f(1) as u8) % NPC_NAMES.len() as u8, look: (f(2) as u8) % LOOKS as u8, x: f(3), y: f(4), state: (f(5) as u8).min(2), hearts: (f(6) as u8).min(10), mood: f(7) as i32, married: f(8) > 0., child: f(9) > 0., role: (f(10) as u8).min(3), bed: (f(11) as i32, f(12) as i32), anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false, soc: Soc::generate(f(0) as u32, (f(1) as u8) % NPC_NAMES.len() as u8) }),
             "npcseen" => for t in rest { if let Some((a, b)) = t.split_once(',') { if let (Ok(a), Ok(b)) = (a.parse(), b.parse()) { self.npc_seen.insert((a, b)); } } },
             _ => {}
         }
