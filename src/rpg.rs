@@ -141,6 +141,7 @@ impl Game {
             ex = e.x;
             ey = e.y - if e.k == EK::Bat { 14. } else { 5. };
         }
+        self.hitstop = self.hitstop.max(if crit { 0.09 } else { 0.045 });
         if crit {
             self.add_float_sz(ex, ey - 10., format!("{}!", dmg), hx(0xff9a2a), 1.6);
             self.shake(1.5, 0.12);
@@ -165,6 +166,7 @@ impl Game {
             x = b.x;
             y = b.y - 28.;
         }
+        self.hitstop = self.hitstop.max(if crit { 0.1 } else { 0.05 });
         if crit {
             self.add_float_sz(x, y, format!("{}!", dmg), hx(0xff9a2a), 1.7);
             self.shake(1.8, 0.14);

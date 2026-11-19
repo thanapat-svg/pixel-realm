@@ -107,7 +107,16 @@ fn recipe_list(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rec
     let top = c.y - ui.scroll;
     let mut y = top;
     let mut act: Option<usize> = None;
+    // เปิดเผยทีละน้อย: แสดงสูตรพื้นฐาน + สูตรที่เกี่ยวกับของที่มีอยู่ (ซ่อนที่เหลือไว้ ไม่ให้เมนูล้น)
+    let basic = if list.len() >= 20 { 2 } else { 0 };
+    let mut hidden = 0;
     for (i, r) in list.iter().enumerate() {
+        let st0 = recipe_state(&g.p, r);
+        let related = r.cost.iter().any(|&(it, _)| g.p.inv[it] > 0) || r.need.map_or(false, |n| g.p.inv[n] > 0);
+        if !(i < basic || st0 == 1 || related) {
+            hidden += 1;
+            continue;
+        }
         if visible(y, rh, c) {
             let st = recipe_state(&g.p, r);
             text(font, r.name, c.x + 8. * u, y + 18. * u, 15. * u, if st == 1 { hx(0x88aa88) } else { hx(0xffcc66) });
@@ -120,6 +129,12 @@ fn recipe_list(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rec
             sep(c, y + rh - 2.);
         }
         y += rh;
+    }
+    if hidden > 0 {
+        if visible(y, 30. * u, c) {
+            text(font, &format!("มีอีก {} สูตรที่ยังซ่อนอยู่ — เก็บวัตถุดิบใหม่ๆ แล้วจะปรากฏเอง", hidden), c.x + 8. * u, y + 20. * u, 11. * u, hx(0x888899));
+        }
+        y += 30. * u;
     }
     if let Some(i) = act {
         g.craft_from(list, i);
@@ -578,6 +593,15 @@ fn tab_settings(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: R
         _ => {}
     }
     if visible(y, rh, c) {
+        let on = g.tut < TUT_N;
+        text(font, if on { "บทเรียนเริ่มเกม: กำลังทำ" } else { "บทเรียนเริ่มเกม: จบแล้ว" }, c.x + 8. * u, y + 28. * u, 14. * u, hx(0xdddddd));
+        if btn(ui, font, Rect::new(c.x + c.w - 124. * u, y + 9. * u, 112. * u, 32. * u), if on { "ข้าม" } else { "ทำใหม่" }, true, u) {
+            if on { g.tut = TUT_DONE; } else { g.tut = 0; g.tut_ev0 = g.ev; }
+            g.save();
+        }
+    }
+    y += rh;
+    if visible(y, rh, c) {
         text(font, "บันทึกอัตโนมัติ แล้วกลับหน้าเมนูหลัก", c.x + 8. * u, y + 28. * u, 13. * u, hx(0xdddddd));
         if btn(ui, font, Rect::new(c.x + c.w - 124. * u, y + 9. * u, 112. * u, 32. * u), "เมนูหลัก", true, u) { g.to_title = true; }
     }
@@ -658,7 +682,9 @@ pub fn draw_menu(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState) -> b
     if ui.adv {
         tabs.push((9, "โต๊ะขั้นสูง"));
     }
-    tabs.push((6, "สเตตัส"));
+    if g.p.lvl >= 2 || g.p.sp > 0 {
+        tabs.push((6, "สเตตัส"));
+    }
     tabs.push((7, "ตั้งค่า"));
     if !tabs.iter().any(|t| t.0 == ui.tab) {
         ui.tab = 0;

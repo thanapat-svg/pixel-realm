@@ -329,6 +329,7 @@ impl Game {
         for &(it, n) in r.cost {
             self.p.inv[it] -= n;
         }
+        self.ev[0] += 1;
         match r.eff {
             Eff::Sword(t) => {
                 self.p.sword = t;

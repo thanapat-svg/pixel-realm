@@ -12,6 +12,7 @@ mod art;
 mod assets;
 mod extra;
 mod farm;
+mod guide;
 mod audio;
 mod base;
 mod boss;
@@ -23,6 +24,7 @@ mod prefs;
 mod rpg;
 use extra::*;
 use farm::*;
+use guide::*;
 use audio::*;
 use base::*;
 use boss::*;
@@ -488,6 +490,11 @@ struct Game {
     cshake: (f32, f32),
     bgm_on: bool,
     to_title: bool,
+    tut: u8,
+    tut_ev0: [u32; EV_N],
+    ev: [u32; EV_N],
+    tut_flash: f32,
+    hitstop: f32,
     sfx_on: bool,
     auto_aim: bool,
     pick_cd: f32,
@@ -541,7 +548,7 @@ impl Game {
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
-            rain: 0., rain_on: false, rain_t: 90., thunder: 0., cshake: (0., 0.), bgm_on: true, to_title: false, sfx_on: true,
+            rain: 0., rain_on: false, rain_t: 90., thunder: 0., cshake: (0., 0.), bgm_on: true, to_title: false, tut: TUT_DONE, tut_ev0: [0; EV_N], ev: [0; EV_N], tut_flash: 0., hitstop: 0., sfx_on: true,
             auto_aim: true, pick_cd: 0.,
             crops: HashMap::new(), crop_t: 0., bed: None, seed_sel: 0, sleep_fx: 0., build_cur: None, cur_pos: (0., 0.), weather_kind: 1,
         }
@@ -555,6 +562,7 @@ impl Game {
         let mut g = Game::blank(w, sfx);
         g.spawn = (sx as f32 * 16. + 8., sy as f32 * 16. + 12.);
         g.p = Player::new(g.spawn.0, g.spawn.1);
+        g.tut = 0;
         g.time = DAYLEN * 0.05;
         g
     }
@@ -577,6 +585,7 @@ impl Game {
         s += &format!("buff {} {}\n", p.buff_spd, p.buff_crit);
         s += &format!("elem {} {}\nrod {}\n", p.elem, p.elems, p.rod as i32);
         s += &format!("farm {} {} {}\n", p.can as i32, p.water, self.seed_sel);
+        s += &format!("tut {}\n", self.tut);
         if let Some(b) = self.bed { s += &format!("bed {} {}\n", b.0, b.1); }
         s += "crops";
         for ((x, y), c) in &self.crops { s += &format!(" {},{},{},{:.1},{:.1}", x, y, c.kind, c.grown, c.wet); }
@@ -659,6 +668,7 @@ impl Game {
                     for i in 0..2 { p.aplus[i] = (f(8 + i) as u8).min(PLUS_MAX); }
                 }
                 "rod" => g.p.rod = f(0) > 0.,
+                "tut" => g.tut = f(0) as u8,
                 "farm" => { g.p.can = f(0) > 0.; g.p.water = (f(1) as i32).clamp(0, WATER_MAX); g.seed_sel = (f(2) as u8).min(1); }
                 "bed" => g.bed = Some((f(0) as i32, f(1) as i32)),
                 "crops" => for v in &rest {
@@ -786,6 +796,7 @@ impl Game {
         let o = self.w.obj_at(tx, ty);
         if SOLIDT[self.w.tile_at(tx, ty) as usize] || OSOLID[o as usize] { self.toast("วางตรงนี้ไม่ได้"); return; }
         self.w.placed.insert((tx, ty), 9);
+        self.ev[1] += 1;
         self.p.inv[FIRE] -= 1;
         play(&self.sfx.fire);
         self.burst(tx as f32 * 16. + 8., ty as f32 * 16. + 10., hx(0xffa630), 10, 50.);
@@ -876,6 +887,8 @@ impl Game {
         self.burst(e.x, e.y - 6., c, 14, 80.);
         self.p.xp += e.xp;
         self.p.kills += 1;
+        self.ev[2] += 1;
+        self.hitstop = self.hitstop.max(0.08);
         let (lx, ly) = (e.x, e.y - 6.);
         self.spawn_loot(lx, ly, COIN, e.coin);
         if e.k == EK::Bat && gen_range(0., 1.) < 0.3 { self.spawn_loot(lx, ly, BERRY, 1); }
@@ -1092,6 +1105,7 @@ impl Game {
         if self.build_sel.is_none() { self.build_cur = None; }
         if self.build_cur.is_some() && (self.p.x - self.cur_pos.0).hypot(self.p.y - self.cur_pos.1) > 20. { self.build_cur = None; }
         if self.sleep_fx > 0. { self.sleep_fx -= dt; }
+        self.tut_update(dt);
         let wmul = self.weather_mul();
         // movement
         let mut mv = inp.mv;
@@ -1825,7 +1839,7 @@ fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool) {
         if tu.aim.length() > 0.5 { inp.aim = Some(tu.aim); }
     }
 }
-fn draw_touch(tu: &TouchUI, sp: &Sprites, font: &Font, build: bool, weapon: u8, dash_cd: f32) {
+fn draw_touch(tu: &TouchUI, sp: &Sprites, font: &Font, build: bool, weapon: u8, dash_cd: f32, use_lab: Option<&str>) {
     if !tu.active { return; }
     let u = tunit();
     const TA: f32 = 0.62;
@@ -1867,7 +1881,16 @@ fn draw_touch(tu: &TouchUI, sp: &Sprites, font: &Font, build: bool, weapon: u8, 
             3 => tc("เมนู", c.x, c.y + 5. * u, 14. * u, WHITE),
             4 => tc("แผนที่", c.x, c.y + 5. * u, 13. * u, WHITE),
             5 => tc("สลับ", c.x, c.y + 5. * u, 14. * u, WHITE),
-            6 => tc("ใช้", c.x, c.y + 6. * u, 18. * u, WHITE),
+            6 => match use_lab {
+                Some(l) => {
+                    // มีของให้ใช้ตรงหน้า: วงเรืองแสงเต้นเบาๆ + บอกคำกริยา
+                    let pr = 1. + 0.08 * (get_time() as f32 * 6.).sin();
+                    draw_circle_lines(c.x, c.y, r * pr + 4. * u, 4., Color::new(1., 0.9, 0.3, 0.9));
+                    let n = l.chars().count().max(1) as f32;
+                    tc(l, c.x, c.y + 6. * u, (r * 1.6 / n).clamp(11. * u, 19. * u), hx(0xffee99));
+                }
+                None => tc("ใช้", c.x, c.y + 6. * u, 18. * u, hx(0xaaaaaa)),
+            },
             8 => {
                 if dash_cd > 0. { draw_circle(c.x, c.y, r * (1. - dash_cd.min(1.)), Color::new(0.5, 0.5, 0.5, 0.3)); }
                 tc("พุ่ง", c.x, c.y + 6. * u, 17. * u, if dash_cd > 0. { hx(0x999999) } else { hx(0x88e0ff) });
@@ -2163,7 +2186,8 @@ async fn main() {
                     }
                     if let Some(tp) = inp.tile_tap { if g.build_sel.is_some() { g.build_cur = Some(tile_of(&v0, tp)); g.cur_pos = (g.p.x, g.p.y); } }
                     if inp.map { g.big_map = !g.big_map; g.mini_t = 99.; }
-                    g.update(dt, &inp);
+                    let sdt = if g.hitstop > 0. { g.hitstop -= dt; dt * 0.08 } else { dt };
+                    g.update(sdt, &inp);
                     if let Some(rq) = g.req.take() {
                         ui.reset_context();
                         match rq {
@@ -2202,6 +2226,7 @@ async fn main() {
                 v.cy += so.1.round();
                 render_world(g, &sp, &v, t_now, &font);
                 draw_hud(g, &sp, &font, tu.active);
+                draw_tut(g, &font, &v0, ui_scale());
                 let mr = minimap_rect(g.big_map);
                 draw_rectangle(mr.x - 2., mr.y - 2., mr.w + 4., mr.h + 4., BLACK);
                 draw_texture_ex(&mini_tex, mr.x, mr.y, WHITE, DrawTextureParams { dest_size: Some(vec2(mr.w, mr.h)), ..Default::default() });
@@ -2231,7 +2256,7 @@ async fn main() {
                     text_c(&font, "M = แคมป์ · W = เสาวาร์ป (แตะเพื่อวาร์ป) · บ = จุดเกิด · ม่วง = ดันเจี้ยน · แดงเล็ก = บอส · จุดแดงใหญ่ = คุณ", sw / 2., mr.y + mr.h + 18. * u, 13. * u, WHITE);
                 }
                 if in_play {
-                    draw_touch(&tu, &sp, &font, g.build_sel.is_some(), g.p.weapon, g.p.dash_cd);
+                    draw_touch(&tu, &sp, &font, g.build_sel.is_some(), g.p.weapon, g.p.dash_cd, g.use_label().as_deref());
                     if !tu.active && g.p.weapon > 0 {
                         let (mx, my) = mouse_position();
                         let c = Color::new(1., 1., 0.6, 0.9);
@@ -3111,5 +3136,46 @@ mod prefs_tests {
             let d = ((b[i].0 - b[j].0).powi(2) + (b[i].1 - b[j].1).powi(2)).sqrt();
             assert!(d > b[i].2 + b[j].2, "ปุ่ม {} ซ้อน {}", i, j);
         } }
+    }
+}
+
+#[cfg(test)]
+mod guide_tests {
+    use super::*;
+    #[test]
+    fn tutorial_advances_and_finishes() {
+        let mut g = Game::new_world_seed(12345, Sfx::default());
+        assert_eq!(g.tut, 0);
+        assert!(g.tut_text().is_some());
+        g.tut_update(0.016);
+        assert_eq!(g.tut, 0);
+        g.p.inv[WOOD] = 3;
+        g.tut_update(0.016);
+        assert_eq!(g.tut, 1);
+        g.p.inv[STONE] = 3;
+        g.tut_update(0.016);
+        assert_eq!(g.tut, 2);
+        for k in 0..4 { g.ev[k] += 1; g.tut_update(0.016); }
+        assert_eq!(g.tut, TUT_DONE);
+        let coin = g.p.inv[COIN];
+        assert!(coin >= 30);
+        assert!(g.tut_text().is_none());
+        // เซฟ/โหลดเก็บสถานะบทเรียน
+        let txt = g.save_string();
+        assert!(txt.contains("tut 99"));
+    }
+    #[test]
+    fn old_save_without_tut_line_skips_tutorial() {
+        let g = Game::new_world_seed(777, Sfx::default());
+        let txt: String = g.save_string().lines().filter(|l| !l.starts_with("tut")).map(|l| format!("{}\n", l)).collect();
+        let l = Game::load_str(&txt, Sfx::default()).ok().unwrap();
+        assert_eq!(l.tut, TUT_DONE);
+    }
+    #[test]
+    fn use_label_none_in_open_field_and_tree_target_found() {
+        let g = Game::new_world_seed(2024, Sfx::default());
+        // ไม่มีอะไรให้ใช้ตรงจุดเกิด (ยกเว้นน้ำ/ฟาร์ม) → label เป็น None หรือ ตกปลา เท่านั้น
+        if let Some(l) = g.use_label() { assert!(l == "ตกปลา" || !l.is_empty()); }
+        assert!(g.tut_target().is_some(), "ควรมีต้นไม้ในรัศมี 18 ช่องจากจุดเกิด");
     }
 }

@@ -75,6 +75,7 @@ impl Game {
             self.p.inv[it] -= n;
         }
         self.w.placed.insert((tx, ty), pc.obj);
+        self.ev[3] += 1;
         if pc.obj == 14 {
             self.chests.insert((tx, ty), [0; NI]);
         }
