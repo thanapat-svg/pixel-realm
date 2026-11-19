@@ -18,7 +18,7 @@ impl Player {
         (base + plus).min(0.75)
     }
     pub fn speed_mul(&self) -> f32 {
-        1. + AR_SPD[self.armor[0] as usize] + AR_SPD[self.armor[1] as usize] + AR_SPD_BOOT[self.armor[2] as usize] + 0.03 * self.st[2] as f32 + if self.buff_spd > 0. { 0.25 } else { 0. }
+        (1. + AR_SPD[self.armor[0] as usize] + AR_SPD[self.armor[1] as usize] + AR_SPD_BOOT[self.armor[2] as usize] + 0.03 * self.st[2] as f32 + if self.buff_spd > 0. { 0.25 } else { 0. }) * self.body.speed_mul()
     }
     pub fn has_weapon(&self, w: u8) -> bool {
         match w {

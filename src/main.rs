@@ -15,6 +15,7 @@ mod farm;
 mod guide;
 mod audio;
 mod base;
+mod body;
 mod boss;
 mod camp;
 mod combat;
@@ -31,6 +32,7 @@ use farm::*;
 use guide::*;
 use audio::*;
 use base::*;
+use body::*;
 use boss::*;
 use camp::*;
 use combat::*;
@@ -358,7 +360,7 @@ fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
     }
     // ---- player
     let pp: &[(char, u32)] = &[('h', 0x5a3a1e), ('s', 0xf2c79a), ('e', 0x222222), ('m', 0xc9705a), ('r', 0x3a6fd8), ('R', 0xbcd4ff), ('b', 0x5a3a1e), ('p', 0x34405a), ('k', 0x1d1d22)];
-    let pd = ["...hhhhhh...", "..hhhhhhhh..", "..hhhhhhhh..", "..hssssssh..", "..sessssess.", "..ssssssss..", "...ssmmss...", "..rrrrrrrr..", ".srrrRRrrrs.", ".srrrrrrrrs.", ".s.rrrrrr.s.", "...bbbbbb..."];
+    let pd = ["...hhhhhh...", "..hhhhhhhh..", "..hhhhhhhh..", "..hssssssh..", "..sesssses..", "..ssssssss..", "...ssmmss...", "..rrrrrrrr..", ".srrrRRrrrs.", ".srrrrrrrrs.", ".s.rrrrrr.s.", "...bbbbbb..."];
     let pu = ["...hhhhhh...", "..hhhhhhhh..", "..hhhhhhhh..", "..hhhhhhhh..", "..hhhhhhhh..", "..shhhhhhs..", "...ssssss...", "..rrrrrrrr..", ".srrrrrrrrs.", ".srrrrrrrrs.", ".s.rrrrrr.s.", "...bbbbbb..."];
     let pr = ["...hhhhhh...", "..hhhhhhhh..", "..hhhhhhhh..", "..hhhsssss..", "..hhhssses..", "..hhssssss..", "...sssss....", "...rrrrrr...", "...rrrsrr...", "...rrrsrr...", "...rrrsrr...", "...bbbbbb..."];
     let lf = [["...pp..pp...", "...pp..pp...", "...kk..kk..."], ["...pp..pp...", "...kk..pp...", ".......kk..."], ["...pp..pp...", "...pp..kk...", "...kk......."]];
@@ -435,10 +437,10 @@ enum EK { Slime, Skel, Bat }
 struct Enemy { k: EK, x: f32, y: f32, hp: f32, spd: f32, dmg: i32, xp: i32, coin: i32, vx: f32, vy: f32, kb: f32, flash: f32, wt: f32, wdx: f32, wdy: f32, anim: f32, pal: usize, dead: bool, night: bool, burn: f32, slow: f32, stun: f32, btick: f32 }
 struct Particle { x: f32, y: f32, vx: f32, vy: f32, l: f32, c: Color }
 struct Float { x: f32, y: f32, t: String, c: Color, l: f32, icon: Option<usize>, sz: f32 }
-struct Player { x: f32, y: f32, dir: usize, flip: bool, hp: i32, maxhp: i32, xp: i32, lvl: i32, sword: usize, pick: bool, rod: bool, elem: u8, elems: u8, inv: [i32; NI], invul: f32, kbx: f32, kby: f32, kbt: f32, atk_t: f32, atk_cd: f32, anim: f32, moving: bool, regen: f32, last_hit: f32, kills: i32, weapon: u8, bow: bool, staff: u8, armor: [u8; 3], outfit: u8, outfits: u8, sp: i32, st: [u8; 4], wplus: [u8; 3], aplus: [u8; 3], dash_t: f32, dash_cd: f32, dash_dir: Vec2, ghost_t: f32, buff_spd: f32, buff_crit: f32, can: bool, water: i32, hunger: f32, thirst: f32, rest: f32, sick: f32, starve: f32 }
+struct Player { x: f32, y: f32, dir: usize, flip: bool, hp: i32, maxhp: i32, xp: i32, lvl: i32, sword: usize, pick: bool, rod: bool, elem: u8, elems: u8, inv: [i32; NI], invul: f32, kbx: f32, kby: f32, kbt: f32, atk_t: f32, atk_cd: f32, anim: f32, moving: bool, regen: f32, last_hit: f32, kills: i32, weapon: u8, bow: bool, staff: u8, armor: [u8; 3], outfit: u8, outfits: u8, sp: i32, st: [u8; 4], wplus: [u8; 3], aplus: [u8; 3], dash_t: f32, dash_cd: f32, dash_dir: Vec2, ghost_t: f32, buff_spd: f32, buff_crit: f32, can: bool, water: i32, hunger: f32, thirst: f32, rest: f32, sick: f32, starve: f32, body: Body }
 impl Player {
     fn new(x: f32, y: f32) -> Self {
-        Player { x, y, dir: 0, flip: false, hp: 10, maxhp: 10, xp: 0, lvl: 1, sword: 0, pick: false, rod: false, elem: 0, elems: 1, inv: [0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], invul: 0., kbx: 0., kby: 0., kbt: 0., atk_t: 0., atk_cd: 0., anim: 0., moving: false, regen: 0., last_hit: 0., kills: 0, weapon: 0, bow: false, staff: 0, armor: [0; 3], outfit: 0, outfits: 0, sp: 0, st: [0; 4], wplus: [0; 3], aplus: [0; 3], dash_t: 0., dash_cd: 0., dash_dir: Vec2::ZERO, ghost_t: 0., buff_spd: 0., buff_crit: 0., can: false, water: 0, hunger: 100., thirst: 100., rest: 100., sick: 0., starve: 0. }
+        Player { x, y, dir: 0, flip: false, hp: 10, maxhp: 10, xp: 0, lvl: 1, sword: 0, pick: false, rod: false, elem: 0, elems: 1, inv: [0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], invul: 0., kbx: 0., kby: 0., kbt: 0., atk_t: 0., atk_cd: 0., anim: 0., moving: false, regen: 0., last_hit: 0., kills: 0, weapon: 0, bow: false, staff: 0, armor: [0; 3], outfit: 0, outfits: 0, sp: 0, st: [0; 4], wplus: [0; 3], aplus: [0; 3], dash_t: 0., dash_cd: 0., dash_dir: Vec2::ZERO, ghost_t: 0., buff_spd: 0., buff_crit: 0., can: false, water: 0, hunger: 100., thirst: 100., rest: 100., sick: 0., starve: 0., body: Body::default() }
     }
     fn facing(&self) -> (f32, f32) {
         DV[if self.dir == 2 && self.flip { 3 } else { self.dir }]
@@ -610,6 +612,7 @@ impl Game {
         s += &format!("farm {} {} {}\n", p.can as i32, p.water, self.seed_sel);
         s += &format!("tut {}\n", self.tut);
         s += &format!("need {:.1} {:.1} {:.1} {:.1}\n", p.hunger, p.thirst, p.rest, p.sick);
+        s += &p.body.save_str();
         s += &self.npc_save_str();
         if let Some(b) = self.bed { s += &format!("bed {} {}\n", b.0, b.1); }
         s += "crops";
@@ -695,6 +698,7 @@ impl Game {
                 }
                 "rod" => g.p.rod = f(0) > 0.,
                 "tut" => g.tut = f(0) as u8,
+                "body" => g.p.body = Body::load(&(0..7).map(|i| f(i)).collect::<Vec<f32>>()),
                 "need" => { g.p.hunger = f(0).clamp(0., 100.); g.p.thirst = f(1).clamp(0., 100.); g.p.rest = f(2).clamp(0., 100.); g.p.sick = f(3).max(0.); }
                 "town" | "npc" | "npcseen" => g.npc_load_line(tag, &rest),
                 "nsoc" | "nrel" | "nnews" => g.soc_load_line(tag, &rest),
@@ -1263,7 +1267,7 @@ fn make_view(cam_x: f32, cam_y: f32) -> View {
     View { s, vw, vh, cx: (cam_x - vw / 2.).round(), cy: (cam_y - vh / 2. - 6.).round() }
 }
 
-enum Draw { Obj(u8, i32, i32), Enemy(usize), Boss(usize), Player, Loot(usize), Comp, Npc(usize), Lost(f32, f32, u8) }
+enum Draw { Obj(u8, i32, i32), Enemy(usize), Boss(usize), Player, Loot(usize), Comp, Npc(usize), Lost(f32, f32, u8, u8) }
 
 fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     let w = &g.w;
@@ -1346,10 +1350,10 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         for cy in pcy - 1..=pcy + 1 {
             for cx in pcx - 1..=pcx + 1 {
                 if g.npc_seen.contains(&(cx, cy)) { continue; }
-                if let Some((x, y, _, look)) = g.w.lost_in_cell(cx, cy) {
+                if let Some((x, y, name, look)) = g.w.lost_in_cell(cx, cy) {
                     let (sx, sy) = (x - v.cx, y - v.cy);
                     if sx < -12. || sx > v.vw + 12. || sy < -30. || sy > v.vh + 12. { continue; }
-                    list.push((y, Draw::Lost(x, y, look)));
+                    list.push((y, Draw::Lost(x, y, name, look)));
                 }
             }
         }
@@ -1423,7 +1427,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
             Draw::Loot(i) => draw_loot(g, sp, v, i, t_now),
             Draw::Comp => draw_comp(g, sp, v),
             Draw::Npc(i) => draw_npc(g, sp, v, i, t_now),
-            Draw::Lost(x, y, look) => draw_lost(g, sp, v, x, y, look, t_now),
+            Draw::Lost(x, y, name, look) => draw_lost(g, sp, v, x, y, name, look, t_now),
             Draw::Player => {
                 let p = &g.p;
                 let (sx, sy) = ((p.x - v.cx).round(), (p.y - v.cy).round());
@@ -2099,6 +2103,8 @@ async fn main() {
     prefs::load();
     let mut save_sum = prefs::save_summary(DAYLEN);
     let mut tview = 0u8;
+    let mut new_body = Body::default();
+    let mut rep_t = 0f32;
     let mut bg = Game::new_world_placeholder(Sfx::default());
     bg.w = World::new(gen_range(1, i32::MAX));
     bg.p.invul = 0.07; // ซ่อนผู้เล่นบนหน้าเมนู
@@ -2153,7 +2159,7 @@ async fn main() {
                         if button(&font, Rect::new(bx, y, bw, bh), &lab, sum.is_some(), u) || (sum.is_some() && is_key_pressed(KeyCode::Enter)) { start = Some(false); }
                         y += bh + gap;
                         if button(&font, Rect::new(bx, y, bw, bh), "เกมใหม่", true, u) || (sum.is_none() && is_key_pressed(KeyCode::Enter)) {
-                            if sum.is_some() { tview = 3; } else { start = Some(true); }
+                            if sum.is_some() { tview = 3; } else { tview = 4; new_body = Body::default(); }
                         }
                         y += bh + gap;
                         if button(&font, Rect::new(bx, y, bw, bh), "ตั้งค่า", true, u) { tview = 1; }
@@ -2213,14 +2219,85 @@ async fn main() {
                         }
                         if button(&font, Rect::new(sw / 2. - 70. * u, y + h - 52. * u, 140. * u, 38. * u), "กลับ", true, u) || is_key_pressed(KeyCode::Escape) { tview = 0; }
                     }
-                    _ => {
+                    3 => {
                         let (w, h) = ((460. * u).min(sw * 0.97), (190. * u).min(sh * 0.97));
                         let (x, y) = (sw / 2. - w / 2., sh / 2. - h / 2.);
                         panel(x, y, w, h);
                         text_c(&font, "เริ่มเกมใหม่?", sw / 2., y + 42. * u, 24. * u, hx(0xffcc66));
                         text_c(&font, "เซฟเดิมจะถูกแทนที่", sw / 2., y + 76. * u, 15. * u, hx(0xdddddd));
-                        if button(&font, Rect::new(sw / 2. - 160. * u, y + h - 62. * u, 150. * u, 42. * u), "เริ่มใหม่", true, u) { start = Some(true); }
+                        if button(&font, Rect::new(sw / 2. - 160. * u, y + h - 62. * u, 150. * u, 42. * u), "เริ่มใหม่", true, u) { tview = 4; new_body = Body::default(); }
                         if button(&font, Rect::new(sw / 2. + 10. * u, y + h - 62. * u, 150. * u, 42. * u), "ยกเลิก", true, u) || is_key_pressed(KeyCode::Escape) { tview = 0; }
+                    }
+                    _ => {
+                        // สร้างตัวละคร: สีผิว/ผม · ทรงผม · สีเสื้อ · ส่วนสูง · น้ำหนัก
+                        let (w, h) = ((660. * u).min(sw * 0.97), (372. * u).min(sh * 0.97));
+                        let (x, y) = (sw / 2. - w / 2., sh / 2. - h / 2.);
+                        panel(x, y, w, h);
+                        text_c(&font, "สร้างตัวละคร", sw / 2., y + 34. * u, 24. * u, hx(0xffcc66));
+                        // พรีวิว: หมุนดูหน้า/ข้าง/หลัง
+                        let (px, py, pw, ph) = (x + 16. * u, y + 54. * u, 190. * u, 214. * u);
+                        draw_rectangle(px, py, pw, ph, hx(0x2a2d3f));
+                        draw_rectangle_lines(px, py, pw, ph, 2., hx(0x555a75));
+                        let pdir = ((t_now / 1.6) as usize) % 3;
+                        let sc = 8. * u;
+                        draw_figure(&sp, &new_body, [0, 0, 0], px + pw / 2. - 6. * sc, py + ph - 20. * u - 15. * sc, sc, pdir, 0, false, WHITE);
+                        text_c(&font, &format!("สูง {} ซม. · หนัก {} กก.", new_body.cm, new_body.kg), px + pw / 2., py + ph + 20. * u, 14. * u, hx(0xdddddd));
+                        text_c(&font, &format!("BMI {:.1} · {}", new_body.bmi(), new_body.build_word()), px + pw / 2., py + ph + 38. * u, 12. * u, hx(0xaabbcc));
+                        // แถวปรับค่า
+                        let rx = x + 226. * u;
+                        let rw = w - 226. * u - 16. * u;
+                        let rows: [(&str, String, Option<u32>); 6] = [
+                            ("สีผิว", SKIN_NAME[new_body.skin as usize].to_string(), Some(SKIN_TONES[new_body.skin as usize])),
+                            ("สีผม", HAIR_NAME[new_body.hair as usize].to_string(), Some(HAIR_COLS[new_body.hair as usize])),
+                            ("ทรงผม", STYLE_NAME[new_body.style as usize].to_string(), None),
+                            ("สีเสื้อ", CLOTH_NAME[new_body.cloth as usize].to_string(), Some(CLOTH_COLS[new_body.cloth as usize])),
+                            ("ส่วนสูง", format!("{} ซม.", new_body.cm), None),
+                            ("น้ำหนัก", format!("{} กก.", new_body.kg), None),
+                        ];
+                        let mut ry = y + 56. * u;
+                        for (i, (label, val, sw_col)) in rows.iter().enumerate() {
+                            text(&font, label, rx, ry + 24. * u, 15. * u, hx(0xeeeeee));
+                            let (lb, rb) = (Rect::new(rx + 76. * u, ry + 2. * u, 34. * u, 32. * u), Rect::new(rx + rw - 34. * u, ry + 2. * u, 34. * u, 32. * u));
+                            let mut dir = 0i32;
+                            let hold_a = is_mouse_button_down(MouseButton::Left);
+                            let (mx, my) = mouse_position();
+                            let (hl, hr) = (lb.contains(vec2(mx, my)), rb.contains(vec2(mx, my)));
+                            let cl = button(&font, lb, "<", true, u);
+                            let cr = button(&font, rb, ">", true, u);
+                            if cl { dir = -1; }
+                            if cr { dir = 1; }
+                            // กดค้าง = เลื่อนต่อเนื่อง (ส่วนสูง/น้ำหนักช่วงกว้าง)
+                            if (hl || hr) && hold_a && !cl && !cr {
+                                rep_t += get_frame_time();
+                                if rep_t > 0.4 { rep_t = 0.36; dir = if hl { -1 } else { 1 }; }
+                            } else if !hold_a { rep_t = 0.; }
+                            if dir != 0 {
+                                let b = &mut new_body;
+                                let wrap = |v: u8, n: usize| ((v as i32 + dir + n as i32) % n as i32) as u8;
+                                match i {
+                                    0 => b.skin = wrap(b.skin, SKIN_N),
+                                    1 => b.hair = wrap(b.hair, HAIR_N),
+                                    2 => b.style = wrap(b.style, STYLE_N),
+                                    3 => b.cloth = wrap(b.cloth, CLOTH_N),
+                                    4 => b.cm = (b.cm as i32 + dir).clamp(CM_MIN, CM_MAX) as u16,
+                                    _ => b.kg = (b.kg as i32 + dir).clamp(KG_MIN, KG_MAX) as u16,
+                                }
+                            }
+                            let cx = rx + 76. * u + 34. * u + (rw - 76. * u - 68. * u) / 2.;
+                            if let Some(c) = sw_col {
+                                draw_rectangle(cx - 62. * u, ry + 9. * u, 18. * u, 18. * u, hx(*c));
+                                draw_rectangle_lines(cx - 62. * u, ry + 9. * u, 18. * u, 18. * u, 2., BLACK);
+                                text(&font, val, cx - 38. * u, ry + 24. * u, 14. * u, WHITE);
+                            } else {
+                                text_c(&font, val, cx, ry + 24. * u, 14. * u, WHITE);
+                            }
+                            ry += 38. * u;
+                        }
+                        text_c(&font, "ร่างใหญ่หิวเร็วกว่า · ตัวสูงก้าวยาวกว่า · น้ำหนักเกินเดินช้าลงนิดหน่อย", x + w / 2., y + h - 62. * u, 11. * u, hx(0x9aa0b8));
+                        let bw3 = 128. * u;
+                        if button(&font, Rect::new(x + 16. * u, y + h - 48. * u, bw3, 38. * u), "กลับ", true, u) || is_key_pressed(KeyCode::Escape) { tview = 0; }
+                        if button(&font, Rect::new(x + w / 2. - bw3 / 2., y + h - 48. * u, bw3, 38. * u), "สุ่ม", true, u) { new_body = Body::random_player(); }
+                        if button(&font, Rect::new(x + w - 16. * u - 160. * u, y + h - 48. * u, 160. * u, 38. * u), "เริ่มเกม", true, u) { start = Some(true); }
                     }
                 }
                 if let Some(fresh) = start {
@@ -2228,6 +2305,7 @@ async fn main() {
                     let mut g = if fresh { Game::new_world(sfx) } else {
                         match Game::load(sfx) { Ok(g) => g, Err(sfx) => Game::new_world(sfx) }
                     };
+                    if fresh { g.p.body = new_body.clamp(); }
                     let day = (g.time / DAYLEN) as i32 + 1;
                     g.toast(format!("วันที่ {} — ออกสำรวจกันเลย!", day));
                     g.save();
@@ -4101,5 +4179,219 @@ mod needs_tests {
         g.p.thirst = 10.;
         g.interact();
         assert!(g.p.thirst > 50.);
+    }
+}
+
+#[cfg(test)]
+mod body_tests {
+    use super::*;
+
+    fn g0() -> Game { Game::new_world_seed(777, Sfx::default()) }
+
+    #[test]
+    fn generated_bodies_are_deterministic_and_in_range() {
+        for seed in 0..LOOKS as u32 {
+            for fem in [false, true] {
+                let a = Body::generate(seed, fem);
+                assert_eq!(a, Body::generate(seed, fem), "เมล็ดเดียวกันต้องได้คนเดิม");
+                assert!((CM_MIN..=CM_MAX).contains(&(a.cm as i32)), "สูง {}", a.cm);
+                assert!((KG_MIN..=KG_MAX).contains(&(a.kg as i32)), "หนัก {}", a.kg);
+                assert!(a.bmi() >= 16.5 && a.bmi() <= 37., "BMI {}", a.bmi());
+                assert!((18..=76).contains(&a.age));
+                assert!((a.skin as usize) < SKIN_N && (a.hair as usize) < HAIR_N && (a.style as usize) < STYLE_N && (a.cloth as usize) < CLOTH_N);
+            }
+        }
+    }
+
+    #[test]
+    fn population_is_varied_and_realistic() {
+        let men: Vec<Body> = (0..LOOKS as u32).map(|s| Body::generate(s, false)).collect();
+        let women: Vec<Body> = (0..LOOKS as u32).map(|s| Body::generate(s, true)).collect();
+        let avg = |v: &Vec<Body>| v.iter().map(|b| b.cm as f32).sum::<f32>() / v.len() as f32;
+        let (hm, hw) = (avg(&men), avg(&women));
+        assert!(hm - hw > 8. && hm - hw < 20., "ผู้ชายสูงกว่าผู้หญิงเฉลี่ย {:.1} vs {:.1}", hm, hw);
+        assert!((hm - 175.).abs() < 5. && (hw - 162.).abs() < 5.);
+        let all: Vec<Body> = men.iter().chain(women.iter()).copied().collect();
+        let distinct = |f: &dyn Fn(&Body) -> u8| { let mut s: Vec<u8> = all.iter().map(|b| f(b)).collect(); s.sort(); s.dedup(); s.len() };
+        assert_eq!(distinct(&|b| b.skin), SKIN_N, "ครบทุกโทนผิว");
+        assert!(distinct(&|b| b.hair) >= 7);
+        assert_eq!(distinct(&|b| b.style), STYLE_N, "ครบทุกทรงผม");
+        assert!(distinct(&|b| b.cloth) >= 9);
+        let heights = { let mut h: Vec<u16> = all.iter().map(|b| b.cm).collect(); h.sort(); h };
+        assert!(heights[heights.len() - 1] - heights[0] >= 40, "ส่วนสูงกระจายกว้าง");
+        let kgs = { let mut h: Vec<u16> = all.iter().map(|b| b.kg).collect(); h.sort(); h };
+        assert!(kgs[kgs.len() - 1] - kgs[0] >= 40, "น้ำหนักกระจายกว้าง");
+        // ผู้หญิงผมยาว/หางม้ามากกว่าผู้ชาย · ผู้ชายล้านมากกว่า
+        let long = |v: &Vec<Body>| v.iter().filter(|b| b.style == 2 || b.style == 3).count();
+        assert!(long(&women) > long(&men) + 40);
+        let bald = |v: &Vec<Body>| v.iter().filter(|b| b.style == 4).count();
+        assert!(bald(&men) > 5 && bald(&women) == 0);
+    }
+
+    #[test]
+    fn elders_go_grey_and_older_men_go_bald_more() {
+        let all: Vec<Body> = (0..LOOKS as u32).flat_map(|s| [Body::generate(s, false), Body::generate(s, true)]).collect();
+        let elders: Vec<&Body> = all.iter().filter(|b| b.age >= 60).collect();
+        assert!(elders.len() > 10);
+        assert!(elders.iter().all(|b| b.hair == 6 || b.hair == 7), "อายุ 60+ ผมหงอกทุกคน");
+        let young: Vec<&Body> = all.iter().filter(|b| b.age < 30 && b.style != 4).collect();
+        assert!(young.iter().all(|b| b.hair < 6), "คนหนุ่มสาวไม่ผมหงอก");
+        let old_m: Vec<Body> = (0..LOOKS as u32).map(|s| Body::generate(s, false)).filter(|b| b.age >= 50).collect();
+        let young_m: Vec<Body> = (0..LOOKS as u32).map(|s| Body::generate(s, false)).filter(|b| b.age < 30).collect();
+        let rate = |v: &Vec<Body>| v.iter().filter(|b| b.style == 4).count() as f32 / v.len().max(1) as f32;
+        assert!(rate(&old_m) > rate(&young_m));
+    }
+
+    #[test]
+    fn dark_skin_mostly_dark_hair() {
+        let all: Vec<Body> = (0..LOOKS as u32).flat_map(|s| [Body::generate(s, false), Body::generate(s, true)]).filter(|b| b.age < 45).collect();
+        let dark: Vec<&Body> = all.iter().filter(|b| b.skin >= 5).collect();
+        assert!(dark.len() > 20);
+        assert!(dark.iter().all(|b| b.hair <= 2), "ผิวเข้มผมสีเข้มตามธรรมชาติ");
+        assert!(all.iter().filter(|b| b.skin <= 1).any(|b| b.hair == 4 || b.hair == 5), "ผิวขาวมีผมบลอนด์/แดงได้");
+    }
+
+    #[test]
+    fn children_mix_parents_skin_and_are_small() {
+        let (mut a, mut b) = (Body::default(), Body::default());
+        a.skin = 0; b.skin = 6;
+        for id in 1..60u32 {
+            for fem in [false, true] {
+                let c = Body::child_of(id, fem, &a, &b);
+                assert!((3 - 1..=3 + 1).contains(&(c.skin as i32)), "ผสมผิว 0 กับ 6 ได้ราว 3: {}", c.skin);
+                assert!((5..=12).contains(&c.age) && c.is_child());
+                assert!(c.cm >= 95 && c.cm <= 165, "{}", c.cm);
+                assert!(c.hair < 6, "เด็กไม่ผมหงอก");
+                assert!(c.scale().1 < 0.9, "เด็กตัวเล็กกว่าผู้ใหญ่"); if c.age <= 7 { assert!(c.scale().1 < 0.72, "เด็กเล็กตัวเล็กมาก"); }
+            }
+        }
+        let same = Body::child_of(7, true, &a, &a);
+        assert!(same.skin <= 1, "พ่อแม่ผิวเดียวกัน ลูกใกล้เคียง");
+        assert_eq!(Body::child_of(9, true, &a, &b), Body::child_of(9, true, &a, &b));
+    }
+
+    #[test]
+    fn scale_follows_height_and_weight() {
+        let d = Body::default();
+        let (bw, bh) = d.scale();
+        assert!((bh - 1.).abs() < 1e-6 && (bw - 1.).abs() < 0.03, "{} {}", bw, bh);
+        let tall = Body { cm: 195, ..d };
+        let short = Body { cm: 150, ..d };
+        assert!(tall.scale().1 > 1.1 && short.scale().1 < 0.9);
+        let heavy = Body { kg: 120, ..d };
+        let thin = Body { kg: 50, ..d };
+        assert!(heavy.scale().0 > d.scale().0 + 0.1 && thin.scale().0 < d.scale().0 - 0.05);
+        assert_eq!(heavy.scale().1, d.scale().1, "น้ำหนักไม่เปลี่ยนความสูง");
+    }
+
+    #[test]
+    fn body_affects_hunger_and_speed_mildly() {
+        let d = Body::default();
+        assert_eq!(d.speed_mul(), 1.0, "ค่าเริ่มต้นต้องไม่เปลี่ยนความเร็วเดิม");
+        assert!((d.hunger_mul() - 1.0).abs() < 1e-6);
+        let big = Body { cm: 190, kg: 110, ..d };
+        let small = Body { cm: 155, kg: 48, ..d };
+        assert!(big.hunger_mul() > 1.15 && small.hunger_mul() < 0.9);
+        assert!(big.hunger_mul() <= 1.2 && small.hunger_mul() >= 0.85);
+        let obese = Body { cm: 170, kg: 130, ..d };
+        assert!(obese.speed_mul() < 0.96 && obese.speed_mul() >= 0.92);
+        assert!(Body { cm: 195, kg: 80, ..d }.speed_mul() > 1.01);
+        assert!(Body { cm: 150, kg: 50, ..d }.speed_mul() < 1.0);
+        let mut p = Player::new(0., 0.);
+        let base = p.speed_mul();
+        p.body = obese;
+        assert!(p.speed_mul() < base);
+        // หิวเร็วต่างกันจริง
+        let (mut a, mut b) = (g0(), g0());
+        a.p.body = big; b.p.body = small;
+        for _ in 0..120 { a.needs_tick(1., 1); b.needs_tick(1., 1); }
+        assert!(a.p.hunger < b.p.hunger - 2., "ร่างใหญ่หิวเร็วกว่า {} vs {}", a.p.hunger, b.p.hunger);
+        assert!((a.p.thirst - b.p.thirst).abs() < 1e-3, "ความกระหายไม่ขึ้นกับรูปร่าง");
+    }
+
+    #[test]
+    fn body_saves_and_old_saves_default() {
+        let mut g = g0();
+        g.p.body = Body { skin: 6, hair: 7, style: 3, cloth: 8, cm: 181, kg: 92, age: 25 };
+        let txt = g.save_string();
+        assert!(txt.contains("body 6 7 3 8 181 92 25"));
+        let l = Game::load_str(&txt, Sfx::default()).ok().unwrap();
+        assert_eq!(l.p.body, g.p.body);
+        let old: String = txt.lines().filter(|x| !x.starts_with("body")).map(|x| format!("{}\n", x)).collect();
+        assert_eq!(Game::load_str(&old, Sfx::default()).ok().unwrap().p.body, Body::default());
+        // ค่าเพี้ยนในเซฟถูกบีบกลับเข้าช่วง
+        let bad = txt.replace("body 6 7 3 8 181 92 25", "body 99 99 99 99 9999 1 25");
+        let b = Game::load_str(&bad, Sfx::default()).ok().unwrap().p.body;
+        assert!((b.skin as usize) < SKIN_N && (b.style as usize) < STYLE_N && b.cm as i32 <= CM_MAX && b.kg as i32 >= KG_MIN);
+    }
+
+    #[test]
+    fn npc_body_is_stable_and_child_inherits_from_player_and_spouse() {
+        let mut g = g0();
+        let mk = |id: u32, name: u8, look: u8, child: bool, married: bool| npc::Npc { id, name, look, x: 0., y: 0., state: npc::ST_HOME, hearts: 3, mood: 70, married, child, role: 0, bed: (0, 0), anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false, soc: Soc::generate(id, name) };
+        g.npcs.push(mk(1, 0, 40, false, true));
+        g.npcs.push(mk(2, 5, 41, true, false));
+        let a = g.npc_body(&g.npcs[0]);
+        assert_eq!(a, g.npc_body(&g.npcs[0]));
+        assert_eq!(a, Body::generate(40, NPC_FEM[0]), "เพศตามชื่อ");
+        g.p.body.skin = 0;
+        let c = g.npc_body(&g.npcs[1]);
+        let mix = (0 + a.skin as i32 + 1) / 2;
+        assert!((c.skin as i32 - mix).abs() <= 1, "ลูกผสมผิวพ่อแม่: พ่อแม่ 0,{} ลูก {}", a.skin, c.skin);
+        assert!(c.is_child());
+        // เปลี่ยนคู่สมรส ลูกยังอยู่ในช่วงที่ผสมได้ (ไม่ crash เมื่อไม่มีคู่)
+        g.npcs[0].married = false;
+        let c2 = g.npc_body(&g.npcs[1]);
+        assert!(c2.is_child());
+    }
+
+    #[test]
+    fn hair_styles_keep_sprite_grid_and_change_silhouette() {
+        let pd = ["...hhhhhh...", "..hhhhhhhh..", "..hhhhhhhh..", "..hssssssh..", "..sesssses..", "..ssssssss..", "...ssmmss..."];
+        let pu = ["...hhhhhh...", "..hhhhhhhh..", "..hhhhhhhh..", "..hhhhhhhh..", "..hhhhhhhh..", "..shhhhhhs..", "...ssssss..."];
+        let pr = ["...hhhhhh...", "..hhhhhhhh..", "..hhhhhhhh..", "..hhhsssss..", "..hhhssses..", "..hhssssss..", "...sssss...."];
+        let heads = [&pd, &pu, &pr];
+        let count = |v: &Vec<String>, c: char| v.iter().map(|r| r.chars().filter(|&x| x == c).count()).sum::<usize>();
+        for (dir, h) in heads.iter().enumerate() {
+            let base = skin::hair_style(&h[..], dir, 0);
+            for st in 0..STYLE_N {
+                let v = skin::hair_style(&h[..], dir, st);
+                assert_eq!(v.len(), 7);
+                assert!(v.iter().all(|r| r.chars().count() == 12), "ทรง {} มุม {}: {:?}", st, dir, v);
+            }
+            assert_eq!(count(&skin::hair_style(&h[..], dir, 4), 'h'), 0, "ล้านไม่มีผมเลย");
+            assert!(count(&skin::hair_style(&h[..], dir, 1), 'h') <= count(&base, 'h'), "เกรียนสั้นกว่า");
+        }
+        assert!(count(&skin::hair_style(&pd, 0, 2), 'h') > count(&skin::hair_style(&pd, 0, 0), 'h'), "ผมยาวมีผมมากกว่า");
+        assert!(count(&skin::hair_style(&pu, 1, 2), 'h') > count(&skin::hair_style(&pu, 1, 0), 'h'));
+        assert_ne!(skin::hair_style(&pu, 1, 3), skin::hair_style(&pu, 1, 0), "หางม้าเห็นด้านหลัง");
+        assert_eq!(skin::hair_style(&pd, 0, 3), skin::hair_style(&pd, 0, 0), "หางม้าด้านหน้าเหมือนผมสั้น");
+    }
+
+    #[test]
+    fn layers_split_pixels_without_overlap() {
+        let mut at = Atlas { img: Image::gen_image_color(64, 64, BLANK), cx: 0, cy: 0, rowh: 0 };
+        let pal: &[(char, u32)] = &[('h', 0x111111), ('s', 0x222222), ('e', 0x333333), ('r', 0x444444), ('R', 0x555555), ('b', 0x666666)];
+        let rows: Vec<String> = vec!["hsesr".into(), "RbRrh".into()];
+        let p = skin::split_layers(&mut at, &rows, pal);
+        assert!(p.skin.is_some() && p.hair.is_some() && p.cloth.is_some() && p.hi.is_some() && p.base.is_some());
+        let pixels = |r: Rect| -> usize {
+            let mut n = 0;
+            for y in 0..r.h as u32 { for x in 0..r.w as u32 { if at.img.get_pixel(r.x as u32 + x, r.y as u32 + y).a > 0. { n += 1; } } }
+            n
+        };
+        let total: usize = [p.base, p.skin, p.hair, p.cloth, p.hi].iter().map(|r| pixels(r.unwrap())).sum();
+        assert_eq!(total, 10, "ทุกพิกเซลอยู่ในชั้นเดียวเท่านั้น");
+        assert_eq!(pixels(p.skin.unwrap()), 2);
+        assert_eq!(pixels(p.hair.unwrap()), 2);
+        let none = skin::split_layers(&mut at, &["bb".to_string()], pal);
+        assert!(none.skin.is_none() && none.hair.is_none() && none.cloth.is_none() && none.base.is_some());
+    }
+
+    #[test]
+    fn role_outfits_cover_all_four_roles() {
+        assert_eq!(skin::ROLE_PARTS.len(), 4);
+        assert_eq!(skin::ROLE_PARTS[0], [0, 0, 0]);
+        assert!(skin::ROLE_PARTS.iter().all(|p| p.iter().all(|&v| v < skin::NV)));
     }
 }

@@ -9,12 +9,8 @@ pub const NPC_FEM: [bool; 36] = [true, false, false, true, false, true, false, t
     true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false];
 pub const ROLE_N: [&str; 4] = ["ชาวบ้าน", "ชาวไร่", "ทหารยาม", "พ่อค้า"];
 pub const TIER_N: [&str; 4] = ["ยังไม่มีชุมชน", "ค่าย", "หมู่บ้าน", "อาณาจักร"];
-pub const LOOKS: usize = 6;
-/// (ผม, ผิว, เสื้อ, เสื้อสว่าง)
-pub const LOOK_PAL: [(u32, u32, u32, u32); LOOKS] = [
-    (0x2a2a30, 0xf2c79a, 0xd0605a, 0xff9a90), (0xd8b040, 0xf6d2aa, 0x4a9a6a, 0x8ad0a0), (0x7a3a20, 0xc89870, 0x8a6ad0, 0xc0aaff),
-    (0xe8e8f0, 0xe8b88a, 0x5a8ad0, 0xa0c4ff), (0x1a1a1a, 0x9a6a48, 0xd0a040, 0xffe080), (0xa04020, 0xf2c79a, 0x50a0a0, 0x90e0e0),
-];
+/// ค่า look = เมล็ดสุ่มรูปร่างหน้าตาของชาวบ้าน (0..250) — ดู body.rs
+pub const LOOKS: usize = 250;
 pub const ST_LOST: u8 = 0;
 pub const ST_FOLLOW: u8 = 1;
 pub const ST_HOME: u8 = 2;
@@ -167,9 +163,10 @@ impl Game {
                 self.npc_next += 1;
                 // ไม่ให้ชื่อซ้ำกับคนที่มีอยู่แล้ว
                 let mut name = name;
-                for _ in 0..NPC_NAMES.len() {
-                    if !self.npcs.iter().any(|x| x.name == name) { break; }
-                    name = (name + 1) % NPC_NAMES.len() as u8;
+                // (ชื่อใหม่เพศเดียวกัน เพื่อให้หน้าตาที่เห็นตอนหลงทางตรงกับตอนช่วยแล้ว)
+                if self.npcs.iter().any(|x| x.name == name) {
+                    let fem = NPC_FEM[name as usize];
+                    if let Some(c) = (1..NPC_NAMES.len()).map(|k| (name as usize + k) % NPC_NAMES.len()).find(|&c| NPC_FEM[c] == fem && !self.npcs.iter().any(|x| x.name as usize == c)) { name = c as u8; }
                 }
                 self.npcs.push(Npc { id, name, look, x, y, state: ST_FOLLOW, hearts: 2, mood: 60, married: false, child: false, role: 0, bed: (0, 0), anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false, soc: Soc { last_talk: day_of(self), ..Soc::generate(id, name) } });
                 self.toast(format!("ช่วย{}ไว้แล้ว! คุยแล้วเลือก \"ชวนมาอยู่ที่ฐาน\" (ต้องมีเตียงว่าง)", NPC_NAMES[name as usize]));
@@ -454,10 +451,10 @@ pub fn draw_npc(g: &Game, sp: &Sprites, v: &View, i: usize, t_now: f32) {
     let (sx, sy) = ((n.x - v.cx).round(), (n.y - v.cy).round());
     let f = if n.moving { ((n.anim * 7.) as usize) % 2 } else { 0 };
     let bob = if n.moving { ((n.anim * 14.).sin().abs() * 1.0).round() } else { 0. };
-    prect(v, sx - 4., sy - 1., 8., 2., Color::new(0., 0., 0., 0.25));
-    let r = sp.skin.npc[(n.look as usize * 4 + n.role as usize) * 2 + f];
-    let k = if n.child { 0.72 } else { 1. };
-    blit_sz_flip(sp, v, r, sx - 6. * k, sy - 15. * k - bob, r.w * k, r.h * k, n.left);
+    let body = g.npc_body(n);
+    let (bw, k) = body.scale();
+    prect(v, sx - 4. * bw, sy - 1., 8. * bw, 2., Color::new(0., 0., 0., 0.25));
+    skin::draw_figure(sp, &body, skin::ROLE_PARTS[(n.role as usize).min(3)], (sx - 6.) * v.s, (sy - 15. - bob) * v.s, v.s, 0, f, n.left, WHITE);
     if n.married {
         prect(v, sx - 2., sy - 20. * k - bob, 2., 1., hx(0xff6688));
         prect(v, sx + 1., sy - 20. * k - bob, 2., 1., hx(0xff6688));
@@ -473,14 +470,15 @@ pub fn draw_npc(g: &Game, sp: &Sprites, v: &View, i: usize, t_now: f32) {
         text_c_world(v, "!", sx, sy - 19. * k - bob, hx(0xff4444), t_now);
     }
 }
-pub fn draw_lost(g: &Game, sp: &Sprites, v: &View, x: f32, y: f32, look: u8, t_now: f32) {
+pub fn draw_lost(g: &Game, sp: &Sprites, v: &View, x: f32, y: f32, name: u8, look: u8, t_now: f32) {
     let (sx, sy) = ((x - v.cx).round(), (y - v.cy).round());
     prect(v, sx - 4., sy - 1., 8., 2., Color::new(0., 0., 0., 0.25));
-    let r = sp.skin.npc[(look as usize * 4) * 2];
-    blit_sz_flip(sp, v, r, sx - 6., sy - 15., r.w, r.h, false);
+    let body = Body::generate(look as u32, NPC_FEM[name as usize % NPC_FEM.len()]);
+    skin::draw_figure(sp, &body, skin::ROLE_PARTS[0], (sx - 6.) * v.s, (sy - 15.) * v.s, v.s, 0, 0, false, WHITE);
+    let k = body.scale().1;
     let b = ((t_now * 5.).sin() * 1.5).round();
-    prect(v, sx - 1., sy - 25. + b, 2., 5., hx(0xffee44));
-    prect(v, sx - 1., sy - 18. + b, 2., 2., hx(0xffee44));
+    prect(v, sx - 1., sy - 25. * k.max(0.9) + b, 2., 5., hx(0xffee44));
+    prect(v, sx - 1., sy - 18. * k.max(0.9) + b, 2., 2., hx(0xffee44));
     let _ = g;
 }
 fn blit_sz_flip(sp: &Sprites, v: &View, r: Rect, x: f32, y: f32, w: f32, h: f32, flip: bool) {

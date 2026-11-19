@@ -64,7 +64,7 @@ impl Game {
         let act = if self.p.moving { 1.25 } else { 1. } * if self.p.atk_t > 0. { 1.2 } else { 1. };
         let (h0, t0, r0) = (self.p.hunger, self.p.thirst, self.p.rest);
         let sickm = if self.p.sick > 0. { 1.5 } else { 1. };
-        self.p.hunger = (h0 - HUNGER_RATE * hm * act * sickm * dt).max(0.);
+        self.p.hunger = (h0 - HUNGER_RATE * hm * self.p.body.hunger_mul() * act * sickm * dt).max(0.);
         self.p.thirst = (t0 - THIRST_RATE * tm * act * dt).max(0.);
         self.p.rest = (r0 - REST_RATE * dt).max(0.);
         // ฝนตก (กลางแจ้ง) ช่วยให้ได้น้ำดื่ม

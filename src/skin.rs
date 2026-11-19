@@ -5,13 +5,17 @@ use super::*;
 pub const NV: usize = 7;
 pub const OUTFIT_N: [&str; 3] = ["ไม่ใส่", "ชุดชาวไร่", "ชุดนักล่า"];
 
+/// สไปรต์ 1 ชิ้นแบ่งเป็นชั้น: base = สีตายตัว (ลาย/ตา/เกราะ) · skin/hair/cloth/hi = ภาพขาวที่ย้อมสีตอนวาด (สีผิว/ผม/เสื้อ/เสื้อสว่าง)
+#[derive(Clone, Copy, Default)]
+pub struct Part { pub base: Option<Rect>, pub skin: Option<Rect>, pub hair: Option<Rect>, pub cloth: Option<Rect>, pub hi: Option<Rect> }
+
 pub struct Skin {
-    head: Vec<Rect>,  // [dir*NV + var]
-    torso: Vec<Rect>, // [dir*NV + var]
-    legs: Vec<Rect>,  // [(dir*3 + frame)*NV + var]
-    /// NPC: [(look*4 + role)*2 + frame] — role 0 ชาวบ้าน 1 ชาวไร่ 2 ทหารยาม 3 พ่อค้า
-    pub npc: Vec<Rect>,
+    head: Vec<Part>,  // [(dir*NV + var)*STYLE_N + ทรงผม]
+    torso: Vec<Part>, // [dir*NV + var]
+    legs: Vec<Part>,  // [(dir*3 + frame)*NV + var]
 }
+/// ชุดของอาชีพชาวบ้าน → variant (หัว, ตัว, ขา): ชาวบ้าน · ชาวไร่ · ทหารยาม · พ่อค้า
+pub const ROLE_PARTS: [[usize; 3]; 4] = [[0, 0, 0], [5, 5, 5], [1, 1, 1], [0, 4, 0]];
 
 fn shade(c: u32, d: i32) -> u32 {
     let ch = |s: u32| (((c >> s) & 255) as i32 + d).clamp(0, 255) as u32;
@@ -78,51 +82,76 @@ fn pal_for(base_pal: &[(char, u32)], ac: u32) -> Vec<(char, u32)> {
     pal
 }
 
+/// ทรงผมของหัว (7 แถว) ตามมุมมอง dir: 0 หน้า · 1 หลัง · 2 ข้าง — ใช้เฉพาะตอนไม่สวมหมวกเกราะ
+pub fn hair_style(head: &[&str], dir: usize, style: usize) -> Vec<String> {
+    let mut v: Vec<String> = head.iter().map(|s| s.to_string()).collect();
+    match style {
+        1 => { v[0] = "............".into(); v[1] = "...hhhhhh...".into(); } // เกรียน
+        2 => match dir { // ยาว
+            0 => { v[4] = ".hhessssehh.".into(); v[5] = ".hhsssssshh.".into(); v[6] = ".hhssmmsshh.".into(); }
+            1 => { v[5] = "..hhhhhhhh..".into(); v[6] = "..hhhhhhhh..".into(); }
+            _ => { v[6] = "..hhsssss...".into(); }
+        },
+        3 => match dir { // หางม้า
+            1 => { v[6] = "....hhhh....".into(); }
+            2 => { v[4] = "hhhhhssses..".into(); v[5] = ".hhhssssss..".into(); }
+            _ => {}
+        },
+        4 => { for r in v.iter_mut() { *r = r.replace('h', "s"); } } // ล้าน
+        _ => {}
+    }
+    v
+}
+
+/// แยกภาพชิ้นเดียวออกเป็นชั้นสี (ชั้นที่ว่างเปล่าคืน None ไม่เปลืองที่ในแอตลาส)
+pub fn split_layers(at: &mut Atlas, rows: &[String], pal: &[(char, u32)]) -> Part {
+    let w = rows.iter().map(|r| r.chars().count()).max().unwrap_or(1);
+    let h = rows.len();
+    let mut ims: Vec<Image> = (0..5).map(|_| Image::gen_image_color(w as u16, h as u16, BLANK)).collect();
+    let mut used = [false; 5];
+    for (y, r) in rows.iter().enumerate() {
+        for (x, ch) in r.chars().enumerate() {
+            let (layer, col) = match ch {
+                's' => (1, WHITE), 'h' => (2, WHITE), 'r' => (3, WHITE), 'R' => (4, WHITE),
+                _ => match pal.iter().find(|p| p.0 == ch) { Some(&(_, c)) => (0, hx(c)), None => continue },
+            };
+            ims[layer].set_pixel(x as u32, y as u32, col);
+            used[layer] = true;
+        }
+    }
+    let mut add = |i: usize| if used[i] { Some(at.add(&ims[i])) } else { None };
+    Part { base: add(0), skin: add(1), hair: add(2), cloth: add(3), hi: add(4) }
+}
+
 pub fn build(at: &mut Atlas, pd: &[&str; 12], pu: &[&str; 12], pr: &[&str; 12], lf: &[[&str; 3]; 3], ls: &[[&str; 3]; 3], base_pal: &[(char, u32)]) -> Skin {
-    let mut sk = Skin { head: vec![], torso: vec![], legs: vec![], npc: vec![] };
+    let mut sk = Skin { head: vec![Part::default(); 3 * NV * STYLE_N], torso: vec![Part::default(); 3 * NV], legs: vec![Part::default(); 3 * 3 * NV] };
     let bodies = [pd, pu, pr];
     for var in 0..NV {
         // พาเลตต์ของ variant: ระดับเกราะ = ATC[var] (1..4)
-        let t = var.clamp(1, 4);
-        let ac = ATC[t];
-        let pal = pal_for(base_pal, ac);
-        let _ = t;
-        // หัว: แถว 0..7 · ตัว: แถว 7..12
+        let pal = pal_for(base_pal, ATC[var.clamp(1, 4)]);
         for (dir, body) in bodies.iter().enumerate() {
-            let hv = variant(&body[0..7], 0, var, dir);
-            let hr: Vec<&str> = hv.iter().map(|s| s.as_str()).collect();
-            if sk.head.len() < dir * NV + var + 1 { sk.head.resize(dir * NV + var + 1, Rect::new(0., 0., 1., 1.)); }
-            sk.head[dir * NV + var] = at.add(&spr(&hr, &pal));
+            // หัว: ทรงผมเปลี่ยนได้เฉพาะตอนไม่สวมหมวกเกราะ (variant 1..4)
+            let styled = !(1..=4).contains(&var);
+            let mut first = Part::default();
+            for st in 0..STYLE_N {
+                let idx = (dir * NV + var) * STYLE_N + st;
+                if st == 0 || styled {
+                    let rows = hair_style(&body[0..7], dir, st);
+                    let rr: Vec<&str> = rows.iter().map(|s| s.as_str()).collect();
+                    let hv = variant(&rr, 0, var, dir);
+                    let p = split_layers(at, &hv, &pal);
+                    if st == 0 { first = p; }
+                    sk.head[idx] = p;
+                } else {
+                    sk.head[idx] = first;
+                }
+            }
             let tv = variant(&body[7..12], 1, var, dir);
-            let tr: Vec<&str> = tv.iter().map(|s| s.as_str()).collect();
-            if sk.torso.len() < dir * NV + var + 1 { sk.torso.resize(dir * NV + var + 1, Rect::new(0., 0., 1., 1.)); }
-            sk.torso[dir * NV + var] = at.add(&spr(&tr, &pal));
+            sk.torso[dir * NV + var] = split_layers(at, &tv, &pal);
             for f in 0..3 {
                 let legs = if dir == 2 { &ls[f] } else { &lf[f] };
                 let lv = variant(&legs[..], 2, var, dir);
-                let lr: Vec<&str> = lv.iter().map(|s| s.as_str()).collect();
-                let idx = (dir * 3 + f) * NV + var;
-                if sk.legs.len() < idx + 1 { sk.legs.resize(idx + 1, Rect::new(0., 0., 1., 1.)); }
-                sk.legs[idx] = at.add(&spr(&lr, &pal));
-            }
-        }
-    }
-    // ---- NPC: หน้าตา 6 แบบ × อาชีพ 4 แบบ × 2 เฟรมเดิน (ด้านหน้า)
-    let roles = [(0usize, 0usize, 0usize), (5, 5, 5), (1, 1, 1), (0, 4, 0)];
-    for look in 0..crate::npc::LOOKS {
-        let (hair, skin, sh, shl) = crate::npc::LOOK_PAL[look];
-        for &(hv, tv, lv) in &roles {
-            let mut bp: Vec<(char, u32)> = base_pal.to_vec();
-            for e in bp.iter_mut() {
-                match e.0 { 'h' => e.1 = hair, 's' => e.1 = skin, 'r' => e.1 = sh, 'R' => e.1 = shl, _ => {} }
-            }
-            let pal = pal_for(&bp, ATC[tv.clamp(1, 4)]);
-            for f in 0..2 {
-                let mut rows: Vec<String> = variant(&pd[0..7], 0, hv, 0);
-                rows.extend(variant(&pd[7..12], 1, tv, 0));
-                rows.extend(variant(&lf[f][..], 2, lv, 0));
-                let rr: Vec<&str> = rows.iter().map(|x| x.as_str()).collect();
-                sk.npc.push(at.add(&spr(&rr, &pal)));
+                sk.legs[(dir * 3 + f) * NV + var] = split_layers(at, &lv, &pal);
             }
         }
     }
@@ -137,12 +166,27 @@ pub fn skin_parts(p: &Player) -> [usize; 3] {
 }
 pub fn full_meteor(p: &Player) -> bool { p.armor.iter().all(|&a| a == 4) }
 
-/// วาดตัวละครแบบแยกชิ้นที่ตำแหน่งหน้าจอ (x,y = มุมซ้ายบน, s = พิกเซลจอต่อพิกเซลสไปรต์)
-pub fn draw_skin(sp: &Sprites, p: &Player, x: f32, y: f32, s: f32, dir: usize, frame: usize, flip: bool, c: Color) {
-    let [vh, vt, vl] = skin_parts(p);
+fn tint(c: Color, t: Color) -> Color { Color::new(c.r * t.r, c.g * t.g, c.b * t.b, c.a) }
+
+/// วาดตัวละครแบบแยกชิ้น+ย้อมสีตามรูปร่าง (x,y = มุมซ้ายบนของกรอบ 12x15 พิกเซลสไปรต์, s = พิกเซลจอต่อพิกเซลสไปรต์)
+/// ส่วนสูง/น้ำหนักปรับสัดส่วนโดยยึดเท้าไว้ที่เดิม
+pub fn draw_figure(sp: &Sprites, body: &Body, vars: [usize; 3], x: f32, y: f32, s: f32, dir: usize, frame: usize, flip: bool, c: Color) {
     let k = &sp.skin;
-    let parts = [(k.head[dir * NV + vh], 0.), (k.torso[dir * NV + vt], 7.), (k.legs[(dir * 3 + frame) * NV + vl], 12.)];
-    for (r, off) in parts {
-        draw_texture_ex(&sp.tex, x, y + off * s, c, DrawTextureParams { source: Some(r), dest_size: Some(vec2(r.w * s, r.h * s)), flip_x: flip, ..Default::default() });
+    let (bx, by) = body.scale();
+    let x0 = x + 12. * s * (1. - bx) / 2.;
+    let y0 = y + 15. * s * (1. - by);
+    let (sk, hr, cl, hi) = (body.skin_col(), body.hair_col(), body.cloth_col(), body.cloth_hi());
+    let parts = [(k.head[(dir * NV + vars[0]) * STYLE_N + body.style as usize], 0.), (k.torso[dir * NV + vars[1]], 7.), (k.legs[(dir * 3 + frame) * NV + vars[2]], 12.)];
+    for (p, off) in parts {
+        for (r, col) in [(p.base, c), (p.skin, tint(c, sk)), (p.hair, tint(c, hr)), (p.cloth, tint(c, cl)), (p.hi, tint(c, hi))] {
+            if let Some(r) = r {
+                draw_texture_ex(&sp.tex, x0, y0 + off * s * by, col, DrawTextureParams { source: Some(r), dest_size: Some(vec2(r.w * s * bx, r.h * s * by)), flip_x: flip, ..Default::default() });
+            }
+        }
     }
+}
+
+/// ผู้เล่น: ใส่เกราะ/ชุดตามที่สวม
+pub fn draw_skin(sp: &Sprites, p: &Player, x: f32, y: f32, s: f32, dir: usize, frame: usize, flip: bool, c: Color) {
+    draw_figure(sp, &p.body, skin_parts(p), x, y, s, dir, frame, flip, c);
 }
