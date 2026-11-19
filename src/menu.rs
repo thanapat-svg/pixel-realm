@@ -11,6 +11,7 @@ pub struct UiState {
     pub shop: bool,
     pub forge: bool,
     pub cook: bool,
+    pub adv: bool,
     pub greet: usize,
     press: Option<Vec2>,
     last: Vec2,
@@ -21,7 +22,7 @@ pub struct UiState {
 }
 impl UiState {
     pub fn new() -> Self {
-        UiState { tab: 0, scroll: 0., max_scroll: 0., chest: None, shop: false, forge: false, cook: false, greet: 0, press: None, last: Vec2::ZERO, drag: 0., click: None, clip: Rect::new(0., 0., 1., 1.), close: false }
+        UiState { tab: 0, scroll: 0., max_scroll: 0., chest: None, shop: false, forge: false, cook: false, adv: false, greet: 0, press: None, last: Vec2::ZERO, drag: 0., click: None, clip: Rect::new(0., 0., 1., 1.), close: false }
     }
     pub fn open(&mut self, tab: usize) {
         self.tab = tab;
@@ -34,6 +35,7 @@ impl UiState {
         self.shop = false;
         self.forge = false;
         self.cook = false;
+        self.adv = false;
         self.close = false;
     }
 }
@@ -95,11 +97,17 @@ fn costs(g: &Game, sp: &Sprites, font: &Font, cost: &[(usize, i32)], need: Optio
 }
 
 fn tab_craft(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32 {
+    recipe_list(g, sp, font, ui, c, u, &RECIPES)
+}
+fn tab_adv(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32 {
+    recipe_list(g, sp, font, ui, c, u, &ADV_RECIPES)
+}
+fn recipe_list(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, u: f32, list: &'static [Recipe]) -> f32 {
     let rh = 58. * u;
     let top = c.y - ui.scroll;
     let mut y = top;
     let mut act: Option<usize> = None;
-    for (i, r) in RECIPES.iter().enumerate() {
+    for (i, r) in list.iter().enumerate() {
         if visible(y, rh, c) {
             let st = recipe_state(&g.p, r);
             text(font, r.name, c.x + 8. * u, y + 18. * u, 15. * u, if st == 1 { hx(0x88aa88) } else { hx(0xffcc66) });
@@ -114,7 +122,7 @@ fn tab_craft(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect,
         y += rh;
     }
     if let Some(i) = act {
-        g.craft(i);
+        g.craft_from(list, i);
     }
     y - top
 }
@@ -227,6 +235,13 @@ fn tab_gear(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
     y += 34. * u;
     header(font, c, y, "กระเป๋า", u);
     y += 28. * u;
+    if visible(y, 24. * u, c) {
+        let s = if g.p.can { format!("บัวรดน้ำ: น้ำ {}/{}", g.p.water, WATER_MAX) } else { "บัวรดน้ำ: ยังไม่มี (คราฟต์ได้ที่เมนู C)".to_string() };
+        text(font, &s, c.x + 8. * u, y + 16. * u, 12. * u, hx(0x9ad0ff));
+    }
+    y += 24. * u;
+    let mut seed_pick: Option<u8> = None;
+    let mut crop_eat: Option<usize> = None;
     let mut drink = false;
     let mut dish: Option<usize> = None;
     for i in 0..NI {
@@ -238,12 +253,20 @@ fn tab_gear(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
             if i == POTION && btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 2. * u, 92. * u, 26. * u), "ใช้ยา", g.p.inv[POTION] > 0, u) {
                 drink = true;
             }
+            if (i == SEED_CORN || i == SEED_CARROT) && btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 2. * u, 92. * u, 26. * u), if g.seed_sel as usize == i - SEED_CORN { "ปลูกอยู่" } else { "เลือกปลูก" }, g.seed_sel as usize != i - SEED_CORN, u) {
+                seed_pick = Some((i - SEED_CORN) as u8);
+            }
+            if (i == CORN || i == CARROT) && btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 2. * u, 92. * u, 26. * u), "กิน", g.p.inv[i] > 0, u) {
+                crop_eat = Some(i);
+            }
             if (DISH_STEW..=DISH_FISH).contains(&i) && btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 2. * u, 92. * u, 26. * u), "กิน", g.p.inv[i] > 0, u) {
                 dish = Some(i);
             }
         }
         y += rh2;
     }
+    if let Some(s) = seed_pick { g.seed_sel = s; }
+    if let Some(i) = crop_eat { g.eat_crop(i); }
     if drink {
         g.drink();
     }
@@ -388,6 +411,14 @@ fn tab_shop(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
         text(font, &format!("รับซื้อปลา ตัวละ {} เหรียญ", FISH_PRICE), c.x + 44. * u, y + 20. * u, 14. * u, hx(0xffcc66));
         text(font, &format!("ปลาในกระเป๋า {} ตัว", g.p.inv[FISH]), c.x + 44. * u, y + 36. * u, 11. * u, hx(0xaaaaaa));
         if btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 8. * u, 92. * u, 32. * u), "ขายทั้งหมด", g.p.inv[FISH] > 0, u) { g.sell_fish(); }
+        sep(c, y + 48. * u);
+    }
+    y += 52. * u;
+    if visible(y, 50. * u, c) {
+        icon_c(sp, CORN, c.x + 8. * u, y + 8. * u, 26. * u, WHITE);
+        text(font, &format!("รับซื้อผลผลิต ข้าวโพด {} · แครอท {} เหรียญ", CROP_PRICE[0], CROP_PRICE[1]), c.x + 44. * u, y + 20. * u, 14. * u, hx(0xffcc66));
+        text(font, &format!("ข้าวโพด {} · แครอท {}", g.p.inv[CORN], g.p.inv[CARROT]), c.x + 44. * u, y + 36. * u, 11. * u, hx(0xaaaaaa));
+        if btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 8. * u, 92. * u, 32. * u), "ขายทั้งหมด", g.p.inv[CORN] + g.p.inv[CARROT] > 0, u) { g.sell_crops(); }
         sep(c, y + 48. * u);
     }
     y += 52. * u;
@@ -591,6 +622,9 @@ pub fn draw_menu(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState) -> b
     if ui.cook {
         tabs.push((8, "ทำอาหาร"));
     }
+    if ui.adv {
+        tabs.push((9, "โต๊ะขั้นสูง"));
+    }
     tabs.push((6, "สเตตัส"));
     tabs.push((7, "ตั้งค่า"));
     if !tabs.iter().any(|t| t.0 == ui.tab) {
@@ -625,6 +659,7 @@ pub fn draw_menu(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState) -> b
         3 => tab_chest(g, sp, font, ui, c, u),
         5 => tab_forge(g, sp, font, ui, c, u),
         8 => tab_cook(g, sp, font, ui, c, u),
+        9 => tab_adv(g, sp, font, ui, c, u),
         6 => tab_stats(g, sp, font, ui, c, u),
         7 => tab_settings(g, sp, font, ui, c, u),
         _ => tab_shop(g, sp, font, ui, c, u),

@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 
 mod art;
 mod extra;
+mod farm;
 mod audio;
 mod base;
 mod boss;
@@ -19,6 +20,7 @@ mod dungeon;
 mod menu;
 mod rpg;
 use extra::*;
+use farm::*;
 use audio::*;
 use base::*;
 use boss::*;
@@ -30,19 +32,19 @@ use rpg::*;
 
 // ======================= ค่าคงที่ =======================
 const DAYLEN: f32 = 240.0;
-const TN: [&str; 11] = [
-    "ทะเลลึก", "แหล่งน้ำ", "ชายหาด", "ทุ่งหญ้า", "ป่าทึบ", "เขตหินผา", "ภูเขา", "ดินแดนหิมะ", "ทะเลทราย", "ดันเจี้ยน", "กำแพงดันเจี้ยน",
+const TN: [&str; 13] = [
+    "ทะเลลึก", "แหล่งน้ำ", "ชายหาด", "ทุ่งหญ้า", "ป่าทึบ", "เขตหินผา", "ภูเขา", "ดินแดนหิมะ", "ทะเลทราย", "ดันเจี้ยน", "กำแพงดันเจี้ยน", "ดินไถ", "ดินเปียก",
 ];
-const TCOL: [u32; 11] = [
-    0x1d4f91, 0x2f7fd0, 0xe6d29a, 0x5fae4a, 0x3f8a3a, 0x8a8a8a, 0x5c5450, 0xeef4f8, 0xe8b86a, 0x3a3a4c, 0x14141e,
+const TCOL: [u32; 13] = [
+    0x1d4f91, 0x2f7fd0, 0xe6d29a, 0x5fae4a, 0x3f8a3a, 0x8a8a8a, 0x5c5450, 0xeef4f8, 0xe8b86a, 0x3a3a4c, 0x14141e, 0x7a5230, 0x52341e,
 ];
 // tiles: 0 deep,1 water,2 sand,3 grass,4 forest,5 stone,6 mountain,7 snow,8 desert
-const SOLIDT: [bool; 11] = [true, true, false, false, false, false, true, false, false, false, true];
+const SOLIDT: [bool; 13] = [true, true, false, false, false, false, true, false, false, false, true, false, false];
 // objects: 1 tree,2 bush,3 flower,4 rock,5 ore,6 chest,7 cactus,8 pine,9 campfire,
 //   10 กำแพงไม้,11 กำแพงหิน,12 ประตูปิด,13 ประตูเปิด,14 กล่องเก็บของ,15 พ่อค้า,16 เต็นท์
 //   17 โต๊ะตีเหล็ก,18 คบเพลิง,19 ทางเข้าดันเจี้ยน,20 ทางออกดันเจี้ยน,21 หนามหุบ,22 หนามโผล่,23 ป้อมลูกไฟ,24 หีบสมบัติหายาก
-const OSOLID: [bool; 27] = [false, true, true, false, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, false, false, false, false, true, true, true, true];
-const OHP: [i32; 27] = [0, 3, 1, 0, 3, 4, 1, 2, 3, 2, 5, 8, 4, 4, 5, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 0, 5];
+const OSOLID: [bool; 40] = [false, true, true, false, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, false, false, false, false, true, true, true, true, false, false, false, false, false, false, true, true, false, false, false, false, false];
+const OHP: [i32; 40] = [0, 3, 1, 0, 3, 4, 1, 2, 3, 2, 5, 8, 4, 4, 5, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 1, 1, 1, 1, 4, 8, 0, 0, 0, 0, 0];
 
 const WOOD: usize = 0;
 const STONE: usize = 1;
@@ -65,26 +67,34 @@ const DISH_SPEED: usize = 17;
 const DISH_CRIT: usize = 18;
 const DISH_FISH: usize = 19;
 const FISH: usize = 20;
-const NI: usize = 21;
+const SEED_CORN: usize = 21;
+const SEED_CARROT: usize = 22;
+const CORN: usize = 23;
+const CARROT: usize = 24;
+const NI: usize = 25;
 // ดัชนีไอคอน (0..11 ตรงกับไอเทม)
-const ICON_SWORD: usize = 21;
-const IC_BOW: usize = 22;
-const IC_STAFF: usize = 23;
-const IC_HELM: usize = 24;
-const IC_CHEST: usize = 25;
-const IC_BOOT: usize = 26;
-const IC_WWALL: usize = 27;
-const IC_SWALL: usize = 28;
-const IC_DOOR: usize = 29;
-const IC_BOX: usize = 30;
-const IC_ANVIL: usize = 31;
-const IC_TORCH: usize = 32;
-const IC_POT: usize = 33;
-const INAME: [&str; NI] = ["ไม้", "หิน", "เบอร์รี่", "อัญมณี", "เหรียญ", "กองไฟ", "ลูกธนู", "เจลราชาสไลม์", "แกนโกเลม", "ยาฟื้นฟู", "พิมพ์เขียวเกราะ", "พิมพ์เขียวอาวุธ", "เศษดาว", "เนื้อสัตว์", "เห็ด", "สมุนไพร", "สเต็กเนื้อย่าง", "ซุปเห็ดสายลม", "ชาสมุนไพรคมเขี้ยว", "ปลาย่าง", "ปลา"];
+const ICON_SWORD: usize = 25;
+const IC_BOW: usize = 26;
+const IC_STAFF: usize = 27;
+const IC_HELM: usize = 28;
+const IC_CHEST: usize = 29;
+const IC_BOOT: usize = 30;
+const IC_WWALL: usize = 31;
+const IC_SWALL: usize = 32;
+const IC_DOOR: usize = 33;
+const IC_BOX: usize = 34;
+const IC_ANVIL: usize = 35;
+const IC_TORCH: usize = 36;
+const IC_POT: usize = 37;
+const IC_HOE: usize = 38;
+const IC_BED: usize = 39;
+const IC_ATABLE: usize = 40;
+const IC_CAN: usize = 41;
+const INAME: [&str; NI] = ["ไม้", "หิน", "เบอร์รี่", "อัญมณี", "เหรียญ", "กองไฟ", "ลูกธนู", "เจลราชาสไลม์", "แกนโกเลม", "ยาฟื้นฟู", "พิมพ์เขียวเกราะ", "พิมพ์เขียวอาวุธ", "เศษดาว", "เนื้อสัตว์", "เห็ด", "สมุนไพร", "สเต็กเนื้อย่าง", "ซุปเห็ดสายลม", "ชาสมุนไพรคมเขี้ยว", "ปลาย่าง", "ปลา", "เมล็ดข้าวโพด", "เมล็ดแครอท", "ข้าวโพด", "แครอท"];
 
-const SWN: [&str; 5] = ["มือเปล่า", "ดาบไม้", "ดาบหิน", "ดาบอัญมณี", "ดาบแกนโกเลม"];
-const SWD: [i32; 5] = [1, 2, 3, 5, 8];
-const SWC: [u32; 5] = [0xffffff, 0xd8a060, 0xd8d8e0, 0x6ff8ff, 0xff9a40];
+const SWN: [&str; 6] = ["มือเปล่า", "ดาบไม้", "ดาบหิน", "ดาบอัญมณี", "ดาบแกนโกเลม", "ดาบคริสตัลดาว"];
+const SWD: [i32; 6] = [1, 2, 3, 5, 8, 12];
+const SWC: [u32; 6] = [0xffffff, 0xd8a060, 0xd8d8e0, 0x6ff8ff, 0xff9a40, 0xc880ff];
 const DV: [(f32, f32); 4] = [(0., 1.), (0., -1.), (1., 0.), (-1., 0.)];
 
 // ======================= noise =======================
@@ -229,6 +239,16 @@ fn spr(rows: &[&str], pal: &[(char, u32)]) -> Image {
     im
 }
 enum Extra { None, Waves(u32, i32), Tufts(u32), Mountain }
+/// ไทล์ดินไถ: พื้นสีน้ำตาลมีร่องแถวเป็นแนวนอน
+fn soil_tex(base: u32, furrow: u32, speck: u32, s: i32) -> Image {
+    let mut im = mk_tex(base, &[speck, furrow], 12, s, Extra::None);
+    for y in [3u32, 7, 11, 15] {
+        for x in 0..16u32 {
+            im.set_pixel(x, y, hx(furrow));
+        }
+    }
+    im
+}
 fn mk_tex(base: u32, specks: &[u32], n: i32, s: i32, ex: Extra) -> Image {
     let mut im = Image::gen_image_color(16, 16, hx(base));
     for i in 0..n {
@@ -313,6 +333,8 @@ fn build_sprites() -> Sprites {
         Box::new(|i| mk_tex(0xe8b86a, &[0xd9a456, 0xf2c87e, 0xcf9a4c], 16, 80 + i, Extra::None)),
         Box::new(|i| mk_tex(0x3a3a4c, &[0x32323f, 0x444458, 0x2c2c38], 16, 90 + i, Extra::None)),
         Box::new(|i| mk_tex(0x16161f, &[0x1e1e2a, 0x10101a, 0x1a1a26], 14, 100 + i, Extra::None)),
+        Box::new(|i| soil_tex(0x7a5230, 0x5e3c20, 0x8c6238, 110 + i)),
+        Box::new(|i| soil_tex(0x52341e, 0x3a2414, 0x5e3e24, 120 + i)),
     ];
     for d in &defs {
         tiles.push((0..4).map(|i| at.add(&d(i))).collect::<Vec<_>>());
@@ -358,7 +380,7 @@ fn build_sprites() -> Sprites {
     let fl_bat = [at.add(&art::white_of(&bat_img[0])), at.add(&art::white_of(&bat_img[1]))];
     // ---- objects
     let rp: &[(char, u32)] = &[('k', 0x3a3a40), ('L', 0x9a9aa4), ('l', 0xc8c8d0), ('D', 0x6a6a74), ('c', 0x4ef0ff), ('C', 0xb0ffff)];
-    let mut obj = vec![Rect::new(0., 0., 1., 1.); 27];
+    let mut obj = vec![Rect::new(0., 0., 1., 1.); 40];
     obj[1] = at.add(&spr(&["......gggg......", "....gGGGGGGg....", "...GGGgGGGGGG...", "..GGGGGGGgGGGG..", ".GGgGGGGGGGGGGG.", ".GGGGGGGGGGgGGG.", "GGGGGgGGGGGGGGGG", "GGGGGGGGGGGGgGGG", "GGgGGGGGGGGGGGGG", "GGGGGGGGgGGGGGGd", ".GGGGGGGGGGGGGd.", ".dGGGgGGGGGGGdd.", "..ddGGGGGGGGdd..", "...dddGGGGddd...", ".....ddTTdd.....", "......TTTT......", "......TTtT......", "......TTTT......", "......TtTT......", "......TTTT......", ".....TTTTTT.....", "....tt....tt...."],
         &[('g', 0x7cd06a), ('G', 0x3f9a3f), ('d', 0x2a6a2a), ('T', 0x7a4a24), ('t', 0x5a3418)]));
     obj[2] = at.add(&spr(&["................", "................", "................", "................", "................", "................", "......gggg......", "....gggggggg....", "...ggrgggggrg...", "..gggggggggggg..", "..ggggrggggggg..", ".gggggggggrgggg.", ".ggrgggggggggg..", "..dgggggggggd...", "...dddddddddd...", "................"], &[('g', 0x3d9440), ('r', 0xe8344a), ('d', 0x2a6a2a)]));
@@ -394,10 +416,10 @@ enum EK { Slime, Skel, Bat }
 struct Enemy { k: EK, x: f32, y: f32, hp: f32, spd: f32, dmg: i32, xp: i32, coin: i32, vx: f32, vy: f32, kb: f32, flash: f32, wt: f32, wdx: f32, wdy: f32, anim: f32, pal: usize, dead: bool, night: bool, burn: f32, slow: f32, stun: f32, btick: f32 }
 struct Particle { x: f32, y: f32, vx: f32, vy: f32, l: f32, c: Color }
 struct Float { x: f32, y: f32, t: String, c: Color, l: f32, icon: Option<usize>, sz: f32 }
-struct Player { x: f32, y: f32, dir: usize, flip: bool, hp: i32, maxhp: i32, xp: i32, lvl: i32, sword: usize, pick: bool, rod: bool, elem: u8, elems: u8, inv: [i32; NI], invul: f32, kbx: f32, kby: f32, kbt: f32, atk_t: f32, atk_cd: f32, anim: f32, moving: bool, regen: f32, last_hit: f32, kills: i32, weapon: u8, bow: bool, staff: u8, armor: [u8; 3], sp: i32, st: [u8; 4], wplus: [u8; 3], aplus: [u8; 3], dash_t: f32, dash_cd: f32, dash_dir: Vec2, ghost_t: f32, buff_spd: f32, buff_crit: f32 }
+struct Player { x: f32, y: f32, dir: usize, flip: bool, hp: i32, maxhp: i32, xp: i32, lvl: i32, sword: usize, pick: bool, rod: bool, elem: u8, elems: u8, inv: [i32; NI], invul: f32, kbx: f32, kby: f32, kbt: f32, atk_t: f32, atk_cd: f32, anim: f32, moving: bool, regen: f32, last_hit: f32, kills: i32, weapon: u8, bow: bool, staff: u8, armor: [u8; 3], sp: i32, st: [u8; 4], wplus: [u8; 3], aplus: [u8; 3], dash_t: f32, dash_cd: f32, dash_dir: Vec2, ghost_t: f32, buff_spd: f32, buff_crit: f32, can: bool, water: i32 }
 impl Player {
     fn new(x: f32, y: f32) -> Self {
-        Player { x, y, dir: 0, flip: false, hp: 10, maxhp: 10, xp: 0, lvl: 1, sword: 0, pick: false, rod: false, elem: 0, elems: 1, inv: [0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], invul: 0., kbx: 0., kby: 0., kbt: 0., atk_t: 0., atk_cd: 0., anim: 0., moving: false, regen: 0., last_hit: 0., kills: 0, weapon: 0, bow: false, staff: 0, armor: [0; 3], sp: 0, st: [0; 4], wplus: [0; 3], aplus: [0; 3], dash_t: 0., dash_cd: 0., dash_dir: Vec2::ZERO, ghost_t: 0., buff_spd: 0., buff_crit: 0. }
+        Player { x, y, dir: 0, flip: false, hp: 10, maxhp: 10, xp: 0, lvl: 1, sword: 0, pick: false, rod: false, elem: 0, elems: 1, inv: [0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], invul: 0., kbx: 0., kby: 0., kbt: 0., atk_t: 0., atk_cd: 0., anim: 0., moving: false, regen: 0., last_hit: 0., kills: 0, weapon: 0, bow: false, staff: 0, armor: [0; 3], sp: 0, st: [0; 4], wplus: [0; 3], aplus: [0; 3], dash_t: 0., dash_cd: 0., dash_dir: Vec2::ZERO, ghost_t: 0., buff_spd: 0., buff_crit: 0., can: false, water: 0 }
     }
     fn facing(&self) -> (f32, f32) {
         DV[if self.dir == 2 && self.flip { 3 } else { self.dir }]
@@ -405,7 +427,7 @@ impl Player {
 }
 
 #[derive(Default)]
-struct Input { mv: Vec2, atk: bool, eat: bool, fire: bool, menu: Option<usize>, map: bool, act: bool, swap: bool, place: bool, cancel: bool, potion: bool, aim: Option<Vec2>, dash: bool }
+struct Input { mv: Vec2, atk: bool, eat: bool, fire: bool, menu: Option<usize>, map: bool, act: bool, swap: bool, place: bool, cancel: bool, potion: bool, aim: Option<Vec2>, dash: bool, tile_tap: Option<Vec2> }
 
 // ======================= game =======================
 struct Game {
@@ -464,6 +486,15 @@ struct Game {
     sfx_on: bool,
     auto_aim: bool,
     pick_cd: f32,
+    // ---- v5 ฟาร์ม/เตียง/Grid Snap/สภาพอากาศ
+    crops: HashMap<(i32, i32), Crop>,
+    crop_t: f32,
+    bed: Option<(i32, i32)>,
+    seed_sel: u8,
+    sleep_fx: f32,
+    build_cur: Option<(i32, i32)>,
+    cur_pos: (f32, f32),
+    weather_kind: u8,
 }
 
 fn find_spawn(w: &World) -> (i32, i32) {
@@ -507,6 +538,7 @@ impl Game {
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
             rain: 0., rain_on: false, rain_t: 90., thunder: 0., cshake: (0., 0.), bgm_on: true, bgm_cur: -1, sfx_on: true,
             auto_aim: true, pick_cd: 0.,
+            crops: HashMap::new(), crop_t: 0., bed: None, seed_sel: 0, sleep_fx: 0., build_cur: None, cur_pos: (0., 0.), weather_kind: 1,
         }
     }
     fn new_world(sfx: Sfx) -> Self {
@@ -539,6 +571,11 @@ impl Game {
         if let Some(q) = &self.quest { s += &format!("quest {} {} {} {} {} {} {} {}\n", q.camp.0, q.camp.1, q.kind, q.goal, q.prog, q.coin, q.shard, q.bp); }
         s += &format!("buff {} {}\n", p.buff_spd, p.buff_crit);
         s += &format!("elem {} {}\nrod {}\n", p.elem, p.elems, p.rod as i32);
+        s += &format!("farm {} {} {}\n", p.can as i32, p.water, self.seed_sel);
+        if let Some(b) = self.bed { s += &format!("bed {} {}\n", b.0, b.1); }
+        s += "crops";
+        for ((x, y), c) in &self.crops { s += &format!(" {},{},{},{:.1},{:.1}", x, y, c.kind, c.grown, c.wet); }
+        s += "\n";
         s += "wps";
         for (x, y) in &self.wp_found { s += &format!(" {},{}", x, y); }
         s += "\nqn";
@@ -592,7 +629,7 @@ impl Game {
                 "p" => {
                     let p = &mut g.p;
                     p.x = f(0); p.y = f(1); p.hp = f(2) as i32; p.maxhp = f(3) as i32; p.xp = f(4) as i32; p.lvl = f(5) as i32;
-                    p.sword = (f(6) as usize).min(4); p.pick = f(7) > 0.; p.kills = f(8) as i32;
+                    p.sword = (f(6) as usize).min(5); p.pick = f(7) > 0.; p.kills = f(8) as i32;
                     for i in 0..6 { p.inv[i] = f(9 + i) as i32; }
                 }
                 "inv" => for i in 0..NI { g.p.inv[i] = f(i) as i32; },
@@ -600,8 +637,8 @@ impl Game {
                     let p = &mut g.p;
                     p.weapon = (f(0) as u8).min(2);
                     p.bow = f(1) > 0.;
-                    p.staff = (f(2) as u8).min(2);
-                    for i in 0..3 { p.armor[i] = (f(3 + i) as u8).min(3); }
+                    p.staff = (f(2) as u8).min(3);
+                    for i in 0..3 { p.armor[i] = (f(3 + i) as u8).min(4); }
                     if !p.has_weapon(p.weapon) { p.weapon = 0; }
                 }
                 "bcd" => g.boss_cd = f(0),
@@ -617,6 +654,12 @@ impl Game {
                     for i in 0..2 { p.aplus[i] = (f(8 + i) as u8).min(PLUS_MAX); }
                 }
                 "rod" => g.p.rod = f(0) > 0.,
+                "farm" => { g.p.can = f(0) > 0.; g.p.water = (f(1) as i32).clamp(0, WATER_MAX); g.seed_sel = (f(2) as u8).min(1); }
+                "bed" => g.bed = Some((f(0) as i32, f(1) as i32)),
+                "crops" => for v in &rest {
+                    let n: Vec<f32> = v.split(',').filter_map(|x| x.parse().ok()).collect();
+                    if n.len() == 5 && (n[2] as u8) < 2 { g.crops.insert((n[0] as i32, n[1] as i32), Crop { kind: n[2] as u8, grown: n[3], wet: n[4] }); }
+                },
                 "elem" => { g.p.elem = (f(0) as u8).min(2); g.p.elems = (f(1) as u8) & 7 | 1; }
                 "buff" => { g.p.buff_spd = f(0); g.p.buff_crit = f(1); }
                 "rpg2" => g.p.aplus[2] = (f(0) as u8).min(PLUS_MAX),
@@ -747,7 +790,7 @@ impl Game {
         let k = (tx, ty);
         if self.w.dun.is_some() { return false; }
         let o = self.w.obj_at(tx, ty);
-        if (19..=25).contains(&o) { return true; }
+        if (19..=25).contains(&o) || (27..=32).contains(&o) || o == 36 { return true; }
         if o == 0 || o == 3 {
             if self.w.tile_at(tx, ty) == 6 {
                 if !self.p.pick { self.toast("ต้องมีอีเต้อถึงจะขุดภูเขาได้"); return true; }
@@ -776,7 +819,7 @@ impl Game {
         let col = hx(match o { 1 => 0x3f9a3f, 2 => 0x3d9440, 4 => 0x9a9aa4, 5 => 0x4ef0ff, 6 => 0xc88a40, 7 => 0x3c9a4a, 8 => 0x2f6b4f, 10 => 0x9a6a38, 11 => 0x9a9aa6, 12 | 13 => 0xa06a30, 14 => 0xc88a40, 17 => 0x8a909c, 26 => 0x6a6a74, _ => 0xffa630 });
         let (x, y) = (tx as f32 * 16. + 8., ty as f32 * 16.);
         self.burst(x, y + 6., col, 5, 50.);
-        if o == 4 || o == 5 || o == 11 || o == 17 || o == 26 { play(&self.sfx.rock) } else { play(&self.sfx.chop) }
+        if o == 4 || o == 5 || o == 11 || o == 17 || o == 26 || o == 34 { play(&self.sfx.rock) } else { play(&self.sfx.chop) }
         if h < OHP[o as usize] { self.obj_dmg.insert(k, h); return true; }
         self.obj_dmg.remove(&k);
         if self.w.placed.remove(&k).is_none() { self.w.removed.insert(k); }
@@ -791,6 +834,8 @@ impl Game {
             9 => self.gain(FIRE, 1, x, y),
             17 => self.gain(STONE, 5, x, y),
             26 => self.gain(STONE, 3, x, y),
+            33 => self.gain(WOOD, 6, x, y),
+            34 => { self.gain(STONE, 8, x, y); self.gain(GEM, 1, x, y - 8.); }
             18 => self.gain(WOOD, 1, x, y),
             10 => self.gain(WOOD, 1, x, y),
             11 => self.gain(STONE, 2, x, y),
@@ -823,6 +868,7 @@ impl Game {
         if e.k == EK::Skel && self.p.bow && gen_range(0., 1.) < 0.4 { self.spawn_loot(lx, ly, ARROW, rnd(2, 4)); }
         if e.k == EK::Bat && gen_range(0., 1.) < 0.45 { self.spawn_loot(lx, ly, MEAT, 1); }
         if e.k == EK::Slime && gen_range(0., 1.) < 0.35 { self.spawn_loot(lx, ly, SHROOM, 1); }
+        if e.k == EK::Slime && gen_range(0., 1.) < 0.12 { self.spawn_loot(lx, ly, SEED_OF[rnd(0, 1) as usize], 1); }
         if e.k == EK::Skel && gen_range(0., 1.) < 0.35 { self.spawn_loot(lx, ly, HERB, 1); }
         if e.night && gen_range(0., 1.) < 0.3 { self.spawn_loot(lx, ly, [MEAT, SHROOM, HERB][rnd(0, 2) as usize], 1); }
         if e.night && gen_range(0., 1.) < 0.65 { self.spawn_loot(lx, ly, SHARD, rnd(1, 2)); }
@@ -881,8 +927,9 @@ impl Game {
             self.p.inv[COIN] -= lost;
             self.p.hp = self.p.maxhp;
             self.w.dun = None;
-            self.p.x = self.spawn.0;
-            self.p.y = self.spawn.1;
+            let rp = self.respawn_pt();
+            self.p.x = rp.0;
+            self.p.y = rp.1;
             self.died = true;
             self.proj.clear();
             self.drops.clear();
@@ -1027,6 +1074,10 @@ impl Game {
         if inp.act { self.interact(); }
         if inp.place { self.place_piece(); }
         if inp.cancel && self.build_sel.is_some() { self.build_sel = None; self.toast("ยกเลิกโหมดสร้าง"); }
+        if self.build_sel.is_none() { self.build_cur = None; }
+        if self.build_cur.is_some() && (self.p.x - self.cur_pos.0).hypot(self.p.y - self.cur_pos.1) > 20. { self.build_cur = None; }
+        if self.sleep_fx > 0. { self.sleep_fx -= dt; }
+        let wmul = self.weather_mul();
         // movement
         let mut mv = inp.mv;
         let il = mv.length();
@@ -1036,7 +1087,7 @@ impl Game {
         if p.moving && p.atk_t <= 0. {
             if mv.x.abs() > mv.y.abs() { p.dir = 2; p.flip = mv.x < 0.; } else { p.dir = if mv.y > 0. { 0 } else { 1 }; }
         }
-        let sp = 64. * p.speed_mul() * if p.atk_t > 0. { 0.5 } else { 1. };
+        let sp = 64. * p.speed_mul() * wmul * if p.atk_t > 0. { 0.5 } else { 1. };
         let (mut mx, mut my) = if p.dash_t > 0. { (p.dash_dir.x * 250. * dt, p.dash_dir.y * 250. * dt) } else if p.moving { (mv.x * sp * dt, mv.y * sp * dt) } else { (0., 0.) };
         if p.kbt > 0. { p.kbt -= dt; mx += p.kbx * dt; my += p.kby * dt; }
         if !collide(&self.w, p.x + mx, p.y) { p.x += mx; }
@@ -1073,7 +1124,7 @@ impl Game {
         let bt = self.w.tile_at(tfloor(self.p.x), tfloor(self.p.y));
         if self.w.dun.is_none() && bt as i32 != self.last_biome {
             self.last_biome = bt as i32;
-            if self.seen.insert(bt) && self.seen.len() > 1 {
+            if bt <= 8 && self.seen.insert(bt) && self.seen.len() > 1 {
                 self.toast(format!("ค้นพบ: {}", TN[bt as usize]));
                 self.p.xp += 3;
                 self.check_lv();
@@ -1089,6 +1140,7 @@ impl Game {
         if self.torch_t <= 0. { self.torch_t = 0.5; self.refresh_torches(); }
         self.upd_dash(dt);
         self.upd_weather(dt);
+        self.upd_crops(dt);
         self.upd_traps(dt);
         self.upd_proj(dt);
         self.upd_bosses(dt);
@@ -1328,9 +1380,20 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     for pr in &g.proj { if matches!(pr.kind, 1 | 7 | 8 | 9) { lights.push((pr.x - v.cx, pr.y - v.cy, 26., false)); } }
     if let Some(sel) = g.build_sel {
         let (tx, ty) = g.build_target();
-        let ok = g.can_place_at(tx, ty) && can_pay(&g.p, PIECES[sel].cost);
+        // กริดช่วยวางให้ตรงช่อง (เฉพาะช่องที่อยู่ในระยะ)
+        let (ptx, pty) = (tfloor(g.p.x), tfloor(g.p.y - 3.));
+        for j in -5..=5 {
+            for i in -5..=5 {
+                let c = (ptx + i, pty + j);
+                if g.in_reach(c) {
+                    draw_rectangle_lines((c.0 as f32 * 16. - v.cx) * v.s, (c.1 as f32 * 16. - v.cy) * v.s, 16. * v.s, 16. * v.s, 1., Color::new(1., 1., 1., 0.14));
+                }
+            }
+        }
+        let till = PIECES[sel].obj == OBJ_TILL;
+        let ok = if till { g.can_till(tx, ty) } else { g.can_place_at(tx, ty) && can_pay(&g.p, PIECES[sel].cost) };
         let (px, py) = (tx as f32 * 16. - v.cx, ty as f32 * 16. - v.cy);
-        let r = sp.obj[PIECES[sel].obj as usize];
+        let r = if till { sp.tiles[T_SOIL as usize][0] } else { sp.obj[PIECES[sel].obj as usize] };
         blit(sp, v, r, px, py + 16. - r.h, false, Color::new(1., 1., 1., 0.6));
         let lc = if ok { Color::new(0.3, 1., 0.3, 0.9) } else { Color::new(1., 0.3, 0.3, 0.9) };
         draw_rectangle_lines(px * v.s, py * v.s, 16. * v.s, 16. * v.s, 2., lc);
@@ -1350,7 +1413,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         c.a = (p.l * 2.).min(1.);
         prect(v, (p.x - v.cx).round(), (p.y - v.cy).round(), 1., 1., c);
     }
-    draw_rain(g, v, t_now);
+    draw_weather(g, v, t_now);
     // night lighting (เซลล์ 4px ให้ดูเป็นพิกเซล)
     if g.darkv > 0.02 {
         lights.push(((g.p.x - v.cx).round(), (g.p.y - v.cy).round() - 6., 48., false));
@@ -1544,10 +1607,18 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
         let d = measure_text(&s, Some(font), (15. * u) as u16, 1.);
         draw_rectangle(sw / 2. - d.width / 2. - 12. * u, sh - 74. * u, d.width + 24. * u, 28. * u, Color::new(0., 0., 0., 0.65));
         text_c(font, &s, sw / 2., sh - 54. * u, 15. * u, hx(0xffee99));
+    } else if let Some(s) = g.farm_hint(touch) {
+        let d = measure_text(&s, Some(font), (15. * u) as u16, 1.);
+        draw_rectangle(sw / 2. - d.width / 2. - 12. * u, sh - 74. * u, d.width + 24. * u, 28. * u, Color::new(0., 0., 0., 0.65));
+        text_c(font, &s, sw / 2., sh - 54. * u, 15. * u, hx(0xb8ffb0));
+    }
+    if g.sleep_fx > 0. {
+        draw_rectangle(0., 0., sw, sh, Color::new(0., 0., 0.05, g.sleep_fx.min(1.)));
+        if g.sleep_fx > 0.5 { text_c(font, "Zzz...", sw / 2., sh / 2., 30. * u, Color::new(1., 1., 1., g.sleep_fx.min(1.))); }
     }
     if let Some(sel) = g.build_sel {
         let k = if touch { "ปุ่มสร้าง" } else { "R" };
-        text(font, &format!("โหมดสร้าง: {} · {} = วาง · {}", PIECES[sel].name, k, if touch { "เมนู = เปลี่ยน" } else { "T = ยกเลิก" }), x, sh - 16. * u, 13. * u, hx(0x88ff88));
+        text(font, &format!("โหมดสร้าง: {} · {} = วาง · {} · {}", PIECES[sel].name, k, if touch { "แตะพื้นเพื่อเลือกช่อง" } else { "คลิก/เมาส์ = เลือกช่อง" }, if touch { "เมนู = เปลี่ยน" } else { "T = ยกเลิก" }), x, sh - 16. * u, 13. * u, hx(0x88ff88));
     }
 }
 
@@ -1649,6 +1720,9 @@ fn touch_buttons() -> [(Vec2, f32, usize); 9] {
         (vec2(sw - 245. * u, sh - 205. * u), 26. * u, 8),
     ]
 }
+fn tile_of(v: &View, p: Vec2) -> (i32, i32) {
+    (((p.x / v.s + v.cx) / 16.).floor() as i32, ((p.y / v.s + v.cy) / 16.).floor() as i32)
+}
 fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool) {
     let ts = touches();
     if !ts.is_empty() { tu.active = true; }
@@ -1675,6 +1749,7 @@ fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool) {
                         }
                     }
                 }
+                if !on_btn && build && t.position.x >= screen_width() * 0.5 { inp.tile_tap = Some(t.position); }
                 if !on_btn && tu.joy_id.is_none() && t.position.x < screen_width() * 0.5 && t.position.y > screen_height() * 0.3 {
                     tu.joy_id = Some(t.id);
                     tu.joy_c = t.position;
@@ -1763,6 +1838,7 @@ fn debug_keys(g: &mut Game) {
         for i in [WOOD, STONE, GEM, GEL, CORE] { g.p.inv[i] += 50; }
         g.p.inv[COIN] += 300;
         g.p.inv[ARROW] += 30;
+        g.p.inv[SEED_CORN] += 5; g.p.inv[SEED_CARROT] += 5; g.p.can = true; g.p.water = WATER_MAX;
         g.toast("[debug] ได้ของ");
     }
     if is_key_pressed(KeyCode::F2) {
@@ -1955,11 +2031,15 @@ async fn main() {
                     if !tu.active && !tap_used {
                         if is_mouse_button_pressed(MouseButton::Left) && over_map {
                             inp.map = true;
+                        } else if g.build_sel.is_some() {
+                            if !over_map { g.build_cur = Some(tile_of(&v0, mp)); g.cur_pos = (g.p.x, g.p.y); }
+                            if mouse_armed && !over_map && is_mouse_button_pressed(MouseButton::Left) { inp.place = true; }
                         } else if mouse_armed && !over_map && is_mouse_button_down(MouseButton::Left) {
                             inp.atk = true;
                             inp.aim = Some(vec2(mp.x / v0.s + v0.cx, mp.y / v0.s + v0.cy) - vec2(g.p.x, g.p.y - 6.));
                         }
                     }
+                    if let Some(tp) = inp.tile_tap { if g.build_sel.is_some() { g.build_cur = Some(tile_of(&v0, tp)); g.cur_pos = (g.p.x, g.p.y); } }
                     if inp.map { g.big_map = !g.big_map; g.mini_t = 99.; }
                     g.update(dt, &inp);
                     if let Some(rq) = g.req.take() {
@@ -1969,6 +2049,7 @@ async fn main() {
                             Req::Shop => { ui.shop = true; ui.greet = rnd(0, 3) as usize; ui.open(4); }
                             Req::Forge => { ui.forge = true; ui.open(5); }
                             Req::Cook => { ui.cook = true; ui.open(8); }
+                            Req::Adv => { ui.adv = true; ui.open(9); }
                         }
                         state = State::Menu;
                     } else if let Some(t) = inp.menu {
@@ -2524,5 +2605,230 @@ mod tests {
         g.make_enemy(EK::Slime, cx + 20., cy, 1., 0, false);
         for _ in 0..120 { g.upd_enemies(0.05); }
         assert!((g.en[0].x - cx).hypot(g.en[0].y - cy) > SAFE_R - 8., "ต้องถูกผลักออกจากเขต");
+    }
+    /// หาจุดทุ่งหญ้าที่ว่าง 3 ช่องแนวนอน
+    fn grass_spot(g: &Game) -> (i32, i32) {
+        for ty in -200..200 { for tx in -200..200 {
+            if (0..3).all(|i| g.w.tile_at(tx + i, ty) == 3 && g.w.obj_at(tx + i, ty) == 0) && g.w.tile_at(tx, ty + 1) == 3 { return (tx, ty); }
+        } }
+        panic!("ไม่พบทุ่งหญ้า");
+    }
+
+    #[test]
+    fn farming_till_plant_water_harvest() {
+        let mut g = game(11);
+        let (tx, ty) = grass_spot(&g);
+        g.p.x = tx as f32 * 16. + 8.; g.p.y = ty as f32 * 16. + 11.;
+        g.p.dir = 2; g.p.flip = false; // หันขวา → ไทล์ (tx+1)
+        let k = g.facing_tile();
+        assert_eq!(k.1, ty);
+        // ไถดิน ผ่านชิ้นส่วนสร้าง
+        let till = PIECES.iter().position(|p| p.obj == OBJ_TILL).unwrap();
+        g.build_sel = Some(till);
+        g.place_piece();
+        assert_eq!(g.w.tile_at(k.0, k.1), T_SOIL);
+        // ไม่มีเมล็ด
+        assert!(g.try_farm());
+        assert!(g.w.obj_at(k.0, k.1) == 0);
+        g.p.inv[SEED_CORN] = 1;
+        assert!(g.try_farm());
+        assert_eq!(g.p.inv[SEED_CORN], 0);
+        assert_eq!(g.w.obj_at(k.0, k.1), 27);
+        assert!(g.crops.contains_key(&k));
+        // ไม่รดน้ำ = ไม่โต
+        g.upd_crops(0.6); g.upd_crops(5.);
+        assert_eq!(g.crops[&k].grown, 0.);
+        // ไม่มีบัวรดน้ำ
+        assert!(g.try_farm()); assert_eq!(g.crops[&k].wet, 0.);
+        let can = RECIPES.iter().position(|r| matches!(r.eff, Eff::Can)).unwrap();
+        g.p.inv[WOOD] = 10; g.p.inv[STONE] = 10;
+        g.craft(can);
+        assert!(g.p.can && g.p.water == WATER_MAX);
+        assert!(g.try_farm());
+        assert_eq!(g.p.water, WATER_MAX - 1);
+        assert_eq!(g.w.tile_at(k.0, k.1), T_WET);
+        // โตเมื่อเปียก
+        for _ in 0..40 { g.upd_crops(1.); }
+        assert!(g.crops[&k].grown >= 39.);
+        assert_eq!(g.w.obj_at(k.0, k.1), 28, "ต้องอยู่ระยะกลาง");
+        // ดินแห้งหลังหมดเวลา และโตเฉพาะช่วงที่เปียก (สะสมได้ไม่เกิน WET_T)
+        for _ in 0..120 { g.upd_crops(1.); }
+        assert_eq!(g.w.tile_at(k.0, k.1), T_SOIL);
+        assert!((g.crops[&k].grown - WET_T).abs() < 2., "โตเฉพาะตอนเปียก {}", g.crops[&k].grown);
+        assert_eq!(g.w.obj_at(k.0, k.1), 29, "สุกแล้ว");
+        assert_eq!(g.farm_hint(false).unwrap(), "Q: เก็บเกี่ยว");
+        assert!(g.try_farm());
+        assert!(g.p.inv[CORN] >= 1);
+        assert_eq!(g.w.obj_at(k.0, k.1), 0);
+        assert!(g.crops.is_empty());
+        // ไม่อนุญาตให้อาวุธทำลายพืช
+        g.p.inv[SEED_CARROT] = 1; g.seed_sel = 1;
+        assert!(g.try_farm());
+        assert_eq!(g.w.obj_at(k.0, k.1), 30);
+        assert!(g.hit_object(k.0, k.1, 99));
+        assert_eq!(g.w.obj_at(k.0, k.1), 30);
+        // ขาย/กิน
+        g.p.inv[CORN] = 2; g.p.inv[CARROT] = 1;
+        let c0 = g.p.inv[COIN];
+        g.p.hp = 1; g.eat_crop(CORN);
+        assert_eq!(g.p.hp, 1 + CROP_HEAL[0]);
+        g.sell_crops();
+        assert_eq!(g.p.inv[COIN], c0 + CROP_PRICE[0] + CROP_PRICE[1]);
+        // เติมน้ำ + ไถซ้ำคืนหญ้า
+        g.p.water = 0;
+        g.till_at(k);
+        assert_eq!(g.w.tile_at(k.0, k.1), 3);
+        assert!(g.crops.is_empty());
+    }
+
+    #[test]
+    fn farm_save_load_roundtrip() {
+        let mut g = game(12);
+        g.crops.insert((3, 4), Crop { kind: 1, grown: 12.5, wet: 30. });
+        g.w.placed.insert((3, 4), 30);
+        g.w.tmod.insert((3, 4), T_WET);
+        g.p.can = true; g.p.water = 5; g.seed_sel = 1; g.bed = Some((7, 8));
+        g.p.sword = 5; g.p.staff = 3; g.p.armor = [4, 4, 4];
+        let h = Game::load_str(&g.save_string(), Sfx::default()).ok().expect("load");
+        let c = h.crops[&(3, 4)];
+        assert_eq!((c.kind, c.grown, c.wet), (1, 12.5, 30.));
+        assert_eq!((h.p.can, h.p.water, h.seed_sel, h.bed), (true, 5, 1, Some((7, 8))));
+        assert_eq!((h.p.sword, h.p.staff, h.p.armor), (5, 3, [4, 4, 4]));
+        assert_eq!(h.w.tile_at(3, 4), T_WET);
+        // เซฟเก่า (21 ไอเทม) ยังโหลดได้
+        let old = "seed 5\nspawn 0 0\ntime 0\np 0 0 10 10 0 1 0 0 0 0 0 0 0 0 0\ninv 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21\n";
+        let o = Game::load_str(old, Sfx::default()).ok().expect("old save");
+        assert_eq!(o.p.inv[FISH], 21);
+        assert_eq!(o.p.inv[SEED_CORN], 0);
+    }
+
+    #[test]
+    fn bed_sleep_and_respawn() {
+        let mut g = game(13);
+        let k = (tfloor(g.p.x) + 2, tfloor(g.p.y));
+        g.w.placed.insert(k, 33);
+        g.time = DAYLEN * 2. + DAYLEN * 0.3; // กลางวัน
+        g.p.hp = 3;
+        g.sleep(k);
+        assert_eq!(g.p.hp, 3, "กลางวันนอนไม่ได้");
+        assert!(g.bed.is_none());
+        g.time = DAYLEN * 2. + DAYLEN * 0.6; // กลางคืน (hr>=18)
+        assert!(g.is_night_hr());
+        g.make_enemy(EK::Slime, g.p.x + 50., g.p.y, 1., 0, false);
+        g.crops.insert((1, 1), Crop { kind: 0, grown: 0., wet: 20. });
+        g.sleep(k);
+        assert_eq!(g.p.hp, g.p.maxhp);
+        assert!(g.en.is_empty());
+        assert_eq!(g.time, DAYLEN * 3.);
+        assert!(!g.is_night_hr() && g.hour() < 7.);
+        assert_eq!(g.bed, Some(k));
+        assert!(g.crops[&(1, 1)].grown >= 40.);
+        // ตายแล้วเกิดที่เตียง
+        g.p.x = 5000.; g.p.y = 5000.;
+        let rp = g.respawn_pt();
+        assert!((tfloor(rp.0) - k.0).abs() <= 1 && (tfloor(rp.1) - k.1).abs() <= 1);
+        g.hurt(999, 1., 0.);
+        assert_eq!((tfloor(g.p.x) - k.0).abs() <= 1, true);
+        // เตียงพัง → กลับจุดเกิด
+        g.w.placed.remove(&k);
+        assert_eq!(g.respawn_pt(), g.spawn);
+        // ตั้งเตียงข้ามวัน: นอนตอนเช้ามืด (hr<5) ก็ได้
+        g.w.placed.insert(k, 33);
+        g.time = DAYLEN * 5. + DAYLEN * 0.8;
+        assert!(g.is_night_hr());
+        g.sleep(k);
+        assert_eq!(g.time, DAYLEN * 6.);
+    }
+
+    #[test]
+    fn advanced_table_tier2_gating() {
+        let mut g = game(14);
+        for i in [CORE, SHARD, GEM, GEL] { g.p.inv[i] = 50; }
+        let st = |g: &Game, i: usize| recipe_state(&g.p, &ADV_RECIPES[i]);
+        assert_eq!(st(&g, 0), 2, "ดาบขั้น 2 ต้องมีดาบแกนโกเลมก่อน");
+        assert_eq!(st(&g, 1), 2);
+        assert_eq!(st(&g, 2), 2);
+        g.craft_from(&ADV_RECIPES, 0);
+        assert_eq!(g.p.sword, 0);
+        g.p.sword = 4; g.p.staff = 2; g.p.armor = [3, 2, 3];
+        assert_eq!((st(&g, 0), st(&g, 1), st(&g, 2), st(&g, 3), st(&g, 4)), (0, 0, 0, 2, 0));
+        g.craft_from(&ADV_RECIPES, 0); g.craft_from(&ADV_RECIPES, 1); g.craft_from(&ADV_RECIPES, 2); g.craft_from(&ADV_RECIPES, 4);
+        assert_eq!((g.p.sword, g.p.staff, g.p.armor), (5, 3, [4, 2, 4]));
+        assert!(SWD[g.p.sword] > SWD[4]);
+        assert!(g.p.reduction() > 0.3 - 1e-3 && g.p.reduction() <= 0.75);
+        // คทาขั้น 3 ยิง 5 ทิศ
+        g.p.weapon = 2; g.p.atk_cd = 0.; g.proj.clear();
+        g.shoot(Some(vec2(1., 0.)));
+        assert_eq!(g.proj.len(), 5);
+        // วางโต๊ะแล้วโต้ตอบ
+        let k = (tfloor(g.p.x) + 1, tfloor(g.p.y));
+        g.w.placed.insert(k, 34);
+        assert!(matches!(g.interact_target(), Some((_, 34))));
+        g.interact();
+        assert_eq!(g.req, Some(Req::Adv));
+    }
+
+    #[test]
+    fn grid_snap_targets_cursor_in_reach() {
+        let mut g = game(15);
+        let (tx, ty) = grass_spot(&g);
+        g.p.x = tx as f32 * 16. + 8.; g.p.y = ty as f32 * 16. + 11.;
+        g.p.dir = 2; g.p.flip = false;
+        let face = g.facing_tile();
+        assert_eq!(g.build_target(), face);
+        g.build_cur = Some((tx + 2, ty));
+        assert_eq!(g.build_target(), (tx + 2, ty));
+        g.build_cur = Some((tx + 40, ty));
+        assert_eq!(g.build_target(), face, "นอกระยะต้องกลับไปหน้าตัว");
+        // วางกำแพงตรงช่องที่เลือก (ไม่ใช่หน้าตัว)
+        g.p.inv[WOOD] = 10;
+        g.build_sel = Some(0);
+        g.build_cur = Some((tx + 2, ty));
+        g.cur_pos = (g.p.x, g.p.y);
+        g.place_piece();
+        assert_eq!(g.w.obj_at(tx + 2, ty), 10);
+        assert_eq!(g.w.obj_at(face.0, face.1), 0);
+        // ขยับห่างเกิน 20px → เคอร์เซอร์หาย
+        g.p.x += 30.;
+        g.update(0.016, &Input::default());
+        assert!(g.build_cur.is_none() || g.build_sel.is_some());
+        g.build_sel = None;
+        g.update(0.016, &Input::default());
+        assert!(g.build_cur.is_none());
+    }
+
+    #[test]
+    fn snow_slows_and_desert_has_no_rain() {
+        let mut g = game(16);
+        let find = |g: &Game, t: u8| -> (i32, i32) {
+            for ty in (-3000..3000).step_by(7) { for tx in (-3000..3000).step_by(7) { if g.w.tile_at(tx, ty) == t { return (tx, ty); } } }
+            panic!("ไม่พบไทล์ {}", t)
+        };
+        let s = find(&g, 7);
+        g.p.x = s.0 as f32 * 16. + 8.; g.p.y = s.1 as f32 * 16. + 8.;
+        g.rain_on = true; g.rain_t = 1000.;
+        for _ in 0..400 { g.upd_weather(0.1); }
+        assert_eq!(g.weather_kind, 2);
+        assert!(g.rain > 0.9);
+        let m = g.weather_mul();
+        assert!(m < 0.84 && m > 0.7, "หิมะต้องทำให้ช้าลง ~18% ได้ {}", m);
+        let d = find(&g, 8);
+        g.p.x = d.0 as f32 * 16. + 8.; g.p.y = d.1 as f32 * 16. + 8.;
+        for _ in 0..400 { g.upd_weather(0.1); }
+        assert_eq!(g.weather_kind, 0);
+        assert!(g.rain < 0.05);
+        assert_eq!(g.weather_mul(), 1.);
+        let gr = grass_spot(&g);
+        g.p.x = gr.0 as f32 * 16. + 8.; g.p.y = gr.1 as f32 * 16. + 8.;
+        for _ in 0..400 { g.upd_weather(0.1); }
+        assert_eq!(g.weather_kind, 1);
+        assert!(g.weather_mul() < 1. && g.weather_mul() > 0.9);
+        // ฝนทำให้ดินเปียกเอง
+        let k = (gr.0 + 1, gr.1);
+        g.w.tmod.insert(k, T_SOIL);
+        g.w.placed.insert(k, 27);
+        g.crops.insert(k, Crop { kind: 0, grown: 0., wet: 0. });
+        g.upd_crops(1.);
+        assert!(g.crops[&k].grown > 0.);
     }
 }

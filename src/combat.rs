@@ -2,14 +2,14 @@
 
 use super::*;
 
-pub const AR_RED: [f32; 4] = [0., 0.07, 0.12, 0.18];
-pub const AR_SPD: [f32; 4] = [0., 0.02, 0.04, 0.05];
-pub const AR_SPD_BOOT: [f32; 4] = [0., 0.05, 0.08, 0.12];
-pub const ATN: [&str; 4] = ["ไม่มี", "หิน", "อัญมณี", "ราชา"];
-pub const ATC: [u32; 4] = [0x555566, 0x9aa0b4, 0x4ef0ff, 0xffc040];
+pub const AR_RED: [f32; 5] = [0., 0.07, 0.12, 0.18, 0.25];
+pub const AR_SPD: [f32; 5] = [0., 0.02, 0.04, 0.05, 0.06];
+pub const AR_SPD_BOOT: [f32; 5] = [0., 0.05, 0.08, 0.12, 0.16];
+pub const ATN: [&str; 5] = ["ไม่มี", "หิน", "อัญมณี", "ราชา", "ดาวตก"];
+pub const ATC: [u32; 5] = [0x555566, 0x9aa0b4, 0x4ef0ff, 0xffc040, 0xc880ff];
 pub const SLOT_N: [&str; 3] = ["หมวก", "เกราะอก", "รองเท้า"];
 pub const SLOT_ICON: [usize; 3] = [IC_HELM, IC_CHEST, IC_BOOT];
-pub const STAFF_N: [&str; 3] = ["-", "คทาเวทมนตร์", "คทาราชาสไลม์"];
+pub const STAFF_N: [&str; 4] = ["-", "คทาเวทมนตร์", "คทาราชาสไลม์", "คทาดวงดาว"];
 
 impl Player {
     pub fn reduction(&self) -> f32 {
@@ -114,7 +114,7 @@ impl Game {
         } else {
             self.p.atk_cd = 0.55;
             self.p.atk_t = 0.1;
-            let (n, dmg) = if self.p.staff >= 2 { (3, 6 + bonus) } else { (1, 4 + bonus) };
+            let (n, dmg) = if self.p.staff >= 3 { (5, 8 + bonus) } else if self.p.staff >= 2 { (3, 6 + bonus) } else { (1, 4 + bonus) };
             let mk = [7u8, 8, 9][self.p.elem as usize];
             let base = a.y.atan2(a.x);
             for i in 0..n {
@@ -246,6 +246,7 @@ pub enum Eff {
     Elem(u8),
     Rod,
     Armor(usize, u8),
+    Can,
 }
 pub struct Recipe {
     pub name: &'static str,
@@ -255,7 +256,7 @@ pub struct Recipe {
     pub need: Option<usize>,
     pub eff: Eff,
 }
-pub const RECIPES: [Recipe; 23] = [
+pub const RECIPES: [Recipe; 24] = [
     Recipe { name: "ดาบไม้", desc: "พลังโจมตี 2", cost: &[(WOOD, 5)], need: None, eff: Eff::Sword(1) },
     Recipe { name: "อีเต้อหิน", desc: "ขุดภูเขาเปิดทางได้", cost: &[(WOOD, 4), (STONE, 4)], need: None, eff: Eff::Pick },
     Recipe { name: "ดาบหิน", desc: "พลังโจมตี 3 (ต้องมีดาบไม้)", cost: &[(WOOD, 3), (STONE, 6)], need: None, eff: Eff::Sword(2) },
@@ -279,6 +280,16 @@ pub const RECIPES: [Recipe; 23] = [
     Recipe { name: "ธาตุน้ำแข็ง (คทา)", desc: "เวทน้ำแข็ง ศัตรูเดินช้าลง · ต้องมีคทา", cost: &[(GEM, 4), (GEL, 2)], need: None, eff: Eff::Elem(1) },
     Recipe { name: "ธาตุสายฟ้า (คทา)", desc: "เวทสายฟ้า โอกาสทำให้สตัน · ต้องมีคทา", cost: &[(GEM, 4), (SHARD, 3)], need: None, eff: Eff::Elem(2) },
     Recipe { name: "คันเบ็ด", desc: "ตกปลาที่แหล่งน้ำ (ใช้ Q / ปุ่ม \"ใช้\") — ได้ปลาไว้ทำอาหารหรือขาย", cost: &[(WOOD, 8), (STONE, 2)], need: None, eff: Eff::Rod },
+    Recipe { name: "บัวรดน้ำ", desc: "รดน้ำพืชผล (เติมที่แหล่งน้ำ จุ 8 ครั้ง) — ใช้ Q หันหน้าหาแปลง", cost: &[(WOOD, 3), (STONE, 3)], need: None, eff: Eff::Can },
+];
+
+/// สูตรของโต๊ะคราฟต์ขั้นสูง (ขั้น 2) — ต้องมีของขั้นก่อนหน้า
+pub const ADV_RECIPES: [Recipe; 5] = [
+    Recipe { name: "ดาบคริสตัลดาว", desc: "พลังโจมตี 12 · ต้องมีดาบแกนโกเลม", cost: &[(CORE, 4), (SHARD, 6), (GEM, 6)], need: None, eff: Eff::Sword(5) },
+    Recipe { name: "คทาดวงดาว", desc: "ยิงเวท 5 ทิศ ดาเมจสูง · ต้องมีคทาราชาสไลม์", cost: &[(SHARD, 8), (GEL, 5), (GEM, 6)], need: None, eff: Eff::Staff(3) },
+    Recipe { name: "หมวกดาวตก", desc: "ลดดาเมจ 25% · เดินเร็ว +6% · ต้องมีหมวกราชา", cost: &[(SHARD, 5), (CORE, 2), (GEM, 4)], need: None, eff: Eff::Armor(0, 4) },
+    Recipe { name: "เกราะอกดาวตก", desc: "ลดดาเมจ 25% · เดินเร็ว +6% · ต้องมีเกราะอกระดับ 3", cost: &[(SHARD, 8), (CORE, 3), (GEM, 6)], need: None, eff: Eff::Armor(1, 4) },
+    Recipe { name: "รองเท้าดาวตก", desc: "ลดดาเมจ 25% · เดินเร็ว +16% · ต้องมีรองเท้าระดับ 3", cost: &[(SHARD, 5), (CORE, 2), (GEL, 3)], need: None, eff: Eff::Armor(2, 4) },
 ];
 
 pub fn can_pay(p: &Player, c: &[(usize, i32)]) -> bool {
@@ -292,13 +303,14 @@ pub fn recipe_state(p: &Player, r: &Recipe) -> u8 {
             if p.sword >= t { 1 } else if p.sword + 1 < t || locked { 2 } else { 0 }
         }
         Eff::Pick => if p.pick { 1 } else { 0 },
+        Eff::Can => if p.can { 1 } else { 0 },
         Eff::Rod => if p.rod { 1 } else { 0 },
         Eff::Bow => if p.bow { 1 } else { 0 },
         Eff::Staff(t) => {
             if p.staff >= t { 1 } else if p.staff + 1 < t || locked { 2 } else { 0 }
         }
         Eff::Armor(s, t) => {
-            if p.armor[s] >= t { 1 } else if locked { 2 } else { 0 }
+            if p.armor[s] >= t { 1 } else if locked || (t >= 4 && p.armor[s] + 1 < t) { 2 } else { 0 }
         }
         Eff::Elem(e) => if p.staff == 0 { 2 } else if p.elems & (1 << e) != 0 { 1 } else { 0 },
         _ => if locked { 2 } else { 0 },
@@ -307,7 +319,10 @@ pub fn recipe_state(p: &Player, r: &Recipe) -> u8 {
 
 impl Game {
     pub fn craft(&mut self, ri: usize) {
-        let r = &RECIPES[ri];
+        self.craft_from(&RECIPES, ri);
+    }
+    pub fn craft_from(&mut self, list: &'static [Recipe], ri: usize) {
+        let r = &list[ri];
         if recipe_state(&self.p, r) != 0 || !can_pay(&self.p, r.cost) {
             return;
         }
@@ -321,6 +336,10 @@ impl Game {
             }
             Eff::Pick => self.p.pick = true,
             Eff::Rod => self.p.rod = true,
+            Eff::Can => {
+                self.p.can = true;
+                self.p.water = WATER_MAX;
+            }
             Eff::Fire => self.p.inv[FIRE] += 1,
             Eff::Heart => {
                 self.p.maxhp += 4;

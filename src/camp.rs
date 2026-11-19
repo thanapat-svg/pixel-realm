@@ -14,12 +14,14 @@ pub struct Offer {
     /// พิมพ์เขียวซื้อได้ครั้งเดียว
     pub once: bool,
 }
-pub const OFFERS: [Offer; 6] = [
+pub const OFFERS: [Offer; 8] = [
     Offer { name: "ยาฟื้นฟู", desc: "ฟื้นเลือด 8 หน่วย", item: POTION, qty: 1, price: 10, once: false },
     Offer { name: "ยาฟื้นฟู x3", desc: "ฟื้นเลือด 8 หน่วย (ถูกกว่า)", item: POTION, qty: 3, price: 27, once: false },
     Offer { name: "ลูกธนู x10", desc: "กระสุนสำหรับธนู", item: ARROW, qty: 10, price: 8, once: false },
     Offer { name: "ลูกธนู x30", desc: "กระสุนสำหรับธนู (คุ้มกว่า)", item: ARROW, qty: 30, price: 22, once: false },
     Offer { name: "พิมพ์เขียวเกราะหายาก", desc: "ปลดล็อกเกราะระดับสูงสุด (ใช้คู่กับของบอส)", item: BP_ARM, qty: 1, price: 70, once: true },
+    Offer { name: "เมล็ดข้าวโพด x3", desc: "ปลูกบนดินไถ รดน้ำ ~1 นาทีเก็บเกี่ยว", item: SEED_CORN, qty: 3, price: 6, once: false },
+    Offer { name: "เมล็ดแครอท x3", desc: "ปลูกบนดินไถ โตเร็วกว่าข้าวโพด", item: SEED_CARROT, qty: 3, price: 6, once: false },
     Offer { name: "พิมพ์เขียวอาวุธหายาก", desc: "ปลดล็อกอาวุธระดับสูงสุด (ใช้คู่กับของบอส)", item: BP_WPN, qty: 1, price: 90, once: true },
 ];
 pub const GREETS: [&str; 4] = [

@@ -9,7 +9,7 @@ pub struct Piece {
     pub icon: usize,
     pub cost: &'static [(usize, i32)],
 }
-pub const PIECES: [Piece; 7] = [
+pub const PIECES: [Piece; 10] = [
     Piece { name: "กำแพงไม้", desc: "กั้นทางได้ ตีพังได้ (ได้ไม้คืน)", obj: 10, icon: IC_WWALL, cost: &[(WOOD, 2)] },
     Piece { name: "กำแพงหิน", desc: "แข็งแรงกว่ากำแพงไม้", obj: 11, icon: IC_SWALL, cost: &[(STONE, 3)] },
     Piece { name: "ประตู", desc: "กด Q หรือปุ่ม \"ใช้\" เพื่อเปิด-ปิด", obj: 12, icon: IC_DOOR, cost: &[(WOOD, 4)] },
@@ -17,6 +17,9 @@ pub const PIECES: [Piece; 7] = [
     Piece { name: "ทั่งตีบวก", desc: "ตีบวกอาวุธ/เกราะ +1..+5 ด้วยแร่และชิ้นส่วนบอส", obj: 17, icon: IC_ANVIL, cost: &[(STONE, 12), (WOOD, 4)] },
     Piece { name: "คบเพลิง", desc: "ให้แสงสว่างรอบฐานตอนกลางคืน", obj: 18, icon: IC_TORCH, cost: &[(WOOD, 1), (STONE, 1)] },
     Piece { name: "หม้อทำอาหาร", desc: "ทำอาหาร/ปรุงยา จากเนื้อ เห็ด สมุนไพร (ได้บัฟชั่วคราว)", obj: 26, icon: IC_POT, cost: &[(STONE, 6), (WOOD, 4)] },
+    Piece { name: "ไถดิน", desc: "แปลงทุ่งหญ้าเป็นดินปลูก (ไม่เสียของ · วางซ้ำ = คืนหญ้า)", obj: OBJ_TILL, icon: IC_HOE, cost: &[] },
+    Piece { name: "เตียงนอน", desc: "นอนตอนกลางคืนเพื่อข้ามไปเช้า · ฟื้นเลือดเต็ม · เป็นจุดเกิด", obj: 33, icon: IC_BED, cost: &[(WOOD, 12), (STONE, 2)] },
+    Piece { name: "โต๊ะคราฟต์ขั้นสูง", desc: "สร้างอาวุธ/เกราะขั้น 2 (ต้องมีของขั้น 1 ก่อน)", obj: 34, icon: IC_ATABLE, cost: &[(STONE, 20), (WOOD, 10), (GEM, 4)] },
 ];
 
 /// สิ่งที่ Game ขอให้ UI เปิด
@@ -26,13 +29,13 @@ pub enum Req {
     Shop,
     Forge,
     Cook,
+    Adv,
 }
 
 impl Game {
-    /// ไทล์ที่จะวางสิ่งปลูกสร้าง (หน้าตัวผู้เล่น)
-    pub fn build_target(&self) -> (i32, i32) {
-        let (dx, dy) = self.p.facing();
-        (tfloor(self.p.x + dx * 14.), tfloor(self.p.y - 3. + dy * 14.))
+    pub fn can_till(&self, tx: i32, ty: i32) -> bool {
+        let (t, o) = (self.w.tile_at(tx, ty), self.w.obj_at(tx, ty));
+        ((t == T_SOIL || t == T_WET) && (o == 0 || (27..=32).contains(&o))) || ((t == 3 || t == 4) && (o == 0 || o == 3))
     }
     pub fn player_in_tile(&self, tx: i32, ty: i32) -> bool {
         let p = &self.p;
@@ -52,6 +55,13 @@ impl Game {
             return;
         };
         let pc = &PIECES[sel];
+        if pc.obj == OBJ_TILL {
+            let k = self.build_target();
+            if self.till_at(k) {
+                self.save();
+            }
+            return;
+        }
         if !can_pay(&self.p, pc.cost) {
             self.toast("วัสดุไม่พอ");
             return;
@@ -81,7 +91,7 @@ impl Game {
         for ty in pty - 2..=pty + 2 {
             for tx in ptx - 2..=ptx + 2 {
                 let o = self.w.obj_at(tx, ty);
-                if !matches!(o, 12 | 13 | 14 | 15 | 17 | 19 | 20 | 24 | 25 | 26) {
+                if !matches!(o, 12 | 13 | 14 | 15 | 17 | 19 | 20 | 24 | 25 | 26 | 33 | 34 | 36) {
                     continue;
                 }
                 let d = (tx as f32 * 16. + 8. - self.p.x).hypot(ty as f32 * 16. + 8. - (self.p.y - 3.));
@@ -95,6 +105,9 @@ impl Game {
     pub fn interact(&mut self) {
         if self.fish.is_some() {
             self.fish_press();
+            return;
+        }
+        if self.try_farm() {
             return;
         }
         let Some((k, o)) = self.interact_target() else {
@@ -136,7 +149,12 @@ impl Game {
                 play(&self.sfx.click);
                 self.req = Some(Req::Cook);
             }
-            19 => self.enter_dungeon(k),
+            33 => self.sleep(k),
+            34 => {
+                play(&self.sfx.click);
+                self.req = Some(Req::Adv);
+            }
+            19 | 36 => self.enter_dungeon(k),
             20 => self.exit_dungeon(),
             24 => self.open_rare_chest(k),
             _ => {
@@ -173,6 +191,9 @@ pub fn interact_hint(o: u8, touch: bool) -> String {
         25 => format!("{}: เปิดแผนที่วาร์ป", key),
         26 => format!("{}: ทำอาหาร / ปรุงยา", key),
         19 => format!("{}: เข้าดันเจี้ยนลับ (อันตราย!)", key),
+        36 => format!("{}: เข้าถ้ำใต้ดิน (มืด · มีแร่ · มอนสเตอร์ดุ!)", key),
+        33 => format!("{}: นอน (ข้ามไปเช้า)", key),
+        34 => format!("{}: ใช้โต๊ะคราฟต์ขั้นสูง", key),
         20 => format!("{}: ออกจากดันเจี้ยน", key),
         24 => format!("{}: เปิดหีบหายาก", key),
         _ => format!("{}: คุยกับพ่อค้า", key),

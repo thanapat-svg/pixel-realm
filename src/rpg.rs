@@ -618,15 +618,22 @@ impl Game {
 // ======================= สภาพอากาศ (ฝน) =======================
 impl Game {
     pub fn upd_weather(&mut self, dt: f32) {
+        // ชนิดอากาศตามไบโอมที่ยืนอยู่: หิมะ = ดินแดนหิมะ · ทะเลทราย = ไม่มีฝน · ที่เหลือ = ฝน
+        let bt = self.w.tile_at(tfloor(self.p.x), tfloor(self.p.y));
+        self.weather_kind = if self.w.dun.is_some() { 0 } else { match bt { 7 => 2, 8 => 0, _ => 1 } };
         self.rain_t -= dt;
         if self.rain_t <= 0. {
             self.rain_on = !self.rain_on;
             self.rain_t = if self.rain_on { gen_range(45., 100.) } else { gen_range(110., 260.) };
             if self.rain_on && self.w.dun.is_none() {
-                self.toast("ฝนเริ่มตกแล้ว");
+                match self.weather_kind {
+                    1 => self.toast("ฝนเริ่มตกแล้ว"),
+                    2 => self.toast("หิมะตก — เดินช้าลง"),
+                    _ => {}
+                }
             }
         }
-        let target = if self.rain_on && self.w.dun.is_none() { 1. } else { 0. };
+        let target = if self.rain_on && self.weather_kind != 0 { 1. } else { 0. };
         self.rain += (target - self.rain).clamp(-0.4 * dt, 0.3 * dt);
         if self.thunder > 0. {
             self.thunder -= dt;
@@ -634,6 +641,37 @@ impl Game {
             self.thunder = 0.25;
             self.shake(0.8, 0.2);
         }
+    }
+}
+
+impl Game {
+    /// ตัวคูณความเร็วเดินจากสภาพอากาศ: หิมะช้าลงได้ถึง 18% · ฝน 5%
+    pub fn weather_mul(&self) -> f32 {
+        match self.weather_kind {
+            2 => 1. - 0.18 * self.rain.min(1.),
+            1 => 1. - 0.05 * self.rain.min(1.),
+            _ => 1.,
+        }
+    }
+}
+
+pub fn draw_weather(g: &Game, v: &View, t_now: f32) {
+    if g.weather_kind == 2 { draw_snow(g, v, t_now); } else { draw_rain(g, v, t_now); }
+}
+/// หิมะ: เกล็ดลอยลงช้าๆ แกว่งซ้ายขวา
+pub fn draw_snow(g: &Game, v: &View, t_now: f32) {
+    if g.rain < 0.02 {
+        return;
+    }
+    let n = (150. * g.rain) as i32;
+    let col = Color::new(1., 1., 1., 0.8 * g.rain.min(1.));
+    for i in 0..n {
+        let f = i as f32;
+        let bx = ((f * 12.9898).sin() * 43758.5).rem_euclid(1.) * (v.vw + 20.);
+        let x = bx + (t_now * 0.9 + f).sin() * 5. - 6.;
+        let y = (f * 91.3 + t_now * (28. + (i % 4) as f32 * 9.)).rem_euclid(v.vh + 12.) - 6.;
+        let sz = if i % 3 == 0 { 2. } else { 1. };
+        draw_rectangle(x * v.s, y * v.s, sz * v.s, sz * v.s, col);
     }
 }
 
