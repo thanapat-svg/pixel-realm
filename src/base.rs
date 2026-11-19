@@ -9,7 +9,7 @@ pub struct Piece {
     pub icon: usize,
     pub cost: &'static [(usize, i32)],
 }
-pub const PIECES: [Piece; 10] = [
+pub const PIECES: [Piece; 12] = [
     Piece { name: "กำแพงไม้", desc: "กั้นทางได้ ตีพังได้ (ได้ไม้คืน)", obj: 10, icon: IC_WWALL, cost: &[(WOOD, 2)] },
     Piece { name: "กำแพงหิน", desc: "แข็งแรงกว่ากำแพงไม้", obj: 11, icon: IC_SWALL, cost: &[(STONE, 3)] },
     Piece { name: "ประตู", desc: "กด Q หรือปุ่ม \"ใช้\" เพื่อเปิด-ปิด", obj: 12, icon: IC_DOOR, cost: &[(WOOD, 4)] },
@@ -20,6 +20,8 @@ pub const PIECES: [Piece; 10] = [
     Piece { name: "ไถดิน", desc: "แปลงทุ่งหญ้าเป็นดินปลูก (ไม่เสียของ · วางซ้ำ = คืนหญ้า)", obj: OBJ_TILL, icon: IC_HOE, cost: &[] },
     Piece { name: "เตียงนอน", desc: "นอนตอนกลางคืนเพื่อข้ามไปเช้า · ฟื้นเลือดเต็ม · เป็นจุดเกิด", obj: 33, icon: IC_BED, cost: &[(WOOD, 12), (STONE, 2)] },
     Piece { name: "โต๊ะคราฟต์ขั้นสูง", desc: "สร้างอาวุธ/เกราะขั้น 2 (ต้องมีของขั้น 1 ก่อน)", obj: 34, icon: IC_ATABLE, cost: &[(STONE, 20), (WOOD, 10), (GEM, 4)] },
+    Piece { name: "ปราสาท", desc: "ศูนย์กลางอาณาจักร (ต้องมี + กำแพงเมือง 12 ชิ้น + ชาวบ้าน >10 = เก็บภาษีได้)", obj: 37, icon: IC_ATABLE, cost: &[(STONE, 80), (WOOD, 40), (GEM, 10)] },
+    Piece { name: "กำแพงเมือง", desc: "กำแพงหินสูง ทนทานกว่ากำแพงหิน (นับรวมเป็นกำแพงเมือง)", obj: 38, icon: IC_SWALL, cost: &[(STONE, 8)] },
 ];
 
 /// สิ่งที่ Game ขอให้ UI เปิด
@@ -30,6 +32,7 @@ pub enum Req {
     Forge,
     Cook,
     Adv,
+    Npc(u32),
 }
 
 impl Game {
@@ -106,6 +109,9 @@ impl Game {
     pub fn interact(&mut self) {
         if self.fish.is_some() {
             self.fish_press();
+            return;
+        }
+        if self.npc_interact() {
             return;
         }
         if self.try_farm() {

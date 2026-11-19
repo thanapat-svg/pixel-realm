@@ -73,6 +73,8 @@ impl Game {
     /// ข้อความสั้นบนปุ่ม "ใช้" ตามสิ่งที่อยู่ตรงหน้า (None = ไม่มีอะไรให้ใช้)
     pub fn use_label(&self) -> Option<String> {
         if let Some(f) = &self.fish { return Some(if f.bite_t > 0. { "ดึง!" } else { "รอ..." }.to_string()); }
+        if self.lost_near().is_some() { return Some("ช่วย".to_string()); }
+        if self.npc_near().is_some() { return Some("คุย".to_string()); }
         if let Some((_, o)) = self.interact_target() {
             return Some(match o {
                 12 => "เปิด", 13 => "ปิด", 14 => "กล่อง", 17 => "ตีบวก", 25 => "วาร์ป", 26 => "ทำอาหาร",

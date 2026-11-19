@@ -20,6 +20,7 @@ mod camp;
 mod combat;
 mod dungeon;
 mod menu;
+mod npc;
 mod prefs;
 mod rpg;
 mod skin;
@@ -33,6 +34,7 @@ use camp::*;
 use combat::*;
 use dungeon::*;
 use menu::*;
+use npc::*;
 use rpg::*;
 use skin::*;
 
@@ -49,8 +51,8 @@ const SOLIDT: [bool; 15] = [true, true, false, false, false, false, true, false,
 // objects: 1 tree,2 bush,3 flower,4 rock,5 ore,6 chest,7 cactus,8 pine,9 campfire,
 //   10 กำแพงไม้,11 กำแพงหิน,12 ประตูปิด,13 ประตูเปิด,14 กล่องเก็บของ,15 พ่อค้า,16 เต็นท์
 //   17 โต๊ะตีเหล็ก,18 คบเพลิง,19 ทางเข้าดันเจี้ยน,20 ทางออกดันเจี้ยน,21 หนามหุบ,22 หนามโผล่,23 ป้อมลูกไฟ,24 หีบสมบัติหายาก
-const OSOLID: [bool; 40] = [false, true, true, false, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, false, false, false, false, true, true, true, true, false, false, false, false, false, false, true, true, false, false, false, false, false];
-const OHP: [i32; 40] = [0, 3, 1, 0, 3, 4, 1, 2, 3, 2, 5, 8, 4, 4, 5, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 1, 1, 1, 1, 4, 8, 0, 0, 0, 0, 0];
+const OSOLID: [bool; 40] = [false, true, true, false, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, false, false, false, false, true, true, true, true, false, false, false, false, false, false, true, true, false, false, true, true, false];
+const OHP: [i32; 40] = [0, 3, 1, 0, 3, 4, 1, 2, 3, 2, 5, 8, 4, 4, 5, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 1, 1, 1, 1, 4, 8, 0, 0, 20, 8, 0];
 
 const WOOD: usize = 0;
 const STONE: usize = 1;
@@ -495,6 +497,15 @@ struct Game {
     cshake: (f32, f32),
     bgm_on: bool,
     to_title: bool,
+    npcs: Vec<Npc>,
+    npc_next: u32,
+    npc_seen: HashSet<(i32, i32)>,
+    lost_told: HashSet<(i32, i32)>,
+    lost_hint_t: f32,
+    last_day: i32,
+    tax_pool: i32,
+    wed_day: i32,
+    last_child: i32,
     tut: u8,
     tut_ev0: [u32; EV_N],
     ev: [u32; EV_N],
@@ -553,7 +564,7 @@ impl Game {
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
-            rain: 0., rain_on: false, rain_t: 90., thunder: 0., cshake: (0., 0.), bgm_on: true, to_title: false, tut: TUT_DONE, tut_ev0: [0; EV_N], ev: [0; EV_N], tut_flash: 0., hitstop: 0., sfx_on: true,
+            rain: 0., rain_on: false, rain_t: 90., thunder: 0., cshake: (0., 0.), bgm_on: true, to_title: false, npcs: vec![], npc_next: 1, npc_seen: HashSet::new(), lost_told: HashSet::new(), lost_hint_t: 1., last_day: -1, tax_pool: 0, wed_day: 0, last_child: -99, tut: TUT_DONE, tut_ev0: [0; EV_N], ev: [0; EV_N], tut_flash: 0., hitstop: 0., sfx_on: true,
             auto_aim: true, pick_cd: 0.,
             crops: HashMap::new(), crop_t: 0., bed: None, seed_sel: 0, sleep_fx: 0., build_cur: None, cur_pos: (0., 0.), weather_kind: 1,
         }
@@ -591,6 +602,7 @@ impl Game {
         s += &format!("elem {} {}\nrod {}\n", p.elem, p.elems, p.rod as i32);
         s += &format!("farm {} {} {}\n", p.can as i32, p.water, self.seed_sel);
         s += &format!("tut {}\n", self.tut);
+        s += &self.npc_save_str();
         if let Some(b) = self.bed { s += &format!("bed {} {}\n", b.0, b.1); }
         s += "crops";
         for ((x, y), c) in &self.crops { s += &format!(" {},{},{},{:.1},{:.1}", x, y, c.kind, c.grown, c.wet); }
@@ -675,6 +687,7 @@ impl Game {
                 }
                 "rod" => g.p.rod = f(0) > 0.,
                 "tut" => g.tut = f(0) as u8,
+                "town" | "npc" | "npcseen" => g.npc_load_line(tag, &rest),
                 "farm" => { g.p.can = f(0) > 0.; g.p.water = (f(1) as i32).clamp(0, WATER_MAX); g.seed_sel = (f(2) as u8).min(1); }
                 "bed" => g.bed = Some((f(0) as i32, f(1) as i32)),
                 "crops" => for v in &rest {
@@ -868,6 +881,8 @@ impl Game {
             26 => self.gain(STONE, 3, x, y),
             33 => self.gain(WOOD, 6, x, y),
             34 => { self.gain(STONE, 8, x, y); self.gain(GEM, 1, x, y - 8.); }
+            37 => { self.gain(STONE, 25, x, y); self.gain(WOOD, 10, x, y - 8.); }
+            38 => self.gain(STONE, 3, x, y),
             18 => self.gain(WOOD, 1, x, y),
             10 => self.gain(WOOD, 1, x, y),
             11 => self.gain(STONE, 2, x, y),
@@ -1112,6 +1127,7 @@ impl Game {
         if self.build_cur.is_some() && (self.p.x - self.cur_pos.0).hypot(self.p.y - self.cur_pos.1) > 20. { self.build_cur = None; }
         if self.sleep_fx > 0. { self.sleep_fx -= dt; }
         self.tut_update(dt);
+        self.npc_tick(dt);
         let wmul = self.weather_mul();
         // movement
         let mut mv = inp.mv;
@@ -1225,7 +1241,7 @@ fn make_view(cam_x: f32, cam_y: f32) -> View {
     View { s, vw, vh, cx: (cam_x - vw / 2.).round(), cy: (cam_y - vh / 2. - 6.).round() }
 }
 
-enum Draw { Obj(u8, i32, i32), Enemy(usize), Boss(usize), Player, Loot(usize), Comp }
+enum Draw { Obj(u8, i32, i32), Enemy(usize), Boss(usize), Player, Loot(usize), Comp, Npc(usize), Lost(f32, f32, u8) }
 
 fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     let w = &g.w;
@@ -1298,6 +1314,24 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         lights.push((sx, sy - 4., 10., false));
     }
     if let Some(c) = &g.comp { list.push((c.y, Draw::Comp)); }
+    for (i, n) in g.npcs.iter().enumerate() {
+        let (sx, sy) = (n.x - v.cx, n.y - v.cy);
+        if sx < -12. || sx > v.vw + 12. || sy < -20. || sy > v.vh + 12. { continue; }
+        list.push((n.y, Draw::Npc(i)));
+    }
+    if g.w.dun.is_none() {
+        let (pcx, pcy) = (tfloor(v.cx + v.vw / 2.).div_euclid(CELL), tfloor(v.cy + v.vh / 2.).div_euclid(CELL));
+        for cy in pcy - 1..=pcy + 1 {
+            for cx in pcx - 1..=pcx + 1 {
+                if g.npc_seen.contains(&(cx, cy)) { continue; }
+                if let Some((x, y, _, look)) = g.w.lost_in_cell(cx, cy) {
+                    let (sx, sy) = (x - v.cx, y - v.cy);
+                    if sx < -12. || sx > v.vw + 12. || sy < -30. || sy > v.vh + 12. { continue; }
+                    list.push((y, Draw::Lost(x, y, look)));
+                }
+            }
+        }
+    }
     for (i, b) in g.bosses.iter().enumerate() {
         let (sx, sy) = (b.x - v.cx, b.y - v.cy);
         if sx < -40. || sx > v.vw + 40. || sy < -50. || sy > v.vh + 50. { continue; }
@@ -1366,6 +1400,8 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
             Draw::Boss(i) => draw_boss(g, sp, v, i),
             Draw::Loot(i) => draw_loot(g, sp, v, i, t_now),
             Draw::Comp => draw_comp(g, sp, v),
+            Draw::Npc(i) => draw_npc(g, sp, v, i, t_now),
+            Draw::Lost(x, y, look) => draw_lost(g, sp, v, x, y, look, t_now),
             Draw::Player => {
                 let p = &g.p;
                 let (sx, sy) = ((p.x - v.cx).round(), (p.y - v.cy).round());
@@ -1650,7 +1686,11 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
         draw_rectangle(sw / 2. - d.width / 2. - 12. * u, sh - 74. * u, d.width + 24. * u, 28. * u, Color::new(0., 0., 0., 0.65));
         text_c(font, s, sw / 2., sh - 54. * u, 15. * u, hx(0xbfe8ff));
     }
-    if let Some((_, o)) = g.interact_target() {
+    if let Some(s) = g.npc_hint(touch) {
+        let d = measure_text(&s, Some(font), (15. * u) as u16, 1.);
+        draw_rectangle(sw / 2. - d.width / 2. - 12. * u, sh - 74. * u, d.width + 24. * u, 28. * u, Color::new(0., 0., 0., 0.65));
+        text_c(font, &s, sw / 2., sh - 54. * u, 15. * u, hx(0xffd0e0));
+    } else if let Some((_, o)) = g.interact_target() {
         let s = interact_hint(o, touch);
         let d = measure_text(&s, Some(font), (15. * u) as u16, 1.);
         draw_rectangle(sw / 2. - d.width / 2. - 12. * u, sh - 74. * u, d.width + 24. * u, 28. * u, Color::new(0., 0., 0., 0.65));
@@ -1946,6 +1986,40 @@ fn debug_keys(g: &mut Game) {
             }
         }
     }
+    if is_key_pressed(KeyCode::Home) {
+        // วาร์ปไปหาคนหลงทางที่ใกล้ที่สุด (ที่ยังไม่ได้ช่วย)
+        let (pcx, pcy) = (tfloor(g.p.x).div_euclid(CELL), tfloor(g.p.y).div_euclid(CELL));
+        'h: for r in 0..14i32 {
+            for cy in -r..=r { for cx in -r..=r {
+                if cx.abs().max(cy.abs()) != r || g.npc_seen.contains(&(pcx + cx, pcy + cy)) { continue; }
+                if let Some((x, y, _, _)) = g.w.lost_in_cell(pcx + cx, pcy + cy) {
+                    g.p.x = x + 10.; g.p.y = y;
+                    g.toast("[debug] วาร์ปไปหาคนหลงทาง");
+                    break 'h;
+                }
+            } }
+        }
+    }
+    if is_key_pressed(KeyCode::End) {
+        // สร้างหมู่บ้านทดสอบรอบตัวผู้เล่น: เตียง 5 + หีบอาหาร + ชาวบ้าน 4 คน (เพื่อดูภาพ/ระบบ)
+        let (tx, ty) = (tfloor(g.p.x), tfloor(g.p.y));
+        let mut n = 0;
+        for k in 0..5 {
+            let b = (tx + 3 + k * 2, ty - 3);
+            if g.w.solid_at(b.0, b.1) || g.w.obj_at(b.0, b.1) != 0 { continue; }
+            g.w.placed.insert(b, 33);
+            if n < 4 {
+                let id = g.npc_next; g.npc_next += 1;
+                g.npcs.push(npc::Npc { id, name: (id % 12) as u8, look: (id % npc::LOOKS as u32) as u8, x: b.0 as f32 * 16. + 8., y: b.1 as f32 * 16. + 18., state: npc::ST_HOME, hearts: 3, mood: 70, married: false, child: false, role: 0, bed: b, anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false });
+                n += 1;
+            }
+        }
+        let mut c = [0; NI]; c[CORN] = 20; c[CARROT] = 20;
+        g.chests.insert((tx + 4, ty - 1), c);
+        g.p.inv[COIN] += 200; g.p.inv[GEM] += 10;
+        g.assign_roles_pub();
+        g.toast(format!("[debug] หมู่บ้านทดสอบ: {} คน", n));
+    }
     if is_key_pressed(KeyCode::F3) { let (x, y) = (g.p.x + 90., g.p.y); g.spawn_boss(0, x, y); }
     if is_key_pressed(KeyCode::F4) { let (x, y) = (g.p.x + 90., g.p.y); g.spawn_boss(1, x, y); }
     if is_key_pressed(KeyCode::F5) { g.time = DAYLEN * 0.7; }
@@ -2208,6 +2282,7 @@ async fn main() {
                             Req::Forge => { ui.forge = true; ui.open(5); }
                             Req::Cook => { ui.cook = true; ui.open(8); }
                             Req::Adv => { ui.adv = true; ui.open(9); }
+                            Req::Npc(id) => { ui.npc = Some(id); ui.open(10); }
                         }
                         state = State::Menu;
                     } else if let Some(t) = inp.menu {
@@ -3220,5 +3295,226 @@ mod skin_tests {
         let txt = g.save_string();
         let l = Game::load_str(&txt, Sfx::default()).ok().unwrap();
         assert_eq!((l.p.outfit, l.p.outfits), (1, 1));
+    }
+}
+
+#[cfg(test)]
+mod npc_tests {
+    use super::*;
+
+    fn mk(id: u32, state: u8, bed: (i32, i32)) -> npc::Npc {
+        npc::Npc { id, name: (id % 12) as u8, look: 0, x: bed.0 as f32 * 16. + 8., y: bed.1 as f32 * 16. + 18., state, hearts: 2, mood: 60, married: false, child: false, role: 0, bed, anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false }
+    }
+    fn home(g: &mut Game, n: i32) {
+        for k in 0..n {
+            let b = (500 + k * 2, 500);
+            g.w.placed.insert(b, 33);
+            g.npcs.push(mk(k as u32 + 1, npc::ST_HOME, b));
+        }
+        g.npc_next = n as u32 + 1;
+    }
+    fn chest_with_food(g: &mut Game, near: (i32, i32), n: i32) {
+        let mut c = [0; NI];
+        c[CORN] = n;
+        g.chests.insert((near.0 + 1, near.1), c);
+    }
+    /// หาเซลล์ที่มีคนหลงทางใกล้จุดเกิด
+    fn find_lost(g: &Game) -> (i32, i32, f32, f32) {
+        for cy in -12..=12 { for cx in -12..=12 {
+            if let Some((x, y, _, _)) = g.w.lost_in_cell(cx, cy) { return (cx, cy, x, y); }
+        } }
+        panic!("ไม่มีคนหลงทางเลยในรัศมี 12 เซลล์");
+    }
+
+    #[test]
+    fn lost_npc_is_deterministic_and_on_walkable_ground() {
+        let g = Game::new_world_seed(4242, Sfx::default());
+        let (cx, cy, x, y) = find_lost(&g);
+        assert_eq!(g.w.lost_in_cell(cx, cy).map(|t| (t.0, t.1)), Some((x, y)));
+        assert!(!g.w.solid_at(tfloor(x), tfloor(y - 4.)));
+        let g2 = Game::new_world_seed(4242, Sfx::default());
+        assert_eq!(g2.w.lost_in_cell(cx, cy).map(|t| (t.0, t.1)), Some((x, y)));
+    }
+
+    #[test]
+    fn rescue_follow_then_invite_needs_free_bed() {
+        let mut g = Game::new_world_seed(4242, Sfx::default());
+        let (cx, cy, x, y) = find_lost(&g);
+        g.p.x = x; g.p.y = y;
+        assert_eq!(g.lost_near(), Some((cx, cy)));
+        assert!(g.npc_interact());
+        assert_eq!(g.npcs.len(), 1);
+        assert_eq!(g.npcs[0].state, npc::ST_FOLLOW);
+        assert!(g.npc_seen.contains(&(cx, cy)));
+        assert!(g.lost_near().is_none(), "ช่วยแล้วต้องไม่โผล่ซ้ำ");
+        let id = g.npcs[0].id;
+        // ไม่มีเตียง → ยังไม่ย้ายเข้า
+        g.npc_invite(id);
+        assert_eq!(g.npcs[0].state, npc::ST_FOLLOW);
+        assert_eq!(g.pop(), 0);
+        // มีเตียง → ย้ายเข้า กลายเป็นค่าย
+        g.w.placed.insert((int_near(x), int_near(y)), 33);
+        g.npc_invite(id);
+        assert_eq!(g.npcs[0].state, npc::ST_HOME);
+        assert_eq!(g.pop(), 1);
+        assert_eq!(g.tier(), 1);
+        // เตียงเดียวใช้ได้คนเดียว
+        assert!(g.free_beds().is_empty());
+    }
+    fn int_near(v: f32) -> i32 { tfloor(v) + 2 }
+
+    #[test]
+    fn tier_thresholds_and_kingdom_needs_castle_and_walls() {
+        let mut g = Game::new_world_seed(1, Sfx::default());
+        assert_eq!(g.tier(), 0);
+        home(&mut g, 3);
+        assert_eq!(g.tier(), 1);
+        g.w.placed.insert((520, 520), 33);
+        g.npcs.push(mk(4, npc::ST_HOME, (520, 520)));
+        assert_eq!(g.tier(), 2, "4 คน = หมู่บ้าน");
+        for k in 5..=11 {
+            let b = (530 + k, 520);
+            g.w.placed.insert(b, 33);
+            g.npcs.push(mk(k as u32, npc::ST_HOME, b));
+        }
+        assert_eq!(g.pop(), 11);
+        assert_eq!(g.tier(), 2, ">10 คนแต่ยังไม่มีปราสาท/กำแพง");
+        g.w.placed.insert((600, 600), 37);
+        assert_eq!(g.tier(), 2, "มีปราสาทแต่ยังไม่มีกำแพง");
+        for k in 0..12 { g.w.placed.insert((610 + k, 600), 38); }
+        assert_eq!(g.tier(), 3);
+        // คนที่ตามอยู่ (ยังไม่ย้ายเข้า) ไม่นับเป็นประชากร
+        g.npcs.push(mk(99, npc::ST_FOLLOW, (0, 0)));
+        assert_eq!(g.pop(), 11);
+    }
+
+    #[test]
+    fn dawn_mood_depends_on_bed_and_food() {
+        let mut g = Game::new_world_seed(1, Sfx::default());
+        home(&mut g, 1);
+        let bed = g.npcs[0].bed;
+        chest_with_food(&mut g, bed, 5);
+        g.npcs[0].mood = 60;
+        g.npc_dawn();
+        assert_eq!(g.npcs[0].mood, 68, "มีเตียง(+3) + อิ่ม(+5)");
+        assert_eq!(g.chests[&(bed.0 + 1, bed.1)][CORN], 4, "กินอาหารจากหีบ 1 ชิ้น");
+        // อาหารหมด → ความสุขลด
+        g.chests.clear();
+        g.npcs[0].mood = 60;
+        g.npc_dawn();
+        assert_eq!(g.npcs[0].mood, 43, "เตียง +3, หิว -20");
+        // เตียงหาย + หิว → ลดหนัก
+        g.w.placed.remove(&bed);
+        g.npcs[0].mood = 60;
+        g.npc_dawn();
+        assert_eq!(g.npcs[0].mood, 15, "ไม่มีเตียง -25, หิว -20");
+    }
+
+    #[test]
+    fn unhappy_resident_leaves_at_zero_mood() {
+        let mut g = Game::new_world_seed(1, Sfx::default());
+        home(&mut g, 2);
+        // อาหารมี 1 ชิ้นพอแค่คนเดียว: id=2 อยู่หน้าลิสต์จึงได้กินก่อน, id=1 หิว (10+3-20 → 0) → ย้ายออก
+        g.npcs.swap(0, 1);
+        g.npcs[0].mood = 100; // id=2
+        g.npcs[1].mood = 10;  // id=1
+        let bed = g.npcs[0].bed;
+        chest_with_food(&mut g, bed, 1);
+        g.npc_dawn();
+        let ids: Vec<u32> = g.npcs.iter().map(|n| n.id).collect();
+        assert_eq!(ids, vec![2], "id=1 ความสุขหมดต้องย้ายออก เหลือ id=2");
+        assert_eq!(g.pop(), 1);
+    }
+
+    #[test]
+    fn marriage_requirements_and_single_spouse() {
+        let mut g = Game::new_world_seed(1, Sfx::default());
+        home(&mut g, 2);
+        g.p.inv[COIN] = 500; g.p.inv[GEM] = 20;
+        g.npcs[0].hearts = 7;
+        g.npc_marry(1);
+        assert!(!g.npcs[0].married, "ความสนิทไม่ถึง 8");
+        g.npcs[0].hearts = 8; g.npcs[0].mood = 40;
+        g.npc_marry(1);
+        assert!(!g.npcs[0].married, "ความสุขต่ำ");
+        g.npcs[0].mood = 80;
+        g.p.inv[COIN] = 50;
+        g.npc_marry(1);
+        assert!(!g.npcs[0].married, "เหรียญไม่พอ");
+        g.p.inv[COIN] = 500;
+        g.npc_marry(1);
+        assert!(g.npcs[0].married);
+        assert_eq!((g.p.inv[COIN], g.p.inv[GEM]), (500 - npc::MARRY_COIN, 20 - npc::MARRY_GEM));
+        g.npcs[1].hearts = 10; g.npcs[1].mood = 90;
+        g.npc_marry(2);
+        assert!(!g.npcs[1].married, "แต่งได้คนเดียว");
+    }
+
+    #[test]
+    fn child_born_after_wedding_when_bed_free() {
+        let mut g = Game::new_world_seed(1, Sfx::default());
+        home(&mut g, 1);
+        g.w.placed.insert((700, 700), 33); // เตียงว่างสำหรับลูก
+        g.npcs[0].married = true;
+        g.wed_day = 0;
+        g.time = DAYLEN * 5.5; // วันที่ 5
+        g.npc_dawn();
+        assert_eq!(g.npcs.iter().filter(|n| n.child).count(), 1);
+        assert_eq!(g.last_child, 5);
+        g.npc_dawn(); // วันเดิม → ห้ามมีลูกซ้ำ
+        assert_eq!(g.npcs.iter().filter(|n| n.child).count(), 1);
+    }
+
+    #[test]
+    fn tax_only_in_kingdom_and_collectable() {
+        let mut g = Game::new_world_seed(1, Sfx::default());
+        home(&mut g, 11);
+        for n in g.npcs.iter_mut() { n.mood = 90; }
+        g.npc_dawn();
+        assert_eq!(g.tax_pool, 0, "ยังไม่ใช่อาณาจักร");
+        g.w.placed.insert((600, 600), 37);
+        for k in 0..12 { g.w.placed.insert((610 + k, 600), 38); }
+        for n in g.npcs.iter_mut() { n.mood = 90; }
+        for b in g.beds() { chest_with_food(&mut g, b, 1); }
+        g.npc_dawn();
+        assert!(g.tax_pool > 0);
+        let c0 = g.p.inv[COIN];
+        let pool = g.tax_pool;
+        g.collect_tax();
+        assert_eq!(g.p.inv[COIN], c0 + pool);
+        assert_eq!(g.tax_pool, 0);
+    }
+
+    #[test]
+    fn save_roundtrip_keeps_npcs_and_old_seen_line_still_works() {
+        let mut g = Game::new_world_seed(1, Sfx::default());
+        home(&mut g, 2);
+        g.npcs[0].married = true; g.npcs[0].hearts = 9; g.npcs[1].mood = 33;
+        g.npc_seen.insert((3, -4));
+        g.tax_pool = 17; g.wed_day = 2; g.last_child = 3;
+        g.seen.insert(0); // "seen" เดิม (ของ discovery) ต้องไม่ถูกชนกับของ NPC
+        let txt = g.save_string();
+        let l = Game::load_str(&txt, Sfx::default()).ok().unwrap();
+        assert_eq!(l.npcs.len(), 2);
+        assert!(l.npcs[0].married);
+        assert_eq!((l.npcs[0].hearts, l.npcs[1].mood), (9, 33));
+        assert_eq!(l.npcs[0].bed, g.npcs[0].bed);
+        assert!(l.npc_seen.contains(&(3, -4)));
+        assert_eq!((l.tax_pool, l.wed_day, l.last_child), (17, 2, 3));
+        assert!(l.seen.contains(&0));
+        assert_eq!(l.npc_next, g.npc_next);
+    }
+
+    #[test]
+    fn npc_tick_followers_walk_toward_player() {
+        let mut g = Game::new_world_seed(1, Sfx::default());
+        g.p.x = 400.; g.p.y = 400.;
+        let mut f = mk(1, npc::ST_FOLLOW, (0, 0));
+        f.x = 340.; f.y = 400.;
+        g.npcs.push(f);
+        let d0 = (g.npcs[0].x - g.p.x).abs();
+        for _ in 0..60 { g.npc_tick(0.05); }
+        let d1 = (g.npcs[0].x - g.p.x).abs();
+        assert!(d1 < d0, "คนที่ตามต้องเดินเข้าหาผู้เล่น ({} → {})", d0, d1);
     }
 }

@@ -9,6 +9,8 @@ pub struct Skin {
     head: Vec<Rect>,  // [dir*NV + var]
     torso: Vec<Rect>, // [dir*NV + var]
     legs: Vec<Rect>,  // [(dir*3 + frame)*NV + var]
+    /// NPC: [(look*4 + role)*2 + frame] — role 0 ชาวบ้าน 1 ชาวไร่ 2 ทหารยาม 3 พ่อค้า
+    pub npc: Vec<Rect>,
 }
 
 fn shade(c: u32, d: i32) -> u32 {
@@ -66,20 +68,25 @@ fn variant(rows: &[&str], part: usize, var: usize, dir: usize) -> Vec<String> {
     v
 }
 
+fn pal_for(base_pal: &[(char, u32)], ac: u32) -> Vec<(char, u32)> {
+    let mut pal: Vec<(char, u32)> = base_pal.to_vec();
+    pal.extend_from_slice(&[
+        ('A', ac), ('a', shade(ac, 60)), ('d', shade(ac, -70)), ('W', 0xffffff),
+        ('H', 0xe0c060), ('y', 0xb08a30), ('g', 0x4a9a3a), ('G', 0x78c060), ('u', 0x8a5a2a), ('q', 0x6a4a2a), ('Q', 0x3a2818),
+        ('n', 0x2f6b4a), ('N', 0x4f9a6a), ('f', 0xd04040), ('l', 0x7a5a38),
+    ]);
+    pal
+}
+
 pub fn build(at: &mut Atlas, pd: &[&str; 12], pu: &[&str; 12], pr: &[&str; 12], lf: &[[&str; 3]; 3], ls: &[[&str; 3]; 3], base_pal: &[(char, u32)]) -> Skin {
-    let mut sk = Skin { head: vec![], torso: vec![], legs: vec![] };
+    let mut sk = Skin { head: vec![], torso: vec![], legs: vec![], npc: vec![] };
     let bodies = [pd, pu, pr];
     for var in 0..NV {
         // พาเลตต์ของ variant: ระดับเกราะ = ATC[var] (1..4)
         let t = var.clamp(1, 4);
         let ac = ATC[t];
-        let mut pal: Vec<(char, u32)> = base_pal.to_vec();
-        pal.extend_from_slice(&[
-            ('A', ac), ('a', shade(ac, 60)), ('d', shade(ac, -70)), ('W', 0xffffff),
-            ('H', 0xe0c060), ('y', 0xb08a30), ('g', 0x4a9a3a), ('G', 0x78c060), ('u', 0x8a5a2a), ('q', 0x6a4a2a), ('Q', 0x3a2818),
-            ('n', 0x2f6b4a), ('N', 0x4f9a6a), ('f', 0xd04040), ('l', 0x7a5a38),
-        ]);
-        let _ = &mut pal;
+        let pal = pal_for(base_pal, ac);
+        let _ = t;
         // หัว: แถว 0..7 · ตัว: แถว 7..12
         for (dir, body) in bodies.iter().enumerate() {
             let hv = variant(&body[0..7], 0, var, dir);
@@ -97,6 +104,25 @@ pub fn build(at: &mut Atlas, pd: &[&str; 12], pu: &[&str; 12], pr: &[&str; 12], 
                 let idx = (dir * 3 + f) * NV + var;
                 if sk.legs.len() < idx + 1 { sk.legs.resize(idx + 1, Rect::new(0., 0., 1., 1.)); }
                 sk.legs[idx] = at.add(&spr(&lr, &pal));
+            }
+        }
+    }
+    // ---- NPC: หน้าตา 6 แบบ × อาชีพ 4 แบบ × 2 เฟรมเดิน (ด้านหน้า)
+    let roles = [(0usize, 0usize, 0usize), (5, 5, 5), (1, 1, 1), (0, 4, 0)];
+    for look in 0..crate::npc::LOOKS {
+        let (hair, skin, sh, shl) = crate::npc::LOOK_PAL[look];
+        for &(hv, tv, lv) in &roles {
+            let mut bp: Vec<(char, u32)> = base_pal.to_vec();
+            for e in bp.iter_mut() {
+                match e.0 { 'h' => e.1 = hair, 's' => e.1 = skin, 'r' => e.1 = sh, 'R' => e.1 = shl, _ => {} }
+            }
+            let pal = pal_for(&bp, ATC[tv.clamp(1, 4)]);
+            for f in 0..2 {
+                let mut rows: Vec<String> = variant(&pd[0..7], 0, hv, 0);
+                rows.extend(variant(&pd[7..12], 1, tv, 0));
+                rows.extend(variant(&lf[f][..], 2, lv, 0));
+                let rr: Vec<&str> = rows.iter().map(|x| x.as_str()).collect();
+                sk.npc.push(at.add(&spr(&rr, &pal)));
             }
         }
     }
