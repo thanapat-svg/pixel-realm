@@ -391,8 +391,9 @@ fn tab_shop(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
     if visible(y, 70. * u, c) {
         let m = sp.ex.merchant[((get_time() * 2.) as i32 % 2) as usize];
         draw_texture_ex(&sp.tex, c.x + 10. * u, y + 6. * u, WHITE, DrawTextureParams { source: Some(m), dest_size: Some(vec2(m.w * 2.6 * u, m.h * 2.6 * u)), ..Default::default() });
-        text(font, "พ่อค้าเร่", c.x + 70. * u, y + 22. * u, 15. * u, hx(0xffcc66));
-        text(font, GREETS[ui.greet % GREETS.len()], c.x + 70. * u, y + 42. * u, 12. * u, hx(0xdddddd));
+        let kind = g.shop_camp.map_or(0, |k| g.w.camp_kind(k));
+        text(font, camp_title(kind), c.x + 70. * u, y + 22. * u, 15. * u, hx(0xffcc66));
+        text(font, if kind > 0 && ui.greet % 2 == 0 { camp_greet(kind) } else { GREETS[ui.greet % GREETS.len()] }, c.x + 70. * u, y + 42. * u, 12. * u, hx(0xdddddd));
         icon_c(sp, COIN, c.x + 70. * u, y + 50. * u, 14. * u, WHITE);
         text(font, &format!("เหรียญของคุณ: {}", g.p.inv[COIN]), c.x + 88. * u, y + 62. * u, 12. * u, hx(0xffd84a));
     }
@@ -472,7 +473,8 @@ fn tab_shop(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
     header(font, c, y, "สินค้า", u);
     y += 28. * u;
     let mut buy: Option<usize> = None;
-    for (i, of) in OFFERS.iter().enumerate() {
+    let offers = camp_offers(g.shop_camp.map_or(0, |k| g.w.camp_kind(k)));
+    for (i, of) in offers.iter().enumerate() {
         if visible(y, rh, c) {
             let owned = of.once && g.p.inv[of.item] > 0;
             icon_c(sp, of.item, c.x + 8. * u, y + 10. * u, 26. * u, WHITE);
@@ -488,7 +490,7 @@ fn tab_shop(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
         y += rh;
     }
     if let Some(i) = buy {
-        g.buy(i);
+        g.buy_offer(offers[i]);
     }
     y - top
 }

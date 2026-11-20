@@ -96,7 +96,7 @@ impl Game {
         for ty in pty - 2..=pty + 2 {
             for tx in ptx - 2..=ptx + 2 {
                 let o = self.w.obj_at(tx, ty);
-                if !matches!(o, 12 | 13 | 14 | 15 | 17 | 19 | 20 | 24 | 25 | 26 | 33 | 34 | 36 | 39 | 41 | 42) {
+                if !matches!(o, 12 | 13 | 14 | 15 | 17 | 19 | 20 | 24 | 25 | 26 | 33 | 34 | 36 | 39 | 41 | 42 | O_ALTAR | O_GIANT) {
                     continue;
                 }
                 if (o == 41 || o == 42) && !self.fruit_ready((tx, ty)) { continue; }
@@ -162,6 +162,8 @@ impl Game {
             33 => self.sleep(k),
             39 => self.drink_well(),
             41 | 42 => { self.pick_fruit(k, o); }
+            O_ALTAR => { self.shrine_pray(k); }
+            O_GIANT => { self.giant_gather(k); }
             34 => {
                 play(&self.sfx.click);
                 self.req = Some(Req::Adv);

@@ -68,9 +68,21 @@ impl World {
         if dx.abs() > 3 || dy.abs() > 2 {
             return None;
         }
+        let kind = self.camp_kind((mx, my));
+        if kind == 0 {
+            return Some(match (dx, dy) {
+                (0, 0) => 15,
+                (2, -1) | (-2, -1) => 16,
+                _ => 0,
+            });
+        }
+        let (hut, deco) = match kind { 1 => (O_HUT_FISH, O_RACK), 2 => (O_HUT_SAND, O_JAR), _ => (O_HUT_LOG, O_WOODPILE) };
         Some(match (dx, dy) {
             (0, 0) => 15,
-            (2, -1) | (-2, -1) => 16,
+            (-2, -1) | (2, -1) => hut,
+            (-3, -1) | (-1, -1) | (1, -1) | (3, -1) => O_FILL,
+            (-2, 1) => deco,
+            (2, 1) => 9,
             _ => 0,
         })
     }
@@ -98,15 +110,16 @@ impl Game {
         let (tx, ty) = (tfloor(self.p.x), tfloor(self.p.y));
         if let Some(c) = self.w.camp_near(tx, ty, 34) {
             if self.camps_found.insert(c) {
-                self.toast("พบแคมป์พ่อค้า! ดูตำแหน่ง (M) บนแผนที่ใหญ่");
+                let k = self.w.camp_kind(c);
+                self.toast(if k == 0 { "พบแคมป์พ่อค้า! ดูตำแหน่ง (M) บนแผนที่ใหญ่".to_string() } else { format!("พบ{}! ดูตำแหน่ง (M) บนแผนที่ใหญ่", camp_title(k)) });
                 self.p.xp += 2;
                 self.check_lv();
                 self.save();
             }
         }
     }
-    pub fn buy(&mut self, o: usize) {
-        let of = &OFFERS[o];
+    pub fn buy(&mut self, o: usize) { self.buy_offer(&OFFERS[o]); }
+    pub fn buy_offer(&mut self, of: &Offer) {
         if of.once && self.p.inv[of.item] > 0 {
             self.toast("มีพิมพ์เขียวนี้แล้ว");
             return;

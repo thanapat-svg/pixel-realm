@@ -28,6 +28,7 @@ mod rpg;
 mod skin;
 mod social;
 mod trees;
+mod land;
 use extra::*;
 use farm::*;
 use guide::*;
@@ -45,23 +46,26 @@ use rpg::*;
 use skin::*;
 use social::*;
 use trees::*;
+use land::*;
 
 // ======================= ค่าคงที่ =======================
 const DAYLEN: f32 = 240.0;
-const TN: [&str; 15] = [
+const TN: [&str; 19] = [
     "ทะเลลึก", "แหล่งน้ำ", "ชายหาด", "ทุ่งหญ้า", "ป่าทึบ", "เขตหินผา", "ภูเขา", "ดินแดนหิมะ", "ทะเลทราย", "ดันเจี้ยน", "กำแพงดันเจี้ยน", "ดินไถ", "ดินเปียก", "พื้นถ้ำ", "ผนังถ้ำ",
+    "หนองน้ำ", "สะวันนา", "เถ้าภูเขาไฟ", "ลาวา",
 ];
-const TCOL: [u32; 15] = [
+const TCOL: [u32; 19] = [
     0x1d4f91, 0x2f7fd0, 0xe6d29a, 0x5fae4a, 0x3f8a3a, 0x8a8a8a, 0x5c5450, 0xeef4f8, 0xe8b86a, 0x3a3a4c, 0x14141e, 0x7a5230, 0x52341e, 0x3a343c, 0x1a1618,
+    0x4f6136, 0xc4b25c, 0x4a4446, 0xe0500e,
 ];
 // tiles: 0 deep,1 water,2 sand,3 grass,4 forest,5 stone,6 mountain,7 snow,8 desert
-const SOLIDT: [bool; 15] = [true, true, false, false, false, false, true, false, false, false, true, false, false, false, true];
+const SOLIDT: [bool; 19] = [true, true, false, false, false, false, true, false, false, false, true, false, false, false, true, false, false, false, true];
 // objects: 1 tree,2 bush,3 flower,4 rock,5 ore,6 chest,7 cactus,8 pine,9 campfire,
 //   10 กำแพงไม้,11 กำแพงหิน,12 ประตูปิด,13 ประตูเปิด,14 กล่องเก็บของ,15 พ่อค้า,16 เต็นท์
 //   37 ปราสาท,38 กำแพงเมือง,39 บ่อน้ำ
 //   17 โต๊ะตีเหล็ก,18 คบเพลิง,19 ทางเข้าดันเจี้ยน,20 ทางออกดันเจี้ยน,21 หนามหุบ,22 หนามโผล่,23 ป้อมลูกไฟ,24 หีบสมบัติหายาก
-const OSOLID: [bool; 50] = [false, true, true, false, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, false, false, false, false, true, true, true, true, false, false, false, false, false, false, true, true, false, false, true, true, true, true, true, true, true, true, true, true, true, true, true];
-const OHP: [i32; 50] = [0, 3, 1, 0, 3, 4, 1, 2, 3, 2, 5, 8, 4, 4, 5, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 1, 1, 1, 1, 4, 8, 0, 0, 20, 8, 6, 3, 3, 3, 4, 2, 3, 6, 1, 0, 0];
+const OSOLID: [bool; 70] = [false, true, true, false, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, false, false, false, false, true, true, true, true, false, false, false, false, false, false, true, true, false, false, true, true, true, true, true, true, true, true, true, true, true, true, true, false, true, false, true, false, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false];
+const OHP: [i32; 70] = [0, 3, 1, 0, 3, 4, 1, 2, 3, 2, 5, 8, 4, 4, 5, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 1, 1, 1, 1, 4, 8, 0, 0, 20, 8, 6, 3, 3, 3, 4, 2, 3, 6, 1, 0, 0, 1, 3, 1, 3, 1, 8, 10, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1];
 
 const WOOD: usize = 0;
 const STONE: usize = 1;
@@ -164,12 +168,16 @@ struct World {
     duns: RefCell<HashMap<(i32, i32), Option<(i32, i32)>>>,
     wps: RefCell<HashMap<(i32, i32), Option<(i32, i32)>>>,
     dun: Option<Box<Dungeon>>,
+    volc: RefCell<HashMap<(i32, i32), Option<(i32, i32)>>>,
+    marks: RefCell<HashMap<(i32, i32), Option<(i32, i32, u8)>>>,
+    camp_kinds: RefCell<HashMap<(i32, i32), u8>>,
 }
 impl World {
     fn new(seed: i32) -> Self {
-        World { seed, chunks: RefCell::new(HashMap::new()), tmod: HashMap::new(), removed: HashSet::new(), placed: HashMap::new(), camps: RefCell::new(HashMap::new()), duns: RefCell::new(HashMap::new()), wps: RefCell::new(HashMap::new()), dun: None }
+        World { seed, chunks: RefCell::new(HashMap::new()), tmod: HashMap::new(), removed: HashSet::new(), placed: HashMap::new(), camps: RefCell::new(HashMap::new()), duns: RefCell::new(HashMap::new()), wps: RefCell::new(HashMap::new()), dun: None, volc: RefCell::new(HashMap::new()), marks: RefCell::new(HashMap::new()), camp_kinds: RefCell::new(HashMap::new()) }
     }
     fn gen_tile(&self, x: i32, y: i32) -> u8 {
+        if let Some(t) = self.volcano_tile(x, y) { return t; }
         let s = self.seed;
         let e = fbm(x as f64 / 48., y as f64 / 48., s);
         let m = fbm(x as f64 / 70. + 500., y as f64 / 70. + 500., s.wrapping_add(77));
@@ -178,6 +186,8 @@ impl World {
         if e < 0.445 { return 2; }
         if e < 0.60 {
             if m < 0.38 { return 8; }
+            if m < 0.43 { return T_SAVANNA; }
+            if m > 0.62 && e < 0.5 { return T_SWAMP; }
             if m > 0.56 { return 4; }
             return 3;
         }
@@ -208,6 +218,7 @@ impl World {
         if let Some(o) = self.camp_obj(tx, ty) { return o; }
         if self.dun_in_cell(tx.div_euclid(DCELL), ty.div_euclid(DCELL)) == Some((tx, ty)) { return if self.is_cave_cell(tx.div_euclid(DCELL), ty.div_euclid(DCELL)) { 36 } else { 19 }; }
         if self.wp_in_cell(tx.div_euclid(WPC), ty.div_euclid(WPC)) == Some((tx, ty)) { return 25; }
+        if let Some(o) = self.mark_obj(tx, ty) { return o; }
         let t = self.tile_at(tx, ty);
         let r = hash(tx, ty, self.seed.wrapping_add(5));
         match t {
@@ -217,6 +228,7 @@ impl World {
             8 => if r < 0.025 { 7 } else if r < 0.031 { T_DEAD } else if r > 0.998 { 6 } else if (0.40..0.75).contains(&r) && self.water_near2(tx, ty) { T_PALM } else { 0 },
             5 => if r < 0.10 { 4 } else if r < 0.125 { 5 } else if r < 0.145 { self.tree_at(tx, ty, 5) } else if r > 0.997 { 6 } else { 0 },
             7 => if r < 0.06 { self.tree_at(tx, ty, 7) } else if r < 0.075 { 5 } else if r < 0.085 { T_DEAD } else if r > 0.996 { 6 } else { 0 },
+            T_SWAMP | T_SAVANNA | T_ASH => self.land_nat(t, tx, ty, r),
             _ => 0,
         }
     }
@@ -356,6 +368,10 @@ fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
         Box::new(|i| soil_tex(0x52341e, 0x3a2414, 0x5e3e24, 120 + i)),
         Box::new(|i| mk_tex(0x2e2a30, &[0x3a363e, 0x241f26, 0x35303a], 18, 130 + i, Extra::None)),
         Box::new(|i| mk_tex(0x4a4440, &[0x3e3834, 0x57504a, 0x2e2926], 20, 140 + i, Extra::Mountain)),
+        Box::new(swamp_tex),
+        Box::new(savanna_tex),
+        Box::new(ash_tex),
+        Box::new(lava_tex),
     ];
     for d in &defs {
         tiles.push((0..4).map(|i| at.add(&d(i))).collect::<Vec<_>>());
@@ -401,7 +417,7 @@ fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
     let fl_bat = [at.add(&art::white_of(&bat_img[0])), at.add(&art::white_of(&bat_img[1]))];
     // ---- objects
     let rp: &[(char, u32)] = &[('k', 0x3a3a40), ('L', 0x9a9aa4), ('l', 0xc8c8d0), ('D', 0x6a6a74), ('c', 0x4ef0ff), ('C', 0xb0ffff)];
-    let mut obj = vec![Rect::new(0., 0., 1., 1.); 50];
+    let mut obj = vec![Rect::new(0., 0., 1., 1.); 70];
     obj[1] = at.add(&spr(&["......gggg......", "....gGGGGGGg....", "...GGGgGGGGGG...", "..GGGGGGGgGGGG..", ".GGgGGGGGGGGGGG.", ".GGGGGGGGGGgGGG.", "GGGGGgGGGGGGGGGG", "GGGGGGGGGGGGgGGG", "GGgGGGGGGGGGGGGG", "GGGGGGGGgGGGGGGd", ".GGGGGGGGGGGGGd.", ".dGGGgGGGGGGGdd.", "..ddGGGGGGGGdd..", "...dddGGGGddd...", ".....ddTTdd.....", "......TTTT......", "......TTtT......", "......TTTT......", "......TtTT......", "......TTTT......", ".....TTTTTT.....", "....tt....tt...."],
         &[('g', 0x7cd06a), ('G', 0x3f9a3f), ('d', 0x2a6a2a), ('T', 0x7a4a24), ('t', 0x5a3418)]));
     obj[2] = at.add(&spr(&["................", "................", "................", "................", "................", "................", "......gggg......", "....gggggggg....", "...ggrgggggrg...", "..gggggggggggg..", "..ggggrggggggg..", ".gggggggggrgggg.", ".ggrgggggggggg..", "..dgggggggggd...", "...dddddddddd...", "................"], &[('g', 0x3d9440), ('r', 0xe8344a), ('d', 0x2a6a2a)]));
@@ -423,6 +439,7 @@ fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
     ];
     let mut ex = art::build_extra(&mut at, &mut obj, &mut icons);
     trees::build_trees(&mut at, &mut obj);
+    land::build_land(&mut at, &mut obj);
     ex.flash_slime = [fl_slime[0], fl_slime[1], fl_slime[2], fl_slime[3]];
     ex.flash_skel = fl_skel;
     ex.flash_bat = fl_bat;
@@ -481,6 +498,10 @@ struct Game {
     boss_t: f32,
     chests: HashMap<(i32, i32), [i32; NI]>,
     camps_found: HashSet<(i32, i32)>,
+    marks_found: HashMap<(i32, i32), u8>,
+    blessed: HashMap<(i32, i32), i32>,
+    lava_t: f32,
+    lava_told: bool,
     camp_t: f32,
     build_sel: Option<usize>,
     req: Option<Req>,
@@ -573,7 +594,7 @@ impl Game {
             w, p: Player::new(0., 0.), en: vec![], parts: vec![], floats: vec![], toasts: vec![], time: 0., spawn: (0., 0.),
             seen: HashSet::new(), obj_dmg: HashMap::new(), shake: ((0, 0), 0.), hurt_flash: 0., darkv: 0., last_biome: -1,
             spawn_t: 0., save_t: 0., mini_t: 99., died: false, big_map: false, sfx,
-            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), camp_t: 0.,
+            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, camp_t: 0.,
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
@@ -636,6 +657,7 @@ impl Game {
         s += "\ndunchest";
         for (x, y, i) in &self.dun_chests { s += &format!(" {},{},{}", x, y, i); }
         s += "\n";
+        s += &self.marks_save_str();
         s += "camps";
         for (x, y) in &self.camps_found { s += &format!(" {},{}", x, y); }
         s += "\nseen";
@@ -746,6 +768,7 @@ impl Game {
                     let n: Vec<i32> = v.split(',').filter_map(|x| x.parse().ok()).collect();
                     if n.len() == 2 { g.camps_found.insert((n[0], n[1])); }
                 },
+                "marks" | "bless" => g.marks_load_line(tag, &rest),
                 "seen" => for v in &rest { if let Ok(b) = v.parse() { g.seen.insert(b); } },
                 "rem" | "plc" | "tmod" => {
                     for v in &rest {
@@ -845,7 +868,7 @@ impl Game {
     fn hit_object(&mut self, tx: i32, ty: i32, dmg: i32) -> bool {
         let k = (tx, ty);
         let in_dun = self.w.dun.is_some();
-        if in_dun && !matches!(self.w.obj_at(tx, ty), 4 | 5) { return false; }
+        if in_dun && !matches!(self.w.obj_at(tx, ty), 4 | 5 | O_CRYSTAL) { return false; }
         let o = self.w.obj_at(tx, ty);
         if (19..=25).contains(&o) || (27..=32).contains(&o) || o == 36 { return true; }
         if o == 0 || o == 3 {
@@ -866,17 +889,18 @@ impl Game {
             }
             return false;
         }
-        if o == 15 || o == 16 { return true; }
+        if o == 15 || o == 16 || land_fixed(o) { return true; }
+        if o == 9 && !self.w.placed.contains_key(&k) { return true; }
         if o == 14 && self.chests.get(&k).map_or(false, |c| c.iter().any(|&n| n > 0)) {
             self.toast("เอาของออกจากกล่องก่อนรื้อ");
             return true;
         }
         let h = self.obj_dmg.get(&k).copied().unwrap_or(0) + dmg;
         self.shake = (k, 0.2);
-        let col = hx(match o { 1 => 0x3f9a3f, 2 => 0x3d9440, 4 => 0x9a9aa4, 5 => 0x4ef0ff, 6 => 0xc88a40, 7 => 0x3c9a4a, 8 => 0x2f6b4f, 10 => 0x9a6a38, 11 => 0x9a9aa6, 12 | 13 => 0xa06a30, 14 => 0xc88a40, 17 => 0x8a909c, 26 => 0x6a6a74, 40..=47 => tree_col(o), _ => 0xffa630 });
+        let col = hx(match o { 1 => 0x3f9a3f, 2 => 0x3d9440, 4 => 0x9a9aa4, 5 => 0x4ef0ff, 6 => 0xc88a40, 7 => 0x3c9a4a, 8 => 0x2f6b4f, 10 => 0x9a6a38, 11 => 0x9a9aa6, 12 | 13 => 0xa06a30, 14 => 0xc88a40, 17 => 0x8a909c, 26 => 0x6a6a74, 40..=47 | O_SWTREE | O_ACACIA => tree_col(o), O_REED | O_DRYGRASS => 0x9aa040, O_SHROOM => 0xd8402a, O_RUINWALL | O_PILLAR | O_ACHEST => 0x9e9a90, O_OBSIDIAN => 0x4a3a62, O_CRYSTAL => 0x7ad8ff, O_BONES => 0xe8e2d0, _ => 0xffa630 });
         let (x, y) = (tx as f32 * 16. + 8., ty as f32 * 16.);
         self.burst(x, y + 6., col, 5, 50.);
-        if o == 4 || o == 5 || o == 11 || o == 17 || o == 26 || o == 34 { play(&self.sfx.rock) } else { play(&self.sfx.chop) }
+        if matches!(o, 4 | 5 | 11 | 17 | 26 | 34 | O_RUINWALL | O_PILLAR | O_OBSIDIAN | O_CRYSTAL | O_ACHEST) { play(&self.sfx.rock) } else { play(&self.sfx.chop) }
         if h < OHP[o as usize] { self.obj_dmg.insert(k, h); return true; }
         self.obj_dmg.remove(&k);
         if in_dun {
@@ -895,6 +919,13 @@ impl Game {
                 self.fruit.remove(&k);
             }
             42 => { self.gain(WOOD, 2, x, y); self.fruit.remove(&k); }
+            O_SWTREE | O_ACACIA => { let (a, b) = wood_range(o); self.gain(WOOD, rnd(a, b), x, y); }
+            O_SHROOM => self.gain(SHROOM, rnd(1, 2), x, y),
+            O_RUINWALL => self.gain(STONE, 2, x, y),
+            O_PILLAR => self.gain(STONE, 3, x, y),
+            O_OBSIDIAN => { self.gain(STONE, 1, x, y); self.gain(GEM, 1, x, y - 8.); play(&self.sfx.gem); }
+            O_CRYSTAL => { self.gain(GEM, 2, x, y); if gen_range(0., 1.) < 0.3 { self.gain(SHARD, 1, x, y - 8.); } play(&self.sfx.gem); }
+            O_ACHEST => self.open_ancient(x, y),
             2 => self.gain(BERRY, rnd(1, 3), x, y),
             7 => self.gain(BERRY, 1, x, y),
             4 => self.gain(STONE, rnd(2, 3), x, y),
@@ -1170,7 +1201,7 @@ impl Game {
         let mut mv = inp.mv;
         let il = mv.length();
         if il > 1. { mv /= il; }
-        let nmul = self.need_speed_mul();
+        let nmul = self.need_speed_mul() * self.ground_speed_mul();
         let p = &mut self.p;
         p.moving = il > 0.15;
         if p.moving && p.atk_t <= 0. {
@@ -1214,7 +1245,7 @@ impl Game {
         let bt = self.w.tile_at(tfloor(self.p.x), tfloor(self.p.y));
         if self.w.dun.is_none() && bt as i32 != self.last_biome {
             self.last_biome = bt as i32;
-            if bt <= 8 && self.seen.insert(bt) && self.seen.len() > 1 {
+            if (bt <= 8 || (15..=17).contains(&bt)) && self.seen.insert(bt) && self.seen.len() > 1 {
                 self.toast(format!("ค้นพบ: {}", TN[bt as usize]));
                 self.p.xp += 3;
                 self.check_lv();
@@ -1238,7 +1269,8 @@ impl Game {
         if self.boss_t <= 0. { self.boss_t = 2.; self.try_spawn_boss(); }
         if self.boss_cd > 0. { self.boss_cd -= dt; }
         self.camp_t -= dt;
-        if self.camp_t <= 0. { self.camp_t = 1.; self.discover_camps(); }
+        if self.camp_t <= 0. { self.camp_t = 1.; self.discover_camps(); self.discover_marks(); }
+        self.land_tick(dt);
         self.upd_enemies(dt);
         self.upd_drops(dt);
         self.upd_comp(dt);
@@ -1288,13 +1320,15 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     let (tx1, ty1) = (((v.cx + v.vw) / 16.).floor() as i32, ((v.cy + v.vh) / 16.).floor() as i32);
     let wf = ((t_now / 0.6) as i32 % 2) as usize;
     let foam = Color::new(0.86, 0.94, 1., 0.75);
+    let mut lava_l: Vec<(f32, f32, f32, bool)> = vec![];
     for ty in ty0..=ty1 {
         for tx in tx0..=tx1 {
             let t = w.tile_at(tx, ty) as usize;
             let var = (hash(tx, ty, w.seed.wrapping_add(9)) * 4.) as usize;
             let (px, py) = (tx as f32 * 16. - v.cx, ty as f32 * 16. - v.cy);
-            let idx = if t < 2 { (var & 2) | wf } else { var };
+            let idx = if t < 2 || t == T_LAVA as usize { (var & 2) | wf } else { var };
             blit(sp, v, sp.tiles[t][idx], px, py, false, WHITE);
+            if t == T_LAVA as usize && (tx + ty) % 2 == 0 { lava_l.push((px + 8., py + 8., pulse_r(30., t_now, tx as f32 * 0.7 + ty as f32, 1.2), true)); }
             if t < 2 && fish_spot(w.seed, tx, ty) {
                 let ph = ((t_now * 0.9 + hash(tx, ty, 3) as f32 * 6.).fract()) * 6.;
                 draw_circle_lines((px + 8.) * v.s, (py + 8.) * v.s, ph * v.s, 1., Color::new(1., 1., 1., 0.6 * (1. - ph / 6.)));
@@ -1315,9 +1349,9 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     draw_telegraphs(g, v);
     // y-sort
     let mut list: Vec<(f32, Draw)> = vec![];
-    let mut lights: Vec<(f32, f32, f32, bool)> = vec![];
-    for ty in ty0 - 1..=ty1 + 2 {
-        for tx in tx0 - 1..=tx1 + 1 {
+    let mut lights: Vec<(f32, f32, f32, bool)> = lava_l;
+    for ty in ty0 - 1..=ty1 + 3 {
+        for tx in tx0 - 2..=tx1 + 2 {
             let o = w.obj_at(tx, ty);
             if o == 0 { continue; }
             if o == 9 {
@@ -1332,10 +1366,14 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                 lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 6. - v.cy, 46. + (t_now * 1.6 + tx as f32).sin() * 4., false));
             } else if o == 26 {
                 lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 8. - v.cy, pulse_r(44., t_now, tx as f32 * 1.7 + ty as f32 * 0.9, 1.5), true));
+            } else if o == O_ALTAR || o == O_CRYSTAL {
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 4. - v.cy, pulse_r(34., t_now, tx as f32 * 1.3, 1.5), false));
+            } else if o == O_GIANT {
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. - 30. - v.cy, 40., false));
             } else if o == 24 || o == 23 {
                 lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 8. - v.cy, 26., false));
             }
-            let flat = matches!(o, 3 | 19 | 20 | 21 | 22 | 36);
+            let flat = matches!(o, 3 | 19 | 20 | 21 | 22 | 36) || land_flat(o);
             list.push((ty as f32 * 16. + if flat { 0. } else { 14. }, Draw::Obj(o, tx, ty)));
         }
     }
@@ -1402,7 +1440,8 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                 let o = g.display_obj(o, (tx, ty));
                 let r = if o == 15 { sp.ex.merchant[if near_m && (t_now * 3.) as i32 % 2 == 0 { 1 } else { 0 }] } else { sp.obj[o as usize] };
                 let (px, py) = if matches!(o, 19 | 20 | 21 | 22) { (px, py - (r.h - 16.).max(0.) + (r.h - 16.).max(0.)) } else { (px, py) };
-                blit(sp, v, r, px + sx, py + 16. - r.h, false, WHITE);
+                let ox = if r.w > 16. { 8. - (r.w / 2.).floor() } else { 0. };
+                blit(sp, v, r, px + sx + ox, py + 16. - r.h, false, WHITE);
                 if near_m { text_c(font, "พ่อค้า", (px + 8.) * v.s, (py + 16. - r.h - 3.) * v.s, 6. * v.s, hx(0xffee99)); }
                 if o == 9 {
                     let c = if gen_range(0., 1.) < 0.5 { hx(0xffe680) } else { hx(0xff8a30) };
@@ -1812,6 +1851,13 @@ fn update_minimap(g: &Game, img: &mut Image, tex: &Texture2D) {
         for dy in -2..=2 { for dx in -2..=2 {
             let (a, c) = (i + dx, j + dy);
             if (0..120).contains(&a) && (0..120).contains(&c) && (dx.abs() + dy.abs() < 4) { img.set_pixel(a as u32, c as u32, hx(0xff3030)); }
+        } }
+    }
+    for (&(cx, cy), &k) in g.marks_found.iter().filter(|_| !indun) {
+        let (i, j) = (60 + (cx - ptx) / sc, 60 + (cy - pty) / sc);
+        for dy in -1..=1 { for dx in -1..=1 {
+            let (a, b) = (i + dx, j + dy);
+            if (0..120).contains(&a) && (0..120).contains(&b) { img.set_pixel(a as u32, b as u32, hx(mark_letter(k).1)); }
         } }
     }
     for &(cx, cy) in g.camps_found.iter().filter(|_| !indun) {
@@ -2445,6 +2491,17 @@ async fn main() {
                         draw_circle(mx, my, rr, hx(0x1d1f2b));
                         draw_circle_lines(mx, my, rr, 2., hx(0xffd84a));
                         text_c(&font, "M", mx, my + rr * 0.5, rr * 1.5, hx(0xffd84a));
+                    }
+                }
+                if g.w.dun.is_none() && g.big_map {
+                    for (&(tx, ty), &k) in g.marks_found.iter() {
+                        let (mx, my, ok) = map_pt(tx, ty, map_ctr, map_sc, mr);
+                        if !ok { continue; }
+                        let (l, c) = mark_letter(k);
+                        let rr = 10. * u;
+                        draw_circle(mx, my, rr, hx(0x1d1f2b));
+                        draw_circle_lines(mx, my, rr, 2., hx(c));
+                        text_c(&font, l, mx, my + rr * 0.5, rr * 1.4, hx(c));
                     }
                 }
                 if g.w.dun.is_none() {
@@ -3216,7 +3273,7 @@ mod tests {
     fn cave_generation_is_connected_and_minable() {
         let opened = HashSet::new();
         for (seed, cx, cy) in [(1, 0, 0), (777, 3, -2), (42, -5, 7), (9, 11, 11), (31337, -9, -4), (5, 2, 2)] {
-            let d = Dungeon::generate_cave(seed, (cx, cy), false, &opened);
+            let d = Dungeon::generate_cave(seed, (cx, cy), false, &opened, 0);
             assert!(d.cave);
             assert_eq!(d.tile(d.entry.0, d.entry.1), T_CFLOOR);
             assert_eq!(d.tile(d.boss_at.0, d.boss_at.1), T_CFLOOR);
@@ -3237,11 +3294,11 @@ mod tests {
             assert!(d.spawns.len() >= 8, "มอนสเตอร์น้อยไป {}", d.spawns.len());
             for &(_, x, y) in &d.spawns { assert_eq!(d.tile(tfloor(x), tfloor(y)), T_CFLOOR); }
             // deterministic
-            let d2 = Dungeon::generate_cave(seed, (cx, cy), false, &opened);
+            let d2 = Dungeon::generate_cave(seed, (cx, cy), false, &opened, 0);
             assert_eq!((d.tiles == d2.tiles, d.objs == d2.objs), (true, true));
             // หีบที่เปิดแล้วไม่โผล่อีก
             let mut op = HashSet::new(); op.insert((cx, cy, 0));
-            let d3 = Dungeon::generate_cave(seed, (cx, cy), false, &op);
+            let d3 = Dungeon::generate_cave(seed, (cx, cy), false, &op, 0);
             assert!(d3.objs.iter().filter(|&&o| o == 24).count() < d.objs.iter().filter(|&&o| o == 24).count() + 1);
         }
     }
@@ -4448,7 +4505,7 @@ mod tree_tests {
         assert!(kinds(3) >= 5, "ทุ่งหญ้า: {:?}", by_tile.get(&3));
         assert!(by_tile.get(&2).map_or(false, |m| m.contains_key(&T_PALM)), "ชายหาดมีมะพร้าว");
         assert!(by_tile.get(&8).map_or(false, |m| m.contains_key(&T_DEAD)), "ทะเลทรายมีต้นไม้ตาย");
-        assert!(by_tile.keys().all(|&t| matches!(t, 2 | 3 | 4 | 5 | 7 | 8)), "ต้นไม้ขึ้นบนน้ำ/ภูเขาไม่ได้ {:?}", by_tile.keys());
+        assert!(by_tile.keys().all(|&t| matches!(t, 2 | 3 | 4 | 5 | 7 | 8 | 15 | 16 | 17)), "ต้นไม้ขึ้นบนน้ำ/ภูเขาไม่ได้ {:?}", by_tile.keys());
         // ในบรรดาต้นไม้ของป่า โอ๊กยังเป็นส่วนใหญ่ไม่ได้ทั้งหมด
         let f = by_tile.get(&4).unwrap();
         let total: i32 = f.values().sum();
@@ -4469,12 +4526,12 @@ mod tree_tests {
     fn tree_stats_tables_and_sprites_are_consistent() {
         for o in 40..=47usize { assert!(OSOLID[o] && OHP[o] > 0, "ต้นไม้ {} ต้องชนได้และตีได้", o); }
         assert!(OHP[T_OLD as usize] > OHP[T_BIRCH as usize] && OHP[T_SAPLING as usize] == 1);
-        assert_eq!(OSOLID.len(), 50);
+        assert_eq!(OSOLID.len(), 70);
         for o in 40..=47u8 { let (a, b) = wood_range(o); assert!(a >= 1 && b >= a, "{}", o); assert!(!tree_name(o).is_empty()); }
         assert!(wood_range(T_OLD).0 >= 5 && wood_range(T_SAPLING).1 == 1 && wood_range(T_SPRUCE).1 >= 4);
         // สไปรต์ทุกชิ้นกว้าง 16 พิกเซล วางเข้าแอตลาสได้ ไม่ซ้ำกัน
         let mut at = Atlas { img: Image::gen_image_color(512, 1024, BLANK), cx: 0, cy: 0, rowh: 0 };
-        let mut obj = vec![Rect::new(0., 0., 1., 1.); 50];
+        let mut obj = vec![Rect::new(0., 0., 1., 1.); 70];
         trees::build_trees(&mut at, &mut obj);
         for o in 40..=49usize { assert!(obj[o].w == 16. && obj[o].h >= 14. && obj[o].h <= 22., "{} {:?}", o, obj[o]); }
         let mut pos: Vec<(i32, i32)> = (40..=49).map(|o| (obj[o].x as i32, obj[o].y as i32)).collect();
@@ -4595,5 +4652,208 @@ mod tree_tests {
         g.w.placed.insert((x + 5, y), T_BIRCH);
         let t = g.tut_target().expect("ลูกศรบทเรียนต้องชี้ต้นเบิร์ชด้วย");
         assert_eq!(t, ((x + 5) as f32 * 16. + 8., y as f32 * 16. + 8.));
+    }
+}
+
+#[cfg(test)]
+mod land_tests {
+    use super::*;
+
+    fn find_volcano(g: &Game) -> Option<(i32, i32)> {
+        for cy in -3..=3 { for cx in -3..=3 { if let Some(v) = g.w.volcano_in_cell(cx, cy) { return Some(v); } } }
+        None
+    }
+
+    #[test]
+    fn new_biomes_appear_in_world() {
+        let g = Game::new_world_seed(777, Sfx::default());
+        let mut cnt = [0; 19];
+        for y in (-500..500).step_by(3) { for x in (-500..500).step_by(3) { cnt[g.w.tile_at(x, y) as usize] += 1; } }
+        assert!(cnt[T_SWAMP as usize] > 50, "หนองน้ำ {:?}", cnt);
+        assert!(cnt[T_SAVANNA as usize] > 50, "สะวันนา {:?}", cnt);
+        assert!(cnt[3] > cnt[T_SAVANNA as usize] && cnt[3] > cnt[T_SWAMP as usize], "ทุ่งหญ้ายังเป็นหลัก {:?}", cnt);
+    }
+
+    #[test]
+    fn volcano_has_lava_core_rim_and_ash_and_no_sea() {
+        let mut found = 0;
+        for seed in 1..12 {
+            let g = Game::new_world_seed(seed, Sfx::default());
+            let Some((vx, vy)) = find_volcano(&g) else { continue };
+            found += 1;
+            assert_eq!(g.w.tile_at(vx, vy), T_LAVA, "ปล่องกลางเป็นลาวา");
+            assert!(g.w.solid_at(vx, vy), "ลาวาเดินทับไม่ได้");
+            let mut ash = 0;
+            let mut lava = 0;
+            for dy in -VR..=VR { for dx in -VR..=VR {
+                let t = g.w.tile_at(vx + dx, vy + dy);
+                if t == T_ASH { ash += 1; }
+                if t == T_LAVA { lava += 1; }
+                if dx * dx + dy * dy <= 100 { assert!(t >= 2, "ไม่มีทะเลในเขตภูเขาไฟ ({},{})={}", dx, dy, t); }
+            } }
+            assert!(ash > 120 && lava >= 12, "เถ้า {} ลาวา {}", ash, lava);
+            // มีหินออบซิเดียนบนเถ้า
+            let obs = (-VR..=VR).flat_map(|dy| (-VR..=VR).map(move |dx| (dx, dy))).filter(|&(dx, dy)| g.w.obj_at(vx + dx, vy + dy) == O_OBSIDIAN).count();
+            assert!(obs >= 1, "ต้องมีหินออบซิเดียน");
+        }
+        assert!(found >= 2, "ภูเขาไฟต้องพบได้ในหลายโลก ({})", found);
+    }
+
+    fn all_marks(g: &Game) -> Vec<(i32, i32, u8)> {
+        let mut v = vec![];
+        for cy in -6..6 { for cx in -6..6 { if let Some(m) = g.w.mark_in_cell(cx, cy) { v.push(m); } } }
+        v
+    }
+
+    #[test]
+    fn landmarks_fit_biome_and_have_walkable_layout() {
+        let g = Game::new_world_seed(777, Sfx::default());
+        let ms = all_marks(&g);
+        let kinds: std::collections::BTreeSet<u8> = ms.iter().map(|m| m.2).collect();
+        assert!(ms.len() >= 10 && kinds.len() >= 3, "จุดสำคัญ {} ชนิด {:?}", ms.len(), kinds);
+        for &(x, y, k) in &ms {
+            let t = g.w.tile_at(x, y);
+            match k {
+                MK_GIANT => { assert_eq!(t, 4, "ต้นไม้ยักษ์อยู่ในป่า"); assert_eq!(g.w.obj_at(x, y), O_GIANT); assert!(g.w.solid_at(x - 1, y) && g.w.solid_at(x + 1, y)); }
+                MK_RUINS => { assert!(matches!(t, 3 | 4 | 8 | 15 | 16)); assert_eq!(g.w.obj_at(x, y), O_ACHEST); assert_eq!(g.w.obj_at(x, y + 4), 0, "มีทางเข้าซาก"); }
+                MK_CIRCLE => { assert!(matches!(t, 3 | 5 | 7 | 15 | 16)); assert_eq!(g.w.obj_at(x, y), O_ALTAR); assert_eq!(g.w.obj_at(x, y - 3), O_PILLAR); }
+                _ => panic!("ชนิดผิด"),
+            }
+            for dy in -4..=4 { for dx in -4..=4 { assert!(!SOLIDT[g.w.tile_at(x + dx, y + dy) as usize]); } }
+            // ไม่มีต้นไม้ธรรมชาติขึ้นทับลาน
+            assert!((-1..=1).all(|d| !is_tree(g.w.obj_at(x + d, y + 2))));
+        }
+    }
+
+    #[test]
+    fn camps_vary_by_biome_and_merchant_stays_reachable() {
+        let mut kinds = std::collections::BTreeSet::new();
+        for seed in [777, 3, 9] {
+            let g = Game::new_world_seed(seed, Sfx::default());
+            for cy in -8..8 { for cx in -8..8 {
+                let Some(c) = g.w.camp_in_cell(cx, cy) else { continue };
+                let k = g.w.camp_kind(c);
+                kinds.insert(k);
+                let t = g.w.tile_at(c.0, c.1);
+                if t == 7 { assert_eq!(k, 3); }
+                if t == 8 { assert_eq!(k, 2); }
+                assert_eq!(g.w.obj_at(c.0, c.1), 15);
+                assert!(!g.w.solid_at(c.0, c.1 + 1), "หน้าพ่อค้าต้องเดินได้");
+                if k > 0 {
+                    assert!(matches!(g.w.obj_at(c.0 - 2, c.1 - 1), O_HUT_FISH | O_HUT_SAND | O_HUT_LOG));
+                    assert!(g.w.solid_at(c.0 - 3, c.1 - 1) && g.w.solid_at(c.0 - 1, c.1 - 1), "บ้านกว้าง 3 ช่องชนได้ทั้งหลัง");
+                }
+                assert_eq!(camp_offers(k).len(), OFFERS.len() + if k > 0 { 2 } else { 0 });
+            } }
+        }
+        assert!(kinds.len() >= 3, "แคมป์ต้องมีหลายแบบ {:?}", kinds);
+    }
+
+    fn walk_spot(g: &Game) -> (i32, i32) {
+        for r in 0..80 { for dx in -r..=r { for dy in [-r, r] {
+            let (x, y) = (dx, dy);
+            if g.w.tile_at(x, y) == 3 && !g.w.solid_at(x, y) && !g.w.solid_at(x, y + 1) { return (x, y); }
+        } } }
+        panic!("ไม่มีทุ่งหญ้า")
+    }
+
+    #[test]
+    fn shrine_and_giant_tree_once_per_day() {
+        let mut g = Game::new_world_seed(777, Sfx::default());
+        g.time = DAYLEN * 1.3;
+        g.p.hp = 1;
+        g.p.rest = 10.;
+        g.p.sick = 30.;
+        assert!(g.shrine_pray((5, 5)));
+        assert_eq!(g.p.hp, g.p.maxhp);
+        assert!(g.p.sick == 0. && g.p.rest >= 59.);
+        g.p.hp = 1;
+        assert!(!g.shrine_pray((5, 5)), "วันเดียวกันขอซ้ำไม่ได้");
+        assert_eq!(g.p.hp, 1);
+        let h0 = g.p.inv[HERB];
+        assert!(g.giant_gather((9, 9)));
+        assert!(!g.giant_gather((9, 9)));
+        g.time += DAYLEN;
+        assert!(g.shrine_pray((5, 5)) && g.giant_gather((9, 9)), "วันใหม่ใช้ได้อีก");
+        let picked: i32 = g.drops.iter().filter(|d| d.item == HERB).map(|d| d.n).sum::<i32>() + g.p.inv[HERB] - h0;
+        assert!(picked >= 2, "ได้สมุนไพร {}", picked);
+        let s = g.save_string();
+        let mut h = Game::new_world_seed(777, Sfx::default());
+        for line in s.lines() {
+            let mut it = line.split_whitespace();
+            if let Some(tag) = it.next() { if tag == "bless" || tag == "marks" { let rest: Vec<&str> = it.collect(); h.marks_load_line(tag, &rest); } }
+        }
+        assert_eq!(h.blessed, g.blessed);
+    }
+
+    #[test]
+    fn swamp_slows_and_lava_burns() {
+        let mut g = Game::new_world_seed(777, Sfx::default());
+        let (x, y) = walk_spot(&g);
+        g.p.x = x as f32 * 16. + 8.;
+        g.p.y = y as f32 * 16. + 12.;
+        assert_eq!(g.ground_speed_mul(), 1.);
+        g.w.tmod.insert((x, y), T_SWAMP);
+        assert!(g.ground_speed_mul() < 0.8);
+        g.w.tmod.insert((x, y), 3);
+        let hp = g.p.hp;
+        g.w.tmod.insert((x + 1, y), T_LAVA);
+        g.p.invul = 0.;
+        g.land_tick(1.);
+        assert!(g.p.hp < hp, "ยืนติดลาวาต้องเสียเลือด");
+        assert!(g.p.kbx < 0., "กระเด็นออกจากลาวา");
+    }
+
+    #[test]
+    fn discovering_ruins_records_and_wakes_guards() {
+        let mut g = Game::new_world_seed(777, Sfx::default());
+        let m = all_marks(&g).into_iter().find(|m| m.2 == MK_RUINS).expect("ต้องมีซากปรักหักพัง");
+        g.p.x = m.0 as f32 * 16. + 8.;
+        g.p.y = (m.1 + 6) as f32 * 16. + 12.;
+        g.en.clear();
+        g.discover_marks();
+        assert_eq!(g.marks_found.get(&(m.0, m.1)), Some(&MK_RUINS));
+        assert!(g.en.iter().filter(|e| e.k == EK::Skel).count() >= 2, "ผู้พิทักษ์ตื่น");
+        let n = g.en.len();
+        g.discover_marks();
+        assert_eq!(g.en.len(), n, "ค้นพบซ้ำไม่เกิดมอนสเตอร์เพิ่ม");
+        // หีบโบราณให้ของดี
+        let (c0, g0) = (g.p.inv[COIN], g.p.inv[GEM]);
+        g.drops.clear();
+        assert!(g.hit_object(m.0, m.1, 5));
+        let got = |it: usize| g.drops.iter().filter(|d| d.item == it).map(|d| d.n).sum::<i32>();
+        assert!(got(COIN) + g.p.inv[COIN] - c0 >= 20 && got(GEM) + g.p.inv[GEM] - g0 >= 2);
+        assert_eq!(g.w.obj_at(m.0, m.1), 0, "หีบเปิดแล้วหายไป");
+    }
+
+    #[test]
+    fn special_caves_have_crystals_or_lava_and_boss_is_reachable() {
+        let op = HashSet::new();
+        for (cx, cy) in [(1, 2), (3, -1), (-2, 5)] {
+            let n = Dungeon::generate_cave(777, (cx, cy), false, &op, 0);
+            let c = Dungeon::generate_cave(777, (cx, cy), false, &op, 1);
+            let l = Dungeon::generate_cave(777, (cx, cy), false, &op, 2);
+            let count = |d: &Dungeon, f: &dyn Fn(&Dungeon, i32, i32) -> bool| (0..DH).flat_map(|y| (0..DW).map(move |x| (x, y))).filter(|&(x, y)| f(d, x, y)).count();
+            let gems = |d: &Dungeon| count(d, &|d, x, y| matches!(d.obj(x, y), 5 | O_CRYSTAL));
+            assert!(count(&c, &|d, x, y| d.obj(x, y) == O_CRYSTAL) >= 5, "ถ้ำคริสตัลมีคริสตัล");
+            assert!(gems(&c) > gems(&n), "ถ้ำคริสตัลมีแร่มากกว่า");
+            assert_eq!(count(&n, &|d, x, y| d.tile(x, y) == T_LAVA), 0);
+            assert!(count(&l, &|d, x, y| d.tile(x, y) == T_LAVA) >= 20, "ถ้ำลาวามีลาวา");
+            for d in [&c, &l] {
+                let dist = dun_dist(d, d.entry, false);
+                assert!(dist[(d.boss_at.1 * DW + d.boss_at.0) as usize] >= 0, "ไปถึงห้องบอสได้");
+            }
+        }
+    }
+
+    #[test]
+    fn land_sprites_fit_atlas() {
+        let mut at = Atlas { img: Image::gen_image_color(512, 1024, BLANK), cx: 0, cy: 0, rowh: 0 };
+        let mut obj = vec![Rect::new(0., 0., 0., 0.); 70];
+        land::build_land(&mut at, &mut obj);
+        for o in 50..70usize { assert!(obj[o].w >= 1. && obj[o].h >= 1., "{}", o); }
+        assert!(obj[O_GIANT as usize].w > 40. && obj[O_HUT_LOG as usize].w == 40.);
+        for o in 50..70usize { if o != O_FILL as usize { assert!(OSOLID[o] || matches!(o as u8, O_REED | O_SHROOM | O_DRYGRASS | O_BONES)); } }
+        for o in [O_ALTAR, O_GIANT, O_FILL, O_HUT_FISH] { assert!(land_fixed(o)); }
     }
 }

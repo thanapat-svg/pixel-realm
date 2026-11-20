@@ -254,7 +254,8 @@ pub fn dun_dist(d: &Dungeon, from: (i32, i32), ignore_ore: bool) -> Vec<i32> {
 impl Dungeon {
     /// ถ้ำ: สุ่มถมกำแพง ~46% แล้วทำให้เรียบ 4 รอบ (cellular automata) เก็บเฉพาะโพรงใหญ่สุด
     /// มีแร่/หินให้ขุดตามผนัง คบเพลิงห่างๆ หีบ 2 ใบ + หีบมินิบอส และมอนสเตอร์หนาแน่น
-    pub fn generate_cave(seed: i32, cell: (i32, i32), cleared: bool, opened: &HashSet<(i32, i32, i32)>) -> Dungeon {
+    /// variant: 0 ถ้ำธรรมดา · 1 ถ้ำคริสตัล (แร่/คริสตัลมาก) · 2 ถ้ำลาวา (ลาวาตามผนัง มอนสเตอร์ดุกว่า)
+    pub fn generate_cave(seed: i32, cell: (i32, i32), cleared: bool, opened: &HashSet<(i32, i32, i32)>, variant: u8) -> Dungeon {
         let mut r = DRng::new((seed as u64) ^ ((cell.0 as i64 as u64) << 32) ^ (cell.1 as i64 as u64).wrapping_mul(104729) ^ 0xCA7E);
         let idx = |x: i32, y: i32| (y * DW + x) as usize;
         let edge = |x: i32, y: i32| x <= 1 || y <= 1 || x >= DW - 2 || y >= DH - 2;
@@ -392,14 +393,14 @@ impl Dungeon {
         shuffle(&mut cand, &mut r);
         let mut ores: Vec<(i32, i32)> = vec![];
         for &(x, y) in &cand {
-            if ores.len() >= 34 {
+            if ores.len() >= if variant == 1 { 52 } else { 34 } {
                 break;
             }
             let crowded = (-1..=1).any(|dy| (-1..=1).any(|dx| matches!(d.obj(x + dx, y + dy), 4 | 5 | 18 | 24 | 20)));
             if crowded {
                 continue;
             }
-            let o = if r.f() < 0.55 { 5 } else { 4 };
+            let o = if variant == 1 && r.f() < 0.35 { O_CRYSTAL } else if r.f() < if variant == 1 { 0.75 } else { 0.55 } { 5 } else { 4 };
             d.set_obj(x, y, o);
             ores.push((x, y));
         }
@@ -414,6 +415,16 @@ impl Dungeon {
             }
             let (x, y) = ores.pop().unwrap();
             d.set_obj(x, y, 0);
+        }
+        // ถ้ำลาวา: ผนังที่ติดพื้นบางส่วนกลายเป็นลาวา (ไม่ปิดทางเดิน เพราะผนังเดินไม่ได้อยู่แล้ว)
+        if variant == 2 {
+            for y in 2..DH - 2 {
+                for x in 2..DW - 2 {
+                    if d.tile(x, y) == T_CWALL && [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|&(a, b)| d.tile(x + a, y + b) == T_CFLOOR) && r.f() < 0.2 {
+                        d.tiles[idx(x, y)] = T_LAVA;
+                    }
+                }
+            }
         }
         // มอนสเตอร์หนาแน่น (เจอมากกว่าห้องปกติ)
         let mut cand: Vec<(i32, i32)> = floors.iter().copied().filter(|&(x, y)| d.obj(x, y) == 0 && dd(x, y) >= 12 && !near_boss(x, y)).collect();
@@ -458,7 +469,7 @@ impl World {
         for k in 0..6 {
             let tx = cx * DCELL + 4 + (hash(cx, cy, s.wrapping_add(1 + k * 2)) * (DCELL - 8) as f64) as i32;
             let ty = cy * DCELL + 4 + (hash(cx, cy, s.wrapping_add(2 + k * 2)) * (DCELL - 8) as f64) as i32;
-            if matches!(self.tile_at(tx, ty), 2 | 3 | 4 | 5 | 7 | 8) && self.camp_near(tx, ty, 8).is_none() {
+            if matches!(self.tile_at(tx, ty), 2 | 3 | 4 | 5 | 7 | 8 | 15 | 16 | 17) && self.camp_near(tx, ty, 8).is_none() && self.mark_obj(tx, ty).is_none() {
                 return Some((tx, ty));
             }
         }
@@ -499,9 +510,11 @@ impl Game {
         let theme = self.w.tile_at(tile.0, tile.1);
         let cleared = self.dun_clear.contains(&cell);
         let cave = self.w.is_cave_cell(cell.0, cell.1);
-        let d = if cave { Dungeon::generate_cave(self.w.seed, cell, cleared, &self.dun_chests) } else { Dungeon::generate(self.w.seed, cell, theme, cleared, &self.dun_chests) };
+        let variant = if !cave { 0 } else if theme == 7 { 1 } else if theme == T_ASH { 2 } else { 0 };
+        let d = if cave { Dungeon::generate_cave(self.w.seed, cell, cleared, &self.dun_chests, variant) } else { Dungeon::generate(self.w.seed, cell, match theme { 15 => 4, 16 => 8, 17 => 5, t => t }, cleared, &self.dun_chests) };
         let mut mul = 1.25 + (tile.0 as f32 - self.spawn.0 / 16.).hypot(tile.1 as f32 - self.spawn.1 / 16.) / 250.;
         if cave { mul *= 1.4; }
+        if variant == 2 { mul *= 1.25; }
         self.obj_dmg.clear();
         self.dun_ret = (self.p.x, self.p.y);
         self.en.clear();
@@ -524,7 +537,11 @@ impl Game {
             self.spawn_boss_hp(bk, bx, by, hp);
         }
         self.tp_comp();
-        if cave {
+        if variant == 1 {
+            self.toast("เข้าสู่ถ้ำคริสตัล — คริสตัลและอัญมณีเต็มผนัง!");
+        } else if variant == 2 {
+            self.toast("เข้าสู่ถ้ำลาวา — ร้อนจัด ระวังลาวา มอนสเตอร์ดุมาก!");
+        } else if cave {
             self.toast("เข้าสู่ถ้ำใต้ดิน — มืด มีแร่ให้ขุด มอนสเตอร์ดุกว่า!");
         } else {
             self.toast(format!("เข้าสู่ดันเจี้ยน{}", TN[theme as usize]));
