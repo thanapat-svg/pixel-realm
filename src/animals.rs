@@ -90,7 +90,7 @@ impl Game {
         let t = self.w.tile_at(tx, ty);
         if collide(&self.w, x, y) || self.w.camp_near(tx, ty, 8).is_some() { return; }
         let Some(k) = self.animal_for(t, night, gen_range(0., 1.)) else { return };
-        if predator(k) && (self.in_safe(x, y) || self.w.near_fire(tx, ty, 8).is_some()) { return; }
+        if predator(k) && (self.in_grace() || self.in_safe(x, y) || self.w.near_fire(tx, ty, 8).is_some()) { return; }
         // เหยื่อมาเป็นฝูงเล็ก · นกเป็นฝูง · หมาป่ามาเป็นคู่/ฝูง
         let n = match k { A_BIRD => rnd(3, 5), A_DEER | A_ANTE => rnd(1, 3), A_WOLF => if night { rnd(2, 3) } else { 1 }, A_RABBIT => rnd(1, 2), _ => 1 };
         for i in 0..n {
@@ -138,7 +138,7 @@ impl Game {
             let mut target: Option<(f32, f32, Option<usize>)> = None;
             if k == A_WOLF && list[i].fed <= 0. {
                 let night = self.darkv > 0.45;
-                let aggro = if night { 120. } else { 70. };
+                let aggro = if night { 120. } else { 70. } * aggro_mul();
                 if dp < aggro && self.p.hp > 0 { target = Some((px, py, None)); }
                 for (j, o) in list.iter().enumerate() {
                     if j == i || o.dead || !prey(o.k) { continue; }
@@ -151,7 +151,7 @@ impl Game {
             if k == A_BOAR {
                 let hurt_bad = a.hp <= s.0 * 0.3;
                 if hurt_bad && dp < 100. { threat = Some((px, py, dp)); }
-                else if (dp < 36. || a.st == AS::Charge) && dp < 140. { target = Some((px, py, None)); }
+                else if (dp < 36. * aggro_mul() || a.st == AS::Charge) && dp < 140. { target = Some((px, py, None)); }
             }
             if k == A_CROC && (dp < 30. || (a.st == AS::Charge && dp < 70.)) { target = Some((px, py, None)); }
 
@@ -269,6 +269,8 @@ impl Game {
             if s.4 > 0 { self.gain(MEAT, s.4, x, y - 4.); }
             if k == A_WOLF && gen_range(0., 1.) < 0.3 { self.gain(COIN, rnd(2, 5), x, y - 10.); }
             self.quest_hunt(k);
+            self.an_hunted |= 1 << k;
+            if k != A_BIRD { self.add_hide(1); }
             self.p.xp += s.5;
             self.check_lv();
             self.burst(x, y - 6., hx(0xb02020), 12, 60.);

@@ -34,7 +34,7 @@ impl Game {
         if self.w.dun.is_some() { return (1., 1.); }
         let t = self.w.tile_at(tfloor(self.p.x), tfloor(self.p.y));
         let fire = self.w.near_fire(tfloor(self.p.x), tfloor(self.p.y), 3).is_some();
-        match t { 8 => (2.2, 1.0), 7 => (1.0, if fire { 1.0 } else { 1.5 }), T_SAVANNA => (1.6, 1.0), T_ASH => (2.6, 1.0), T_SWAMP => (1.0, 1.1), _ => (1., 1.) }
+        match t { 8 => (2.2, 1.0), 7 => (1.0, if fire { 1.0 } else if self.p.coat { 1.15 } else { 1.5 }), T_SAVANNA => (1.6, 1.0), T_ASH => (2.6, 1.0), T_SWAMP => (1.0, 1.1), _ => (1., 1.) }
     }
     /// ตัวคูณความเร็วเดินจากสภาพร่างกาย
     pub fn need_speed_mul(&self) -> f32 {
@@ -62,7 +62,8 @@ impl Game {
         if mode == 0 { self.p.hunger = 100.; self.p.thirst = 100.; self.p.rest = 100.; self.p.starve = 0.; return; }
         let (tm, hm) = self.climate();
         let (stm, shm) = self.season_climate();
-        let (tm, hm) = (tm * stm, hm * shm);
+        let dm = self.needs_drain_mul();
+        let (tm, hm) = (tm * stm * dm, hm * shm * dm);
         let act = if self.p.moving { 1.25 } else { 1. } * if self.p.atk_t > 0. { 1.2 } else { 1. };
         let (h0, t0, r0) = (self.p.hunger, self.p.thirst, self.p.rest);
         let sickm = if self.p.sick > 0. { 1.5 } else { 1. };

@@ -575,6 +575,19 @@ fn tab_stats(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect
         text(font, &format!("คริติคอล {:.0}% · ดาเมจ ดาบ x{:.2} · เลือด {}", g.p.crit_rate() * 100., g.p.atk_mul(0), g.p.maxhp), c.x + 8. * u, y + 22. * u, 12. * u, hx(0x88ff88));
     }
     y += 40. * u;
+    // ---- สมุดบันทึกการค้นพบ: ครบหมวดได้รางวัล
+    header(font, c, y, "สมุดบันทึกการค้นพบ (ครบหมวดได้รางวัล)", u);
+    y += 28. * u;
+    for cat in 0..CODEX.len() {
+        let (a, b, list) = g.codex_progress(cat);
+        let done = g.codex_done & (1 << cat) != 0;
+        let names: Vec<String> = list.iter().map(|(n, f)| if *f { n.clone() } else { "???".to_string() }).collect();
+        let body = format!("{} {}/{} · รางวัล: {}{} — {}", CODEX[cat].0, a, b, CODEX[cat].1, if done { " (ได้แล้ว)" } else { "" }, names.join(" · "));
+        let ws = wrap_th(font, &body, 12. * u, c.w - 24. * u);
+        let hh = ws.len() as f32 * 15. * u + 8. * u;
+        if visible(y, hh, c) { for (k, w) in ws.iter().enumerate() { text(font, w, c.x + 8. * u, y + 14. * u + k as f32 * 15. * u, 12. * u, if done { hx(0x88ff88) } else { hx(0xdddddd) }); } }
+        y += hh;
+    }
     if let Some(i) = act { g.spend_stat(i); }
     y - top
 }
@@ -599,7 +612,8 @@ fn tab_settings(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: R
         y += rh;
     }
     // ---- กราฟิก/ประสิทธิภาพ (ค่าส่วนกลาง ใช้ร่วมกับหน้าเมนูหลัก)
-    let grows: [(&str, &str, String); 7] = [
+    let grows: [(&str, &str, String); 8] = [
+        ("ความยาก", "ง่าย = โดนตีเบา หิวช้า สัตว์ไม่ค่อยดุ · ยาก = ทุกอย่างโหดขึ้น", diff_name().to_string()),
         ("เฟรมเรต", "30 ประหยัดแบต · 60 ลื่น · ไม่จำกัด = ตามรีเฟรชเรตจอ", prefs::fps_name().to_string()),
         ("เอฟเฟกต์ฝน/หิมะ", "ปิดแล้วเครื่องแรงน้อยจะลื่นขึ้น (ผลช้าลง/มืดยังอยู่)", if prefs::weather_fx() { "เปิด" } else { "ปิด" }.to_string()),
         ("แสงไดนามิก", "สูง = ละเอียด · ต่ำ = เร็วขึ้น · ปิด = มืดเรียบ", prefs::light_name().to_string()),
@@ -619,13 +633,14 @@ fn tab_settings(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: R
         y += rh;
     }
     match gflip {
-        0 => prefs::cycle_fps(),
-        1 => prefs::toggle(&prefs::WEATHER_FX),
-        2 => prefs::cycle_light(),
-        3 => prefs::cycle_touch(),
-        4 => prefs::toggle(&prefs::SHAKE),
-        5 => prefs::toggle(&prefs::SHOW_FPS),
-        6 => prefs::cycle_survival(),
+        0 => prefs::cycle_diff(),
+        1 => prefs::cycle_fps(),
+        2 => prefs::toggle(&prefs::WEATHER_FX),
+        3 => prefs::cycle_light(),
+        4 => prefs::cycle_touch(),
+        5 => prefs::toggle(&prefs::SHAKE),
+        6 => prefs::toggle(&prefs::SHOW_FPS),
+        7 => prefs::cycle_survival(),
         _ => {}
     }
     if visible(y, rh, c) {

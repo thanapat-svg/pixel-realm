@@ -32,6 +32,7 @@ mod land;
 mod seasons;
 mod animals;
 mod quests;
+mod balance;
 use extra::*;
 use farm::*;
 use guide::*;
@@ -53,6 +54,7 @@ use land::*;
 use seasons::*;
 use animals::*;
 use quests::*;
+use balance::*;
 
 // ======================= ค่าคงที่ =======================
 const DAYLEN: f32 = 240.0;
@@ -465,10 +467,10 @@ enum EK { Slime, Skel, Bat }
 struct Enemy { k: EK, x: f32, y: f32, hp: f32, spd: f32, dmg: i32, xp: i32, coin: i32, vx: f32, vy: f32, kb: f32, flash: f32, wt: f32, wdx: f32, wdy: f32, anim: f32, pal: usize, dead: bool, night: bool, burn: f32, slow: f32, stun: f32, btick: f32 }
 struct Particle { x: f32, y: f32, vx: f32, vy: f32, l: f32, c: Color }
 struct Float { x: f32, y: f32, t: String, c: Color, l: f32, icon: Option<usize>, sz: f32 }
-struct Player { x: f32, y: f32, dir: usize, flip: bool, hp: i32, maxhp: i32, xp: i32, lvl: i32, sword: usize, pick: bool, rod: bool, elem: u8, elems: u8, inv: [i32; NI], invul: f32, kbx: f32, kby: f32, kbt: f32, atk_t: f32, atk_cd: f32, anim: f32, moving: bool, regen: f32, last_hit: f32, kills: i32, weapon: u8, bow: bool, staff: u8, armor: [u8; 3], outfit: u8, outfits: u8, sp: i32, st: [u8; 4], wplus: [u8; 3], aplus: [u8; 3], dash_t: f32, dash_cd: f32, dash_dir: Vec2, ghost_t: f32, buff_spd: f32, buff_crit: f32, can: bool, water: i32, hunger: f32, thirst: f32, rest: f32, sick: f32, starve: f32, body: Body }
+struct Player { x: f32, y: f32, dir: usize, flip: bool, hp: i32, maxhp: i32, xp: i32, lvl: i32, sword: usize, pick: bool, rod: bool, elem: u8, elems: u8, inv: [i32; NI], invul: f32, kbx: f32, kby: f32, kbt: f32, atk_t: f32, atk_cd: f32, anim: f32, moving: bool, regen: f32, last_hit: f32, kills: i32, weapon: u8, bow: bool, staff: u8, armor: [u8; 3], outfit: u8, outfits: u8, sp: i32, st: [u8; 4], wplus: [u8; 3], aplus: [u8; 3], dash_t: f32, dash_cd: f32, dash_dir: Vec2, ghost_t: f32, buff_spd: f32, buff_crit: f32, can: bool, water: i32, hunger: f32, thirst: f32, rest: f32, sick: f32, starve: f32, body: Body, hides: i32, coat: bool }
 impl Player {
     fn new(x: f32, y: f32) -> Self {
-        Player { x, y, dir: 0, flip: false, hp: 10, maxhp: 10, xp: 0, lvl: 1, sword: 0, pick: false, rod: false, elem: 0, elems: 1, inv: [0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], invul: 0., kbx: 0., kby: 0., kbt: 0., atk_t: 0., atk_cd: 0., anim: 0., moving: false, regen: 0., last_hit: 0., kills: 0, weapon: 0, bow: false, staff: 0, armor: [0; 3], outfit: 0, outfits: 0, sp: 0, st: [0; 4], wplus: [0; 3], aplus: [0; 3], dash_t: 0., dash_cd: 0., dash_dir: Vec2::ZERO, ghost_t: 0., buff_spd: 0., buff_crit: 0., can: false, water: 0, hunger: 100., thirst: 100., rest: 100., sick: 0., starve: 0., body: Body::default() }
+        Player { x, y, dir: 0, flip: false, hp: 10, maxhp: 10, xp: 0, lvl: 1, sword: 0, pick: false, rod: false, elem: 0, elems: 1, inv: [0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], invul: 0., kbx: 0., kby: 0., kbt: 0., atk_t: 0., atk_cd: 0., anim: 0., moving: false, regen: 0., last_hit: 0., kills: 0, weapon: 0, bow: false, staff: 0, armor: [0; 3], outfit: 0, outfits: 0, sp: 0, st: [0; 4], wplus: [0; 3], aplus: [0; 3], dash_t: 0., dash_cd: 0., dash_dir: Vec2::ZERO, ghost_t: 0., buff_spd: 0., buff_crit: 0., can: false, water: 0, hunger: 100., thirst: 100., rest: 100., sick: 0., starve: 0., body: Body::default(), hides: 0, coat: false }
     }
     fn facing(&self) -> (f32, f32) {
         DV[if self.dir == 2 && self.flip { 3 } else { self.dir }]
@@ -516,6 +518,10 @@ struct Game {
     an_spawn_t: f32,
     an_told: HashSet<u8>,
     nreqs: Vec<NReq>,
+    tips: Vec<(String, f32)>,
+    tips_seen: u32,
+    an_hunted: u32,
+    codex_done: u32,
     camp_t: f32,
     build_sel: Option<usize>,
     req: Option<Req>,
@@ -608,7 +614,7 @@ impl Game {
             w, p: Player::new(0., 0.), en: vec![], parts: vec![], floats: vec![], toasts: vec![], time: 0., spawn: (0., 0.),
             seen: HashSet::new(), obj_dmg: HashMap::new(), shake: ((0, 0), 0.), hurt_flash: 0., darkv: 0., last_biome: -1,
             spawn_t: 0., save_t: 0., mini_t: 99., died: false, big_map: false, sfx,
-            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], camp_t: 0.,
+            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, an_hunted: 0, codex_done: 0, camp_t: 0.,
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
@@ -674,6 +680,7 @@ impl Game {
         s += &self.marks_save_str();
         s += &self.seasons_save_str();
         s += &self.quests_save_str();
+        s += &self.balance_save_str();
         s += "camps";
         for (x, y) in &self.camps_found { s += &format!(" {},{}", x, y); }
         s += "\nseen";
@@ -746,6 +753,7 @@ impl Game {
                 "town" | "npc" | "npcseen" => g.npc_load_line(tag, &rest),
                 "nsoc" | "nrel" | "nnews" => g.soc_load_line(tag, &rest),
                 "nreq" => g.quests_load_line(&rest),
+                "v9" => g.balance_load_line(&rest),
                 "farm" => { g.p.can = f(0) > 0.; g.p.water = (f(1) as i32).clamp(0, WATER_MAX); g.seed_sel = (f(2) as u8).min(1); }
                 "bed" => g.bed = Some((f(0) as i32, f(1) as i32)),
                 "fruit" => g.fruit_load_line(&rest),
@@ -1046,7 +1054,7 @@ impl Game {
         if !hit { play(&self.sfx.swing); }
     }
     fn hurt(&mut self, d: i32, nx: f32, ny: f32) {
-        let df = d as f32 * (1. - self.p.reduction());
+        let df = d as f32 * dmg_taken_mul() * (1. - self.p.reduction());
         let d = df.floor() as i32 + if gen_range(0., 1.) < df.fract() { 1 } else { 0 };
         self.p.hp -= d;
         self.p.invul = if d > 0 { 1. } else { 0.6 };
@@ -1082,7 +1090,8 @@ impl Game {
     fn try_spawn(&mut self) {
         if self.w.dun.is_some() { return; }
         let night = self.darkv > 0.45;
-        if self.en.len() >= if night { 10 } else { 4 } { return; }
+        let ncap = if self.in_grace() { 5 } else { [6, 10, 12][diff() as usize] };
+        if self.en.len() >= if night { ncap } else { 4 } { return; }
         let a = gen_range(0., std::f32::consts::TAU);
         let r = gen_range(13., 19.) * 16.;
         let (x, y) = (self.p.x + a.cos() * r, self.p.y + a.sin() * r);
@@ -1095,7 +1104,7 @@ impl Game {
         } else { EK::Slime };
         if self.in_safe(x, y) { return; }
         let mul = 1. + (x - self.spawn.0).hypot(y - self.spawn.1) / 16. / 250.;
-        let elite = night && gen_range(0., 1.) < 0.4;
+        let elite = night && !self.in_grace() && gen_range(0., 1.) < 0.4;
         let pal = match t { 8 => 1, 7 => 2, 4 => 3, _ => 0 };
         self.make_enemy(k, x, y, mul, pal, elite);
     }
@@ -1294,7 +1303,7 @@ impl Game {
         if self.boss_t <= 0. { self.boss_t = 2.; self.try_spawn_boss(); }
         if self.boss_cd > 0. { self.boss_cd -= dt; }
         self.camp_t -= dt;
-        if self.camp_t <= 0. { self.camp_t = 1.; self.discover_camps(); self.discover_marks(); }
+        if self.camp_t <= 0. { self.camp_t = 1.; self.discover_camps(); self.discover_marks(); self.tips_check(); }
         self.land_tick(dt);
         self.upd_enemies(dt);
         self.upd_drops(dt);
@@ -1307,6 +1316,8 @@ impl Game {
         for f in self.floats.iter_mut() { f.y -= 18. * dt; f.l -= dt; }
         self.floats.retain(|f| f.l > 0.);
         for t in self.toasts.iter_mut() { t.1 -= dt; }
+        for t in self.tips.iter_mut() { t.1 -= dt; }
+        self.tips.retain(|t| t.1 > 0.);
         self.toasts.retain(|t| t.1 > 0.);
         if self.shake.1 > 0. { self.shake.1 -= dt; }
         if self.cshake.1 > 0. { self.cshake.1 -= dt; }
@@ -1747,6 +1758,12 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
         text(font, &s, ix + 18. * u, y + 14. * u, 13. * u, WHITE);
         ix += w + 4. * u;
     }
+    if p.hides > 0 || p.coat {
+        let s = format!("หนัง {}{}", p.hides, if p.coat { " · ใส่เสื้อขนสัตว์" } else { "" });
+        let d = measure_text(&s, Some(font), (12. * u) as u16, 1.);
+        draw_rectangle(ix, y, d.width + 10. * u, 18. * u, Color::new(0.25, 0.15, 0.05, 0.7));
+        text(font, &s, ix + 5. * u, y + 13. * u, 12. * u, hx(0xe8c890));
+    }
     y += 24. * u;
     if p.reduction() > 0. {
         text(font, &format!("เกราะ ลดดาเมจ {:.0}% · เดินเร็ว +{:.0}%", p.reduction() * 100., (p.speed_mul() - 1.) * 100.), x, y + 10. * u, 11. * u, hx(0x88ccff));
@@ -1786,14 +1803,16 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
         let maxw = (sw * 0.36).min(440. * u).max(220. * u);
         let mut ty = y + 40. * u;
         let limit = sh * 0.62;
-        for (t, l) in g.toasts.iter() {
+        let feed = g.tips.iter().map(|t| (t, true)).chain(g.toasts.iter().map(|t| (t, false)));
+        for ((t, l), is_tip) in feed {
             let a = (l * 2.).min(1.);
+            let acc = if is_tip { Color::new(0.45, 0.85, 1., a) } else { Color::new(1., 0.8, 0.4, a) };
             let lines = menu::wrap_th(font, t, fs, maxw - 18. * u);
             let h = lines.len() as f32 * lh + 8. * u;
             if ty + h > limit { break; }
             let w = lines.iter().map(|s| measure_text(s, Some(font), fs as u16, 1.).width).fold(0., f32::max) + 18. * u;
             draw_rectangle(x, ty, w, h, Color::new(0.05, 0.06, 0.1, 0.72 * a));
-            draw_rectangle(x, ty, 3. * u, h, Color::new(1., 0.8, 0.4, a));
+            draw_rectangle(x, ty, 3. * u, h, acc);
             for (k, s) in lines.iter().enumerate() { text(font, s, x + 10. * u, ty + 4. * u + lh * (k as f32 + 0.78), fs, Color::new(1., 1., 0.93, a)); }
             ty += h + 4. * u;
         }
@@ -5354,5 +5373,96 @@ mod quest_tests {
         let r = until(&mut h, &|r| r.from == 1);
         let ri = h.nreqs.iter().position(|x| *x == r).unwrap();
         if !matches!(r.k, QK::Theft { .. } | QK::Dispute { .. }) { assert!(h.req_do(ri, QA::Decline).is_some()); assert!(h.nreqs.iter().all(|x| *x != r)); }
+    }
+}
+
+#[cfg(test)]
+mod balance_tests {
+    use super::*;
+
+    #[test]
+    fn difficulty_tables_scale_monotonically() {
+        for t in [DMG, EMUL, NMUL, AMUL] { assert!(t[0] < t[1] && t[1] < t[2] && t[1] == 1.0); }
+        assert_eq!(diff(), 1, "ค่าเริ่มต้น = ปกติ");
+    }
+
+    #[test]
+    fn grace_period_softens_first_two_days() {
+        let mut g = Game::new_world_seed(777, Sfx::default());
+        g.time = DAYLEN * 0.5;
+        assert!(g.in_grace() && g.needs_drain_mul() < 1.);
+        // ป่ากลางคืนช่วงผ่อนแรง: ไม่มีสัตว์ดุ
+        let mut spot = (0, 0);
+        'a: for r in 0..300 { for dx in -r..=r { if g.w.tile_at(dx, r) == 4 { spot = (dx, r); break 'a; } } }
+        g.p.x = spot.0 as f32 * 16.; g.p.y = spot.1 as f32 * 16.;
+        g.darkv = 0.9;
+        for _ in 0..600 { g.try_spawn_animal(); g.animals.retain(|a| prey(a.k) && false); }
+        let mut preds = 0;
+        for _ in 0..600 { g.try_spawn_animal(); preds += g.animals.iter().filter(|a| predator(a.k)).count(); g.animals.clear(); }
+        assert_eq!(preds, 0, "ช่วงผ่อนแรงไม่มีสัตว์ดุ");
+        g.time = DAYLEN * 3.5;
+        assert!(!g.in_grace() && g.needs_drain_mul() == 1.);
+        for _ in 0..600 { g.try_spawn_animal(); preds += g.animals.iter().filter(|a| predator(a.k)).count(); g.animals.clear(); }
+        assert!(preds > 0, "พ้นช่วงผ่อนแรงแล้วมีหมาป่า/หมูป่า");
+    }
+
+    #[test]
+    fn winter_is_announced_two_days_ahead() {
+        let mut g = Game::new_world_seed(777, Sfx::default());
+        g.time = DAYLEN * 8.1;
+        g.winter_warn();
+        assert!(g.toasts.iter().any(|t| t.0.contains("อีก 2 วัน")));
+        assert!(g.tips_seen & (1 << TIP_WINTER) != 0);
+        g.toasts.clear();
+        g.time = DAYLEN * 9.1;
+        g.winter_warn();
+        assert!(g.toasts.iter().any(|t| t.0.contains("พรุ่งนี้")));
+        g.toasts.clear();
+        g.time = DAYLEN * 3.1;
+        g.winter_warn();
+        assert!(g.toasts.is_empty());
+        g.time = DAYLEN * 28.1; // ปีถัดไป
+        g.winter_warn();
+        assert!(g.toasts.iter().any(|t| t.0.contains("อีก 2 วัน")));
+    }
+
+    #[test]
+    fn hunting_gives_hides_and_coat_keeps_you_warm() {
+        let mut g = Game::new_world_seed(777, Sfx::default());
+        g.p.x = 100.; g.p.y = 100.;
+        let d = g.new_animal(A_DEER, 110., 100.);
+        g.animals.push(d);
+        for _ in 0..5 { if g.animals.is_empty() { break; } g.hit_animal(0, 1, 1., 0.); }
+        assert_eq!(g.p.hides, 1);
+        assert!(g.an_hunted & (1 << A_DEER) != 0);
+        let ri = RECIPES.iter().position(|r| r.name == "เสื้อขนสัตว์").unwrap();
+        g.p.inv[WOOD] = 10;
+        assert_eq!(recipe_state(&g.p, &RECIPES[ri]), 2, "หนังไม่พอ = ล็อก");
+        g.p.hides = 6;
+        g.time = DAYLEN * 11.; // หน้าหนาว
+        g.p.x = -99999.; // ไกลกองไฟ
+        let cold = g.season_climate().1;
+        g.craft(ri);
+        assert!(g.p.coat && g.p.hides == 1);
+        assert!(g.season_climate().1 < cold, "เสื้อขนสัตว์กันหนาว");
+        let s = g.balance_save_str();
+        let mut h = Game::new_world_seed(777, Sfx::default());
+        h.balance_load_line(&s.split_whitespace().skip(1).collect::<Vec<_>>());
+        assert!(h.p.coat && h.p.hides == 1 && h.an_hunted == g.an_hunted);
+    }
+
+    #[test]
+    fn tips_show_once_and_codex_rewards_once() {
+        let mut g = Game::new_world_seed(777, Sfx::default());
+        g.tip(TIP_NIGHT);
+        g.tip(TIP_NIGHT);
+        assert_eq!(g.tips.len(), 1);
+        for &t in CODEX_BIOMES.iter() { g.seen.insert(t); }
+        let hp = g.p.maxhp;
+        g.codex_check();
+        g.codex_check();
+        assert_eq!(g.p.maxhp, hp + 4, "รางวัลครบไบโอมได้ครั้งเดียว");
+        assert_eq!(g.codex_progress(0).0, CODEX_BIOMES.len());
+        assert_eq!(g.codex_progress(2).0, 0);
     }
 }

@@ -12,6 +12,8 @@ pub static SHOW_FPS: AtomicBool = AtomicBool::new(false);
 pub static SHAKE: AtomicBool = AtomicBool::new(true);
 /// ระบบเอาตัวรอด (หิว/กระหาย/เหนื่อย): 0 = ปิด · 1 = ปกติ (ไม่ตายเพราะหิว) · 2 = ยาก (หมดสติได้)
 pub static SURVIVAL: AtomicU8 = AtomicU8::new(1);
+/// ระดับความยาก 0 ง่าย · 1 ปกติ · 2 ยาก
+pub static DIFF: AtomicU8 = AtomicU8::new(1);
 
 pub fn fps_mode() -> u8 { FPS_MODE.load(Relaxed) }
 pub fn weather_fx() -> bool { WEATHER_FX.load(Relaxed) }
@@ -20,6 +22,7 @@ pub fn show_fps() -> bool { SHOW_FPS.load(Relaxed) }
 pub fn shake() -> bool { SHAKE.load(Relaxed) }
 pub fn survival() -> u8 { SURVIVAL.load(Relaxed) }
 pub fn survival_name() -> &'static str { ["ปิด", "ปกติ", "ยาก"][survival().min(2) as usize] }
+pub fn cycle_diff() { DIFF.store((DIFF.load(Relaxed) + 1) % 3, Relaxed); save(); }
 pub fn cycle_survival() { SURVIVAL.store((survival() + 1) % 3, Relaxed); save(); }
 pub fn touch_mul() -> f32 { [0.8, 1.0, 1.2, 1.4][(TOUCH_SZ.load(Relaxed) as usize).min(3)] }
 /// เวลาต่อเฟรมเป้าหมาย (วินาที) หรือ None = ไม่จำกัด
@@ -31,8 +34,8 @@ fn path() -> String { format!("{}.cfg", crate::save_path()) }
 
 pub fn save() {
     let s = format!(
-        "fps {}\nweather {}\nlight {}\ntouch {}\nshowfps {}\nshake {}\nsurvival {}\n",
-        fps_mode(), weather_fx() as u8, light_q(), TOUCH_SZ.load(Relaxed), show_fps() as u8, shake() as u8, survival()
+        "fps {}\nweather {}\nlight {}\ntouch {}\nshowfps {}\nshake {}\nsurvival {}\ndiff {}\n",
+        fps_mode(), weather_fx() as u8, light_q(), TOUCH_SZ.load(Relaxed), show_fps() as u8, shake() as u8, survival(), DIFF.load(Relaxed)
     );
     let _ = std::fs::write(path(), s);
 }
@@ -50,6 +53,7 @@ pub fn load() {
             "showfps" => SHOW_FPS.store(v > 0, Relaxed),
             "shake" => SHAKE.store(v > 0, Relaxed),
             "survival" => SURVIVAL.store(v.min(2), Relaxed),
+            "diff" => DIFF.store(v.min(2), Relaxed),
             _ => {}
         }
     }

@@ -216,6 +216,7 @@ impl Game {
     }
     /// สร้างมอนสเตอร์ตามค่าพื้นฐาน × ตัวคูณความยาก (กลางคืน = เวอร์ชันเก่งกว่า ดรอปเศษดาว)
     pub fn make_enemy(&mut self, k: EK, x: f32, y: f32, mul: f32, pal: usize, night: bool) {
+        let mul = mul * enemy_mul();
         let (hp, spd, dmg, xp, coin) = match k {
             EK::Slime => (3., 24., 1., 3., 1.),
             EK::Skel => (6., 34., 2., 7., 3.),

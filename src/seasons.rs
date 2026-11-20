@@ -55,7 +55,7 @@ impl Game {
     pub fn season_climate(&self) -> (f32, f32) {
         if self.w.dun.is_some() { return (1., 1.); }
         let fire = self.w.near_fire(tfloor(self.p.x), tfloor(self.p.y), 3).is_some();
-        match season(self) { 1 => (1.15, 1.), 3 => (1., if fire { 1. } else { 1.2 }), _ => (1., 1.) }
+        match season(self) { 1 => (1.15, 1.), 3 => (1., if fire || self.p.coat { 1. } else { 1.2 }), _ => (1., 1.) }
     }
     /// ตัวคูณการโตของพืชผล
     pub fn crop_season_mul(&self) -> f32 {
@@ -97,7 +97,9 @@ impl Game {
     pub fn season_dawn(&mut self) {
         let day = day_of(self);
         let s = season_of_day(day);
+        self.winter_warn();
         if day > 0 && day % SEASON_DAYS == 0 {
+            self.tip(TIP_SEASON);
             self.toast(format!("เข้าสู่{}", SEASON_N[s as usize]) + match s {
                 0 => " — พืชโตเร็ว ฝนตกบ่อย",
                 1 => " — ร้อน กระหายน้ำเร็ว ฝนน้อย",
