@@ -98,6 +98,12 @@ impl Game {
         let base = base_rel(&self.npcs[ia], &self.npcs[ib]);
         (base + self.rels.get(&(a.min(b), a.max(b))).copied().unwrap_or(0)).clamp(-100, 100)
     }
+    /// ตั้งความสัมพันธ์ให้ได้ค่าที่ต้องการ (−100..100)
+    pub fn set_rel(&mut self, a: u32, b: u32, target: i32) {
+        let (Some(ia), Some(ib)) = (self.idx(a), self.idx(b)) else { return };
+        let base = base_rel(&self.npcs[ia], &self.npcs[ib]);
+        self.rels.insert((a.min(b), a.max(b)), (target.clamp(-100, 100) - base).clamp(-150, 150));
+    }
     pub fn add_rel(&mut self, a: u32, b: u32, d: i32) {
         let e = self.rels.entry((a.min(b), a.max(b))).or_insert(0);
         *e = (*e + d).clamp(-150, 150);
@@ -125,6 +131,7 @@ impl Game {
         if ok { n.hearts = (n.hearts + 1).min(10); }
         self.toast(if ok { format!("คุยกับ{} — สนิทกันขึ้น", nm) } else { format!("คุยกับ{} — เขาไม่ค่อยเปิดใจ ค่อยๆ ทำความรู้จักกันไป", nm) });
         play(&self.sfx.pickup);
+        self.quest_talked(id);
         self.save();
     }
     pub fn npc_gift_item(&mut self, id: u32, item: usize) {

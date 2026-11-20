@@ -309,6 +309,8 @@ impl Game {
         }
         self.assign_roles();
         let news_n = self.social_dawn();
+        self.quest_reset_daily();
+        self.quest_dawn();
         self.assign_roles();
         // ชาวไร่: รดน้ำ เก็บเกี่ยว ปลูกซ้ำ
         let farmers: Vec<(i32, i32)> = self.npcs.iter().filter(|n| n.state == ST_HOME && n.role == 1 && n.mood >= 20 && Game::willing(n)).map(|n| n.bed).collect();
@@ -469,6 +471,14 @@ pub fn draw_npc(g: &Game, sp: &Sprites, v: &View, i: usize, t_now: f32) {
         prect(v, cx - 3., cy - 1., 6., 2., hx(0xff3030));
     } else if n.state == ST_HOME && n.mood < 25 {
         text_c_world(v, "!", sx, sy - 19. * k - bob, hx(0xff4444), t_now);
+    } else if !g.reqs_for(n.id).is_empty() {
+        // มีคำขอ/เรื่องให้จัดการ: กรอบคำพูดสีเหลือง
+        let b = ((t_now * 4.).sin() * 1.).round();
+        let (cx, cy) = (sx + 5., sy - 22. * k - bob + b);
+        prect(v, cx - 3., cy - 4., 7., 7., hx(0xfff4b0));
+        prect(v, cx - 2., cy + 3., 2., 2., hx(0xfff4b0));
+        prect(v, cx, cy - 3., 1., 3., hx(0x6a4a10));
+        prect(v, cx, cy + 1., 1., 1., hx(0x6a4a10));
     }
 }
 pub fn draw_lost(g: &Game, sp: &Sprites, v: &View, x: f32, y: f32, name: u8, look: u8, t_now: f32) {

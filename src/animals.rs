@@ -268,6 +268,7 @@ impl Game {
             let s = AN_STAT[k as usize];
             if s.4 > 0 { self.gain(MEAT, s.4, x, y - 4.); }
             if k == A_WOLF && gen_range(0., 1.) < 0.3 { self.gain(COIN, rnd(2, 5), x, y - 10.); }
+            self.quest_hunt(k);
             self.p.xp += s.5;
             self.check_lv();
             self.burst(x, y - 6., hx(0xb02020), 12, 60.);

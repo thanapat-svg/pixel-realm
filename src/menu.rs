@@ -839,6 +839,18 @@ fn tab_town(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
         }
         y += 44. * u;
     }
+    if !g.nreqs.is_empty() {
+        header(font, c, y, "คำขอจากชาวบ้าน (คุยกับคนที่มีกรอบคำพูดสีเหลือง)", u);
+        y += 28. * u;
+        let day = day_of(g);
+        let txts: Vec<String> = g.nreqs.iter().map(|r| format!("{} · เหลือ {} วัน", g.req_text(r), (REQ_DAYS - (day - r.day)).max(0) + 1)).collect();
+        for t in txts {
+            let ws = wrap_th(font, &t, 11. * u, c.w - 24. * u);
+            let hh = ws.len() as f32 * 14. * u + 6. * u;
+            if visible(y, hh, c) { for (k, w) in ws.iter().enumerate() { text(font, w, c.x + 8. * u, y + 13. * u + k as f32 * 14. * u, 11. * u, hx(0xfff0b0)); } }
+            y += hh;
+        }
+    }
     if !g.news.is_empty() {
         header(font, c, y, "ข่าวหมู่บ้าน", u);
         y += 28. * u;
@@ -920,6 +932,33 @@ fn tab_npc_dialog(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c:
             y += hh;
         }
         y += 6. * u;
+    }
+    // ---- คำขอ/ปัญหาที่เกี่ยวกับคนนี้
+    let mut qdo: Option<(usize, QA)> = None;
+    let rq = g.reqs_for(id);
+    if !rq.is_empty() {
+        header(font, c, y, "เรื่องที่ขอให้ช่วย", u);
+        y += 28. * u;
+        for ri in rq {
+            let t = g.req_text(&g.nreqs[ri]);
+            let ws = wrap_th(font, &t, 12. * u, c.w - 24. * u);
+            let hh = ws.len() as f32 * 15. * u + 6. * u;
+            if visible(y, hh, c) { for (k, w) in ws.iter().enumerate() { text(font, w, c.x + 8. * u, y + 14. * u + k as f32 * 15. * u, 12. * u, hx(0xfff0b0)); } }
+            y += hh;
+            let acts = g.req_actions(ri, id);
+            let bw = ((c.w - 16. * u) / acts.len().max(1) as f32).min(150. * u);
+            if visible(y, 40. * u, c) {
+                for (k, (a, lab, en)) in acts.iter().enumerate() {
+                    if btn(ui, font, Rect::new(c.x + 8. * u + k as f32 * bw, y + 4. * u, bw - 6. * u, 32. * u), lab, *en, u) { qdo = Some((ri, *a)); }
+                }
+            }
+            y += 42. * u;
+            sep(c, y - 2.);
+        }
+    }
+    if let Some((ri, a)) = qdo {
+        if let Some(m) = g.req_do(ri, a) { g.toast(m); }
+        if g.idx(id).is_none() { ui.npc = None; return y - top; }
     }
     #[derive(Clone, Copy, PartialEq)]
     enum A { Talk, GiftToggle, Give(usize), Apology, Invite, Marry, Shop, Dismiss, Back }

@@ -31,6 +31,7 @@ mod trees;
 mod land;
 mod seasons;
 mod animals;
+mod quests;
 use extra::*;
 use farm::*;
 use guide::*;
@@ -51,6 +52,7 @@ use trees::*;
 use land::*;
 use seasons::*;
 use animals::*;
+use quests::*;
 
 // ======================= ค่าคงที่ =======================
 const DAYLEN: f32 = 240.0;
@@ -513,6 +515,7 @@ struct Game {
     animals: Vec<Animal>,
     an_spawn_t: f32,
     an_told: HashSet<u8>,
+    nreqs: Vec<NReq>,
     camp_t: f32,
     build_sel: Option<usize>,
     req: Option<Req>,
@@ -605,7 +608,7 @@ impl Game {
             w, p: Player::new(0., 0.), en: vec![], parts: vec![], floats: vec![], toasts: vec![], time: 0., spawn: (0., 0.),
             seen: HashSet::new(), obj_dmg: HashMap::new(), shake: ((0, 0), 0.), hurt_flash: 0., darkv: 0., last_biome: -1,
             spawn_t: 0., save_t: 0., mini_t: 99., died: false, big_map: false, sfx,
-            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), camp_t: 0.,
+            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], camp_t: 0.,
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
@@ -670,6 +673,7 @@ impl Game {
         s += "\n";
         s += &self.marks_save_str();
         s += &self.seasons_save_str();
+        s += &self.quests_save_str();
         s += "camps";
         for (x, y) in &self.camps_found { s += &format!(" {},{}", x, y); }
         s += "\nseen";
@@ -741,6 +745,7 @@ impl Game {
                 "need" => { g.p.hunger = f(0).clamp(0., 100.); g.p.thirst = f(1).clamp(0., 100.); g.p.rest = f(2).clamp(0., 100.); g.p.sick = f(3).max(0.); }
                 "town" | "npc" | "npcseen" => g.npc_load_line(tag, &rest),
                 "nsoc" | "nrel" | "nnews" => g.soc_load_line(tag, &rest),
+                "nreq" => g.quests_load_line(&rest),
                 "farm" => { g.p.can = f(0) > 0.; g.p.water = (f(1) as i32).clamp(0, WATER_MAX); g.seed_sel = (f(2) as u8).min(1); }
                 "bed" => g.bed = Some((f(0) as i32, f(1) as i32)),
                 "fruit" => g.fruit_load_line(&rest),
@@ -5168,5 +5173,172 @@ mod animal_tests {
         g.w.dun = Some(Box::new(Dungeon::generate_cave(777, (1, 1), false, &HashSet::new(), 0)));
         g.animals_tick(0.1);
         assert!(g.animals.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod quest_tests {
+    use super::*;
+
+    fn mk(id: u32, bed: (i32, i32)) -> npc::Npc {
+        npc::Npc { id, name: (id % 12) as u8, look: 0, x: bed.0 as f32 * 16. + 8., y: bed.1 as f32 * 16. + 18., state: npc::ST_HOME, hearts: 3, mood: 70, married: false, child: false, role: 0, bed, anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false, soc: Soc::generate(id, (id % 12) as u8) }
+    }
+    fn town(n: u32) -> Game {
+        let mut g = Game::new_world_seed(1, Sfx::default());
+        for k in 0..n { let b = (500 + k as i32 * 2, 500); g.w.placed.insert(b, 33); g.npcs.push(mk(k + 1, b)); }
+        g.npc_next = n + 1;
+        // ทุกคนนิสัยกลางๆ (ไม่ขอ/ไม่ขโมยเอง) — แต่ละเทสต์ตั้งเองตามต้องการ
+        for nn in g.npcs.iter_mut() { nn.soc.tr = [50, 50, 50, 50, 50]; }
+        g
+    }
+    /// เดินวันไปจนเกิดคำขอที่ต้องการ
+    fn until(g: &mut Game, f: &dyn Fn(&NReq) -> bool) -> NReq {
+        for d in 1..80 {
+            g.time = DAYLEN * (d as f32 + 0.2);
+            g.nreqs.retain(|r| f(r));
+            g.quest_dawn();
+            if let Some(r) = g.nreqs.iter().find(|r| f(r)) { return r.clone(); }
+        }
+        panic!("ไม่เกิดคำขอ");
+    }
+
+    #[test]
+    fn hungry_villager_asks_for_food_and_pays() {
+        let mut g = town(2);
+        g.npcs[0].mood = 30;
+        let r = until(&mut g, &|r| r.from == 1 && matches!(r.k, QK::Fetch { .. }));
+        let QK::Fetch { item, qty } = r.k else { unreachable!() };
+        assert!(nutrition(item).is_some(), "คนหิวขอของกิน");
+        let ri = g.nreqs.iter().position(|x| *x == r).unwrap();
+        assert!(!g.req_actions(ri, 1)[0].2, "ของไม่พอ กดไม่ได้");
+        g.p.inv[item] = qty;
+        let (c0, h0) = (g.p.inv[COIN], g.npcs[0].hearts);
+        assert!(g.req_do(ri, QA::Hand).is_some());
+        assert_eq!(g.p.inv[item], 0);
+        assert!(g.p.inv[COIN] > c0 && g.npcs[0].hearts == h0 + 1);
+        assert!(g.nreqs.iter().all(|x| x.from != 1));
+    }
+
+    #[test]
+    fn coward_asks_to_hunt_and_kills_count() {
+        let mut g = town(2);
+        g.npcs[0].soc.tr[T_BRAVE] = 15;
+        let r = until(&mut g, &|r| r.from == 1 && matches!(r.k, QK::Hunt { .. }));
+        let QK::Hunt { animal, n, .. } = r.k else { unreachable!() };
+        let ri = g.nreqs.iter().position(|x| *x == r).unwrap();
+        assert!(g.req_do(ri, QA::Report).is_none(), "ยังล่าไม่ครบ");
+        g.quest_hunt(if animal == A_DEER { A_RABBIT } else { A_DEER });
+        for _ in 0..n { g.quest_hunt(animal); }
+        let ri = g.nreqs.iter().position(|x| x.from == 1).unwrap();
+        assert!(matches!(g.nreqs[ri].k, QK::Hunt { done, n, .. } if done == n));
+        assert!(g.req_do(ri, QA::Report).is_some());
+    }
+
+    #[test]
+    fn kind_villager_asks_to_mediate_and_talking_to_both_reconciles() {
+        let mut g = town(3);
+        g.npcs[0].soc.tr[T_KIND] = 90;
+        g.set_rel(2, 3, -40);
+        assert_eq!(g.rel_between(2, 3), -40);
+        let r = until(&mut g, &|r| r.from == 1 && matches!(r.k, QK::Mediate { .. }));
+        assert!(matches!(r.k, QK::Mediate { a: 2, b: 3, .. }));
+        let before = g.rel_between(2, 3);
+        g.quest_talked(2);
+        assert!(g.nreqs.iter().any(|x| x.from == 1), "ยังไม่ครบสองคน");
+        g.quest_reset_daily(); // ข้ามวัน = ต้องคุยใหม่ทั้งคู่
+        g.quest_talked(3);
+        assert!(g.nreqs.iter().any(|x| x.from == 1));
+        g.quest_talked(2);
+        assert!(g.nreqs.iter().all(|x| x.from != 1), "ไกล่เกลี่ยสำเร็จ");
+        assert!(g.rel_between(2, 3) >= before + 35);
+    }
+
+    fn dispute() -> (Game, usize) {
+        let mut g = town(2);
+        g.add_rel(1, 2, -300);
+        let r = until(&mut g, &|r| matches!(r.k, QK::Dispute { .. }));
+        let ri = g.nreqs.iter().position(|x| *x == r).unwrap();
+        (g, ri)
+    }
+    #[test]
+    fn dispute_sides_and_compromise_need_trust() {
+        let (g, ri) = dispute();
+        assert_eq!(g.req_actions(ri, 2).len(), 3, "คู่กรณีทั้งสองเห็นตัวเลือก");
+        // ประนีประนอมไม่ได้เพราะยังไม่สนิท
+        let (mut h, ri) = dispute();
+        let msg = h.req_do(ri, QA::Compromise).unwrap();
+        assert!(msg.contains("ไม่มีใครฟัง"));
+        // สนิทกับทั้งคู่ → ประนีประนอมได้
+        let (mut h2, ri) = dispute();
+        for n in h2.npcs.iter_mut() { n.hearts = 6; }
+        let r0 = h2.rel_between(1, 2);
+        h2.req_do(ri, QA::Compromise);
+        assert!(h2.rel_between(1, 2) >= r0 + 45);
+        // เข้าข้างคนที่ 1 → คนที่ 2 แค้น
+        let (mut g, ri) = dispute();
+        let g2 = g.npcs[1].soc.grudge;
+        let h1 = g.npcs[0].hearts;
+        g.req_do(ri, QA::Side(1));
+        assert!(g.npcs[1].soc.grudge >= g2 + 25 && g.npcs[1].soc.anger >= 30);
+        assert_eq!(g.npcs[0].hearts, h1 + 1);
+    }
+
+    fn theft() -> (Game, usize, NReq) {
+        let mut g = town(3);
+        g.npcs[0].soc.tr = [10, 50, 95, 50, 50]; // โลภ ใจดำ
+        g.npcs[0].mood = 40;
+        g.npcs[2].soc.tr[T_SOCIAL] = 95; // ช่างพูด → พยาน
+        g.w.placed.insert((503, 503), 14);
+        let mut c = [0; NI];
+        c[COIN] = 30;
+        g.chests.insert((503, 503), c);
+        let r = until(&mut g, &|r| matches!(r.k, QK::Theft { .. }));
+        let ri = g.nreqs.iter().position(|x| *x == r).unwrap();
+        (g, ri, r)
+    }
+    #[test]
+    fn thief_steals_from_chest_witness_reports_and_choices_matter() {
+        let (g, _, r) = theft();
+        let QK::Theft { thief, item, qty } = r.k.clone() else { unreachable!() };
+        assert_eq!(thief, 1);
+        assert_eq!(r.from, 3, "คนช่างพูดเป็นพยาน");
+        assert_eq!(g.chests[&(503, 503)][item], 30 - qty);
+        // ไล่ออก: ได้ของคืนและคนขโมยหายไป
+        let (mut h, ri, _) = theft();
+        let c0 = h.p.inv[item];
+        h.req_do(ri, QA::Expel);
+        assert!(h.idx(1).is_none() && h.p.inv[item] == c0 + qty);
+        // ยกโทษ: ความโลภลดลง
+        let (mut h2, ri, _) = theft();
+        h2.req_do(ri, QA::Forgive);
+        assert!(h2.npcs[0].soc.tr[T_GREED] < 95);
+        // ทวงคืน: คนขโมยโกรธ
+        let (mut g, ri, _) = theft();
+        g.req_do(ri, QA::Reclaim);
+        assert!(g.npcs[0].soc.anger >= 30);
+    }
+
+    #[test]
+    fn ignored_requests_expire_with_disappointment_and_save_roundtrip() {
+        let mut g = town(2);
+        g.npcs[0].mood = 30;
+        let r = until(&mut g, &|r| r.from == 1);
+        let s = g.quests_save_str();
+        let mut h = town(2);
+        for line in s.lines() { let v: Vec<&str> = line.split_whitespace().collect(); h.quests_load_line(&v[1..]); }
+        assert_eq!(h.nreqs, g.nreqs);
+        let m0 = g.npcs[0].mood;
+        g.npcs[0].soc.tr = [50, 50, 50, 50, 50];
+        g.npcs[0].mood = 80; // ไม่ให้ขอเรื่องใหม่
+        let m0 = m0.max(80);
+        g.time = DAYLEN * (r.day + REQ_DAYS + 1) as f32 + 1.;
+        g.quest_dawn();
+        assert!(g.nreqs.iter().all(|x| *x != r), "หมดเวลา");
+        assert!(g.npcs[0].mood < m0);
+        assert!(g.news.iter().any(|(_, t)| t.contains("ผิดหวัง")));
+        // ปฏิเสธ
+        let r = until(&mut h, &|r| r.from == 1);
+        let ri = h.nreqs.iter().position(|x| *x == r).unwrap();
+        if !matches!(r.k, QK::Theft { .. } | QK::Dispute { .. }) { assert!(h.req_do(ri, QA::Decline).is_some()); assert!(h.nreqs.iter().all(|x| *x != r)); }
     }
 }
