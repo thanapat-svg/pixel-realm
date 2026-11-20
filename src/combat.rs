@@ -182,6 +182,12 @@ impl Game {
                     }
                     continue;
                 }
+                if let Some(i) = self.animal_at(p.x, p.y, r) {
+                    p.dead = true;
+                    let l = p.vx.hypot(p.vy).max(0.001);
+                    self.hit_animal(i, p.dmg, p.vx / l, p.vy / l);
+                    continue;
+                }
                 let mut bh: Option<usize> = None;
                 for (i, b) in self.bosses.iter().enumerate() {
                     if !b.dead && (b.x - p.x).hypot(b.y - 12. - p.y) < r + BOSS_R {

@@ -30,6 +30,7 @@ mod social;
 mod trees;
 mod land;
 mod seasons;
+mod animals;
 use extra::*;
 use farm::*;
 use guide::*;
@@ -49,6 +50,7 @@ use social::*;
 use trees::*;
 use land::*;
 use seasons::*;
+use animals::*;
 
 // ======================= ค่าคงที่ =======================
 const DAYLEN: f32 = 240.0;
@@ -349,6 +351,7 @@ struct Sprites {
     icons: Vec<Rect>,
     ex: art::Extras,
     skin: Skin,
+    animals: Vec<Rect>,
 }
 fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
     let mut at = Atlas { img: Image::gen_image_color(512, 1024, BLANK), cx: 0, cy: 0, rowh: 0 };
@@ -442,6 +445,7 @@ fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
     let mut ex = art::build_extra(&mut at, &mut obj, &mut icons);
     trees::build_trees(&mut at, &mut obj);
     land::build_land(&mut at, &mut obj);
+    let an_rects = animals::build_animals(&mut at);
     ex.flash_slime = [fl_slime[0], fl_slime[1], fl_slime[2], fl_slime[3]];
     ex.flash_skel = fl_skel;
     ex.flash_bat = fl_bat;
@@ -449,7 +453,7 @@ fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
     ov.apply(&mut at, &mut tiles, &mut obj, &mut icons);
     let tex = Texture2D::from_image(&at.img);
     tex.set_filter(FilterMode::Nearest);
-    Sprites { tex, tiles, player, slime, skel, bat, obj, icons, ex, skin }
+    Sprites { tex, tiles, player, slime, skel, bat, obj, icons, ex, skin, animals: an_rects }
 }
 
 // ======================= entities =======================
@@ -506,6 +510,9 @@ struct Game {
     lava_told: bool,
     felled: HashMap<(i32, i32), (i32, u8)>,
     planted: HashMap<(i32, i32), i32>,
+    animals: Vec<Animal>,
+    an_spawn_t: f32,
+    an_told: HashSet<u8>,
     camp_t: f32,
     build_sel: Option<usize>,
     req: Option<Req>,
@@ -598,7 +605,7 @@ impl Game {
             w, p: Player::new(0., 0.), en: vec![], parts: vec![], floats: vec![], toasts: vec![], time: 0., spawn: (0., 0.),
             seen: HashSet::new(), obj_dmg: HashMap::new(), shake: ((0, 0), 0.), hurt_flash: 0., darkv: 0., last_biome: -1,
             spawn_t: 0., save_t: 0., mini_t: 99., died: false, big_map: false, sfx,
-            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), camp_t: 0.,
+            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), camp_t: 0.,
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
@@ -1015,6 +1022,7 @@ impl Game {
                 self.hit_boss(i, dmg);
             }
         }
+        if self.melee_animals(fx, fy, dmg, dx, dy) { hit = true; }
         if !hit {
             // ฟันโดนชาวบ้าน (เฉพาะตอนไม่ได้โดนมอนสเตอร์) — มีผลต่อความรู้สึกของเขา
             let victim = self.npcs.iter().position(|n| n.state != ST_LOST && (n.x - fx).hypot(n.y - 6. - fy) < 12.);
@@ -1261,6 +1269,7 @@ impl Game {
         // enemies
         self.spawn_t -= dt;
         if self.spawn_t <= 0. { self.spawn_t = 1.; self.try_spawn(); }
+        self.animals_tick(dt);
         self.pick_cd -= dt;
         self.upd_buffs(dt);
         self.upd_fish(dt);
@@ -1319,7 +1328,7 @@ fn make_view(cam_x: f32, cam_y: f32) -> View {
     View { s, vw, vh, cx: (cam_x - vw / 2.).round(), cy: (cam_y - vh / 2. - 6.).round() }
 }
 
-enum Draw { Obj(u8, i32, i32), Enemy(usize), Boss(usize), Player, Loot(usize), Comp, Npc(usize), Lost(f32, f32, u8, u8) }
+enum Draw { Obj(u8, i32, i32), Enemy(usize), Animal(usize), Boss(usize), Player, Loot(usize), Comp, Npc(usize), Lost(f32, f32, u8, u8) }
 
 fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     let w = &g.w;
@@ -1394,6 +1403,11 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         if e.k == EK::Skel && g.darkv > 0.3 { lights.push((sx, sy - 11., 12., false)); }
     }
     list.push((g.p.y, Draw::Player));
+    for (i, a) in g.animals.iter().enumerate() {
+        let (sx, sy) = (a.x - v.cx, a.y - v.cy);
+        if sx < -30. || sx > v.vw + 30. || sy < -40. || sy > v.vh + 20. { continue; }
+        list.push((a.y, Draw::Animal(i)));
+    }
     for (i, l) in g.drops.iter().enumerate() {
         let (sx, sy) = (l.x - v.cx, l.y - v.cy);
         if sx < -10. || sx > v.vw + 10. || sy < -10. || sy > v.vh + 10. { continue; }
@@ -1488,6 +1502,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                 }
             }
             Draw::Boss(i) => draw_boss(g, sp, v, i),
+            Draw::Animal(i) => draw_animal(g, sp, v, i),
             Draw::Loot(i) => draw_loot(g, sp, v, i, t_now),
             Draw::Comp => draw_comp(g, sp, v),
             Draw::Npc(i) => draw_npc(g, sp, v, i, t_now),
@@ -5015,5 +5030,143 @@ mod season_tests {
         assert_eq!(ground_tint(3, 8), WHITE, "ทะเลทรายไม่เปลี่ยน");
         assert_ne!(ground_tint(2, 3), WHITE);
         assert!(PIECES.iter().any(|p| p.obj == T_SAPLING && p.cost.contains(&(BERRY, 1))));
+    }
+}
+
+#[cfg(test)]
+mod animal_tests {
+    use super::*;
+
+    fn open_spot(g: &mut Game, tile: u8, r: i32) -> (f32, f32) {
+        for rr in 0..400 { for dx in -rr..=rr { for dy in [-rr, rr] {
+            if g.w.tile_at(dx, dy) != tile { continue; }
+            if (-r..=r).all(|j| (-r..=r).all(|i| g.w.tile_at(dx + i, dy + j) == tile)) {
+                for j in -r..=r { for i in -r..=r { if g.w.obj_at(dx + i, dy + j) != 0 { g.w.removed.insert((dx + i, dy + j)); } } }
+                return (dx as f32 * 16. + 8., dy as f32 * 16. + 12.);
+            }
+        } } }
+        panic!("ไม่พบที่โล่ง {}", tile)
+    }
+    fn setup(tile: u8, r: i32) -> (Game, f32, f32) {
+        let mut g = Game::new_world_seed(777, Sfx::default());
+        g.time = DAYLEN * 0.3;
+        let (x, y) = open_spot(&mut g, tile, r);
+        g.p.x = x; g.p.y = y;
+        g.an_spawn_t = 999.;
+        g.animals.clear();
+        (g, x, y)
+    }
+    fn run(g: &mut Game, secs: f32) { let n = (secs / 0.05) as i32; for _ in 0..n { g.an_spawn_t = 999.; g.animals_tick(0.05); if g.p.invul > 0. { g.p.invul -= 0.05; } } }
+
+    #[test]
+    fn spawn_tables_follow_biome_and_time() {
+        let g = Game::new_world_seed(777, Sfx::default());
+        let all = |t: u8, night: bool| (0..100).filter_map(|i| g.animal_for(t, night, i as f32 / 100.)).collect::<std::collections::BTreeSet<u8>>();
+        assert!(!all(3, false).contains(&A_WOLF), "กลางวันทุ่งหญ้าไม่มีหมาป่า");
+        assert!(all(3, true).contains(&A_WOLF));
+        assert!(all(T_SWAMP, false).contains(&A_CROC));
+        for t in [3u8, 4, 7, 8, 2, T_SAVANNA] { assert!(!all(t, false).contains(&A_CROC) && !all(t, true).contains(&A_CROC), "จระเข้อยู่แค่หนองน้ำ"); }
+        assert!(all(8, false).is_empty() && all(5, false).is_empty(), "ทะเลทราย/หินผาไม่มีสัตว์");
+        assert!(all(T_SAVANNA, false).contains(&A_ANTE));
+        assert!(all(7, false).contains(&A_RABBIT));
+    }
+
+    #[test]
+    fn deer_flees_from_player() {
+        let (mut g, x, y) = setup(3, 7);
+        let d = g.new_animal(A_DEER, x + 40., y);
+        g.animals.push(d);
+        g.animals[0].bold = 0.5;
+        run(&mut g, 0.6);
+        let a = &g.animals[0];
+        assert_eq!(a.st, AS::Flee);
+        assert!(a.x > x + 60., "กวางวิ่งหนีออกไป {}", a.x - x);
+    }
+
+    #[test]
+    fn wolf_hunts_deer_and_is_then_fed() {
+        let (mut g, x, y) = setup(3, 7);
+        g.p.x = x - 600.; // ผู้เล่นอยู่ไกล
+        let w = g.new_animal(A_WOLF, x - 40., y);
+        let mut d = g.new_animal(A_RABBIT, x + 10., y);
+        d.hp = 1.;
+        g.animals.push(w);
+        g.animals.push(d);
+        // ให้กระต่ายหนีไม่ได้ (ล้อมด้วยกำแพง)
+        let (tx, ty) = (tfloor(x + 10.), tfloor(y));
+        for (dx, dy) in [(1, 0), (0, 1), (0, -1), (1, 1), (1, -1)] { g.w.placed.insert((tx + dx, ty + dy), 11); }
+        run(&mut g, 4.);
+        assert!(g.animals.iter().all(|a| a.k != A_RABBIT), "หมาป่ากินกระต่าย");
+        let w = g.animals.iter().find(|a| a.k == A_WOLF).unwrap();
+        assert!(w.fed > 0., "กินอิ่มแล้ว");
+        assert_ne!(w.st, AS::Chase);
+    }
+
+    #[test]
+    fn boar_charges_when_close_and_hurts() {
+        let (mut g, x, y) = setup(3, 7);
+        let b = g.new_animal(A_BOAR, x + 30., y);
+        g.animals.push(b);
+        let hp = g.p.hp;
+        run(&mut g, 1.5);
+        assert!(g.p.hp < hp, "หมูป่าชน");
+        // หมูป่าบาดเจ็บหนักจะหนี
+        g.animals[0].hp = 1.;
+        g.animals[0].x = x + 30.;
+        run(&mut g, 0.4);
+        assert_eq!(g.animals[0].st, AS::Flee);
+    }
+
+    #[test]
+    fn hunting_gives_meat_and_xp() {
+        let (mut g, x, y) = setup(3, 7);
+        let d = g.new_animal(A_DEER, x + 12., y);
+        g.animals.push(d);
+        g.drops.clear();
+        let xp = g.p.xp + g.p.lvl * 1000;
+        for _ in 0..4 { if g.animals.is_empty() { break; } g.hit_animal(0, 1, 1., 0.); }
+        assert!(g.animals.is_empty(), "กวางตาย");
+        let meat: i32 = g.drops.iter().filter(|d| d.item == MEAT).map(|d| d.n).sum::<i32>() + g.p.inv[MEAT];
+        assert!(meat >= 2);
+        assert!(g.p.xp + g.p.lvl * 1000 > xp);
+        // ฟันโดนสัตว์ด้วยดาบ
+        let r = g.new_animal(A_RABBIT, x + 12., y);
+        g.animals.push(r);
+        g.p.dir = 2; g.p.flip = false;
+        let (dx, dy) = g.p.facing();
+        assert!(g.melee_animals(g.p.x + dx * 12., g.p.y - 6. + dy * 12., 2, dx, dy));
+        assert!(g.animals.is_empty());
+    }
+
+    #[test]
+    fn birds_fly_off_and_croc_stays_in_swamp() {
+        let (mut g, x, y) = setup(3, 7);
+        let b = g.new_animal(A_BIRD, x + 30., y);
+        g.animals.push(b);
+        run(&mut g, 0.2);
+        assert_eq!(g.animals[0].st, AS::Fly);
+        run(&mut g, 3.5);
+        assert!(g.animals.is_empty(), "นกบินหายไป");
+        let (mut g, x, y) = setup(T_SWAMP, 3);
+        let c = g.new_animal(A_CROC, x, y);
+        g.animals.push(c);
+        g.p.x = x + 1000.;
+        run(&mut g, 20.);
+        for a in &g.animals { assert!(matches!(g.w.tile_at(tfloor(a.x), tfloor(a.y)), T_SWAMP | 2)); }
+    }
+
+    #[test]
+    fn spawner_respects_cap_and_dungeon_clears() {
+        let (mut g, _, _) = setup(4, 3);
+        for _ in 0..400 { g.an_spawn_t = 0.; g.animals_tick(0.01); }
+        let n = g.animals.iter().filter(|a| a.k != A_BIRD).count();
+        assert!(n > 0 && n <= 13, "จำนวนสัตว์ {}", n);
+        let mut at = Atlas { img: Image::gen_image_color(512, 512, BLANK), cx: 0, cy: 0, rowh: 0 };
+        let r = animals::build_animals(&mut at);
+        assert_eq!(r.len(), 16);
+        assert!(r[A_CROC as usize * 2].w > r[A_RABBIT as usize * 2].w);
+        g.w.dun = Some(Box::new(Dungeon::generate_cave(777, (1, 1), false, &HashSet::new(), 0)));
+        g.animals_tick(0.1);
+        assert!(g.animals.is_empty());
     }
 }

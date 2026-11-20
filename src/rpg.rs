@@ -198,6 +198,13 @@ impl Game {
                 res = Some(vec2(e.x - px, ey - py));
             }
         }
+        for a in self.animals.iter().filter(|a| matches!(a.st, AS::Chase | AS::Charge) && predator(a.k)) {
+            let d = (a.x - px).hypot(a.y - 5. - py);
+            if d < best {
+                best = d;
+                res = Some(vec2(a.x - px, a.y - 5. - py));
+            }
+        }
         for b in &self.bosses {
             let d = (b.x - px).hypot(b.y - 12. - py) - BOSS_R;
             if !b.dead && d < best {
