@@ -31,6 +31,15 @@ jobs:
             echo "::error title=build-log::$msg"
           fi
           exit $rc
+      - name: Re-sign APK with fixed key (so updates install over the old app)
+        run: |
+          set -e
+          A=target/android-artifacts/release/apk/pixel_realm.apk
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          zip -q -d "$A" 'META-INF/*' || true
+          "$BT/zipalign" -f -p 4 "$A" /tmp/aligned.apk
+          "$BT/apksigner" sign --ks ci/pixel_realm.keystore --ks-pass pass:pixelrealm --key-pass pass:pixelrealm --ks-key-alias pixelrealm --out "$A" /tmp/aligned.apk
+          "$BT/apksigner" verify --print-certs "$A" | head -3
       - name: APK size
         run: ls -l target/android-artifacts/release/apk/pixel_realm.apk
       - uses: actions/upload-artifact@v4
