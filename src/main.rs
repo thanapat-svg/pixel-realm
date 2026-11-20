@@ -811,7 +811,11 @@ impl Game {
 
     // ---------- helpers ----------
     fn toast(&mut self, t: impl Into<String>) {
-        self.toasts.push((t.into(), 2.6));
+        let t: String = t.into();
+        let life = 2.8 + t.chars().count() as f32 / 45.;
+        // ข้อความซ้ำกับอันล่าสุด → ต่อเวลาแทนการซ้อน
+        if let Some(last) = self.toasts.last_mut() { if last.0 == t { last.1 = life; return; } }
+        self.toasts.push((t, life));
         if self.toasts.len() > 4 { self.toasts.remove(0); }
     }
     fn add_float(&mut self, x: f32, y: f32, t: impl Into<String>, c: Color, icon: Option<usize>) {
@@ -1774,16 +1778,25 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
         let r = if p.dash_cd > 0. { format!("พุ่ง (Shift) {:.1}s", p.dash_cd) } else { "พุ่ง (Shift) พร้อม".to_string() };
         text(font, &r, x, screen_height() - 34. * u, 12. * u, if p.dash_cd > 0. { hx(0x999999) } else { hx(0x88e0ff) });
     }
-    // toasts
+    // ข้อความแจ้งเตือน: เรียงชิดซ้ายใต้ HUD เหมือนกล่องข้อความ (เก่าอยู่บน ใหม่อยู่ล่าง) ไม่บังกลางจอ
     let (sw, sh) = (screen_width(), screen_height());
-    for (i, (t, l)) in g.toasts.iter().enumerate() {
-        let a = (l * 2.).min(1.);
-        let d = measure_text(t, Some(font), (16. * u) as u16, 1.);
-        let (w, h) = (d.width + 28. * u, 30. * u);
-        let ty = sh * 0.36 + i as f32 * (h + 6. * u);
-        draw_rectangle(sw / 2. - w / 2., ty, w, h, Color::new(0., 0., 0., 0.75 * a));
-        draw_rectangle_lines(sw / 2. - w / 2., ty, w, h, 2., Color::new(1., 0.8, 0.4, a));
-        text_c(font, t, sw / 2., ty + h / 2. + 6. * u, 16. * u, Color::new(1., 1., 0.93, a));
+    {
+        let fs = 13. * u;
+        let lh = 16. * u;
+        let maxw = (sw * 0.36).min(440. * u).max(220. * u);
+        let mut ty = y + 40. * u;
+        let limit = sh * 0.62;
+        for (t, l) in g.toasts.iter() {
+            let a = (l * 2.).min(1.);
+            let lines = menu::wrap_th(font, t, fs, maxw - 18. * u);
+            let h = lines.len() as f32 * lh + 8. * u;
+            if ty + h > limit { break; }
+            let w = lines.iter().map(|s| measure_text(s, Some(font), fs as u16, 1.).width).fold(0., f32::max) + 18. * u;
+            draw_rectangle(x, ty, w, h, Color::new(0.05, 0.06, 0.1, 0.72 * a));
+            draw_rectangle(x, ty, 3. * u, h, Color::new(1., 0.8, 0.4, a));
+            for (k, s) in lines.iter().enumerate() { text(font, s, x + 10. * u, ty + 4. * u + lh * (k as f32 + 0.78), fs, Color::new(1., 1., 0.93, a)); }
+            ty += h + 4. * u;
+        }
     }
     draw_boss_bar(g, font);
     if let Some(f) = &g.fish {
@@ -2066,7 +2079,8 @@ fn draw_touch(tu: &TouchUI, sp: &Sprites, font: &Font, build: bool, weapon: u8, 
 
 // ======================= main =======================
 fn window_conf() -> Conf {
-    Conf { window_title: "Pixel Realm".to_owned(), window_width: 1280, window_height: 720, high_dpi: true, window_resizable: true, ..Default::default() }
+    // Android: เต็มจอ (ซ่อนแถบสถานะ/แถบนำทาง — ปัดขอบจอเพื่อเรียกกลับชั่วคราว)
+    Conf { window_title: "Pixel Realm".to_owned(), window_width: 1280, window_height: 720, high_dpi: true, window_resizable: true, fullscreen: cfg!(target_os = "android"), ..Default::default() }
 }
 
 enum State { Title, Play, Menu }

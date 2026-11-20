@@ -43,7 +43,7 @@ impl Game {
             QK::Fetch { item, qty } => format!("{}: \"ช่วยหา{} {} ชิ้นให้หน่อยได้ไหม\" (รางวัล {} เหรียญ)", f, INAME[*item], qty, r.reward),
             QK::Hunt { animal, n, done } => format!("{}: \"{}แถวนี้ทำให้ฉันกลัวจนไม่กล้าออกไปไหน ช่วยกำจัด {} ตัวที\" ({}/{} · รางวัล {} เหรียญ)", f, AN_NAME[*animal as usize], n, done, n, r.reward),
             QK::Deliver { item, to } => format!("{}: \"ช่วยเอา{}ไปให้{}หน่อย เขาชอบมาก\" (ใช้ของของคุณ · คุยกับ{}เพื่อส่ง)", f, INAME[*item], self.nmq(*to), self.nmq(*to)),
-            QK::Mediate { a, b, ta, tb } => format!("{}: \"{} กับ {} ทะเลาะกันอีกแล้ว ช่วยไปคุยกับทั้งสองคนในวันเดียวกันทีนะ\" ({}{})", f, self.nmq(*a), self.nmq(*b), if *ta { "✓" } else { "·" }, if *tb { "✓" } else { "·" }),
+            QK::Mediate { a, b, ta, tb } => format!("{}: \"{} กับ {} ทะเลาะกันอีกแล้ว ช่วยไปคุยกับทั้งสองคนในวันเดียวกันทีนะ\" (วันนี้คุยแล้ว: {} {} · {} {})", f, self.nmq(*a), self.nmq(*b), self.nmq(*a), if *ta { "แล้ว" } else { "ยัง" }, self.nmq(*b), if *tb { "แล้ว" } else { "ยัง" }),
             QK::Dispute { a, b } => format!("ข้อพิพาท: {} กับ {} เกลียดกันมาก ทั้งคู่อยากให้คุณตัดสินว่าใครถูก", self.nmq(*a), self.nmq(*b)),
             QK::Theft { thief, item, qty } => format!("{}: \"ฉันเห็นนะ {} แอบเอา{} {} ชิ้นไปจากกล่องเก็บของ\" — จะจัดการอย่างไร?", f, self.nmq(*thief), INAME[*item], qty),
         }

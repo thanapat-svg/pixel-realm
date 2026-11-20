@@ -787,7 +787,7 @@ fn bar(x: f32, y: f32, w: f32, h: f32, v: f32, col: Color) {
 fn mood_col(m: i32) -> Color { if m >= 60 { hx(0x66dd66) } else if m >= 30 { hx(0xeedd44) } else { hx(0xee5544) } }
 
 /// ตัดบรรทัดตามความกว้างจริง (ภาษาไทยไม่มีเว้นวรรคระหว่างคำ จึงตัดทีละตัวอักษร แต่ไม่ตัดก่อนสระ/วรรณยุกต์)
-fn wrap_th(font: &Font, s: &str, fs: f32, maxw: f32) -> Vec<String> {
+pub fn wrap_th(font: &Font, s: &str, fs: f32, maxw: f32) -> Vec<String> {
     let mut out: Vec<String> = vec![];
     let mut cur = String::new();
     for ch in s.chars() {

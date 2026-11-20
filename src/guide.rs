@@ -48,7 +48,7 @@ impl Game {
         } else {
             let n = self.tut + 1;
             self.tut_set(n);
-            self.toast(format!("ผ่านข้อ {}/{} ✔", n, TUT_N));
+            self.toast(format!("ผ่านข้อ {}/{} สำเร็จ!", n, TUT_N));
             self.save();
         }
     }

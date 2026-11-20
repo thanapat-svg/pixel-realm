@@ -26,3 +26,7 @@ build_targets = ["aarch64-linux-android"]
 [package.metadata.android.activity_attributes]
 "android:screenOrientation" = "userLandscape"
 "android:exported" = "true"
+
+# miniquad 0.4.11 + แก้ Java ให้ซ่อนแถบนำทางบน Android 11+ (เต็มจอจริง)
+[patch.crates-io]
+miniquad = { path = "vendor/miniquad" }
