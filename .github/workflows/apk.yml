@@ -36,10 +36,13 @@ jobs:
           set -e
           A=target/android-artifacts/release/apk/pixel_realm.apk
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          zip -q -d "$A" 'META-INF/*' || true
-          "$BT/zipalign" -f -p 4 "$A" /tmp/aligned.apk
-          "$BT/apksigner" sign --ks ci/pixel_realm.keystore --ks-pass pass:pixelrealm --key-pass pass:pixelrealm --ks-key-alias pixelrealm --out "$A" /tmp/aligned.apk
-          "$BT/apksigner" verify --print-certs "$A" | head -3
+          # ไฟล์จาก docker เป็นของ root → ทำงานใน /tmp แล้วค่อยคัดลอกกลับ
+          cp "$A" /tmp/unsigned.apk
+          zip -q -d /tmp/unsigned.apk 'META-INF/*'
+          "$BT/zipalign" -f -p 4 /tmp/unsigned.apk /tmp/aligned.apk
+          "$BT/apksigner" sign --ks ci/pixel_realm.keystore --ks-pass pass:pixelrealm --key-pass pass:pixelrealm --ks-key-alias pixelrealm --out /tmp/signed.apk /tmp/aligned.apk
+          "$BT/apksigner" verify --print-certs /tmp/signed.apk | head -3
+          sudo cp /tmp/signed.apk "$A"
       - name: APK size
         run: ls -l target/android-artifacts/release/apk/pixel_realm.apk
       - uses: actions/upload-artifact@v4
