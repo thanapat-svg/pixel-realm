@@ -205,6 +205,7 @@ impl Game {
         let step = self.crop_t;
         self.crop_t = 0.;
         let rain = self.rain > 0.4 && self.weather_kind == 1;
+        let smul = self.crop_season_mul();
         let keys: Vec<(i32, i32)> = self.crops.keys().copied().collect();
         for k in keys {
             let Some(c) = self.crops.get_mut(&k) else { continue };
@@ -214,7 +215,7 @@ impl Game {
             let was_wet = c.wet > 0.;
             if was_wet {
                 c.wet -= step;
-                c.grown += step;
+                c.grown += step * smul;
             }
             let (o, wet_now) = (c.obj(), c.wet > 0.);
             if self.w.placed.get(&k) != Some(&o) && self.w.placed.contains_key(&k) {

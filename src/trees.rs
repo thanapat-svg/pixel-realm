@@ -59,9 +59,13 @@ impl World {
 impl Game {
     /// สไปรต์ที่ใช้วาด: แอปเปิล/มะพร้าวที่ผลถูกเก็บไปแล้วจะไม่มีผล
     pub fn display_obj(&self, o: u8, k: (i32, i32)) -> u8 {
+        // ฤดูหนาว: ต้นไม้ผลัดใบทิ้งใบหมด เหลือแต่กิ่ง
+        if self.w.dun.is_none() && season(self) == 3 && deciduous(o) && o != T_SAPLING { return T_DEAD; }
         if is_fruit_tree(o) && !self.fruit_ready(k) { if o == T_APPLE { T_APPLE_BARE } else { T_PALM_BARE } } else { o }
     }
     pub fn fruit_ready(&self, k: (i32, i32)) -> bool {
+        // แอปเปิลออกผลเฉพาะฤดูร้อน/ใบไม้ร่วง (มะพร้าวออกตลอดปี)
+        if matches!(season(self), 0 | 3) && self.w.obj_at(k.0, k.1) == T_APPLE { return false; }
         match self.fruit.get(&k) { None => true, Some(&d) => day_of(self) - d >= FRUIT_DAYS }
     }
     /// กด "ใช้" ที่ต้นแอปเปิล/มะพร้าว: เก็บผลโดยไม่โค่นต้น

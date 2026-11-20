@@ -9,7 +9,7 @@ pub struct Piece {
     pub icon: usize,
     pub cost: &'static [(usize, i32)],
 }
-pub const PIECES: [Piece; 13] = [
+pub const PIECES: [Piece; 14] = [
     Piece { name: "กำแพงไม้", desc: "กั้นทางได้ ตีพังได้ (ได้ไม้คืน)", obj: 10, icon: IC_WWALL, cost: &[(WOOD, 2)] },
     Piece { name: "กำแพงหิน", desc: "แข็งแรงกว่ากำแพงไม้", obj: 11, icon: IC_SWALL, cost: &[(STONE, 3)] },
     Piece { name: "ประตู", desc: "กด Q หรือปุ่ม \"ใช้\" เพื่อเปิด-ปิด", obj: 12, icon: IC_DOOR, cost: &[(WOOD, 4)] },
@@ -23,6 +23,7 @@ pub const PIECES: [Piece; 13] = [
     Piece { name: "ปราสาท", desc: "ศูนย์กลางอาณาจักร (ต้องมี + กำแพงเมือง 12 ชิ้น + ชาวบ้าน >10 = เก็บภาษีได้)", obj: 37, icon: IC_ATABLE, cost: &[(STONE, 80), (WOOD, 40), (GEM, 10)] },
     Piece { name: "บ่อน้ำ", desc: "น้ำดื่มสะอาด (ดื่มแล้ว +45) · ชาวบ้านในรัศมี 20 ช่องมีน้ำใช้ ไม่ต้องอยู่ริมน้ำ", obj: 39, icon: IC_POT, cost: &[(STONE, 10), (WOOD, 4)] },
     Piece { name: "กำแพงเมือง", desc: "กำแพงหินสูง ทนทานกว่ากำแพงหิน (นับรวมเป็นกำแพงเมือง)", obj: 38, icon: IC_SWALL, cost: &[(STONE, 8)] },
+    Piece { name: "ปลูกต้นกล้า", desc: "ปลูกต้นไม้ (ใช้เมล็ดจากผลไม้) · 4 วันโตเป็นต้นไม้ตามไบโอม · ฤดูหนาวไม่โต", obj: T_SAPLING, icon: WOOD, cost: &[(WOOD, 1), (BERRY, 1)] },
 ];
 
 /// สิ่งที่ Game ขอให้ UI เปิด
@@ -73,6 +74,13 @@ impl Game {
         let (tx, ty) = self.build_target();
         if !self.can_place_at(tx, ty) {
             self.toast("วางตรงนี้ไม่ได้");
+            return;
+        }
+        if pc.obj == T_SAPLING {
+            if !self.plant_sapling((tx, ty)) { return; }
+            for &(it, n) in pc.cost { self.p.inv[it] -= n; }
+            play(&self.sfx.eat);
+            self.save();
             return;
         }
         for &(it, n) in pc.cost {

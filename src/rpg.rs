@@ -622,11 +622,12 @@ impl Game {
     pub fn upd_weather(&mut self, dt: f32) {
         // ชนิดอากาศตามไบโอมที่ยืนอยู่: หิมะ = ดินแดนหิมะ · ทะเลทราย = ไม่มีฝน · ที่เหลือ = ฝน
         let bt = self.w.tile_at(tfloor(self.p.x), tfloor(self.p.y));
-        self.weather_kind = if self.w.dun.is_some() { 0 } else { match bt { 7 => 2, 8 => 0, _ => 1 } };
+        self.weather_kind = if self.w.dun.is_some() { 0 } else { self.season_weather(match bt { 7 => 2, 8 => 0, _ => 1 }, bt) };
         self.rain_t -= dt;
         if self.rain_t <= 0. {
             self.rain_on = !self.rain_on;
-            self.rain_t = if self.rain_on { gen_range(45., 100.) } else { gen_range(110., 260.) };
+            let (mon, moff) = self.rain_len_mul();
+            self.rain_t = if self.rain_on { gen_range(45., 100.) * mon } else { gen_range(110., 260.) * moff };
             if self.rain_on && self.w.dun.is_none() {
                 match self.weather_kind {
                     1 => self.toast("ฝนเริ่มตกแล้ว"),

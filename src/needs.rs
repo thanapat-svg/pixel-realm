@@ -61,6 +61,8 @@ impl Game {
         if self.p.sick > 0. { self.p.sick = (self.p.sick - dt).max(0.); }
         if mode == 0 { self.p.hunger = 100.; self.p.thirst = 100.; self.p.rest = 100.; self.p.starve = 0.; return; }
         let (tm, hm) = self.climate();
+        let (stm, shm) = self.season_climate();
+        let (tm, hm) = (tm * stm, hm * shm);
         let act = if self.p.moving { 1.25 } else { 1. } * if self.p.atk_t > 0. { 1.2 } else { 1. };
         let (h0, t0, r0) = (self.p.hunger, self.p.thirst, self.p.rest);
         let sickm = if self.p.sick > 0. { 1.5 } else { 1. };

@@ -29,6 +29,7 @@ mod skin;
 mod social;
 mod trees;
 mod land;
+mod seasons;
 use extra::*;
 use farm::*;
 use guide::*;
@@ -47,6 +48,7 @@ use skin::*;
 use social::*;
 use trees::*;
 use land::*;
+use seasons::*;
 
 // ======================= ค่าคงที่ =======================
 const DAYLEN: f32 = 240.0;
@@ -502,6 +504,8 @@ struct Game {
     blessed: HashMap<(i32, i32), i32>,
     lava_t: f32,
     lava_told: bool,
+    felled: HashMap<(i32, i32), (i32, u8)>,
+    planted: HashMap<(i32, i32), i32>,
     camp_t: f32,
     build_sel: Option<usize>,
     req: Option<Req>,
@@ -594,7 +598,7 @@ impl Game {
             w, p: Player::new(0., 0.), en: vec![], parts: vec![], floats: vec![], toasts: vec![], time: 0., spawn: (0., 0.),
             seen: HashSet::new(), obj_dmg: HashMap::new(), shake: ((0, 0), 0.), hurt_flash: 0., darkv: 0., last_biome: -1,
             spawn_t: 0., save_t: 0., mini_t: 99., died: false, big_map: false, sfx,
-            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, camp_t: 0.,
+            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), camp_t: 0.,
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
@@ -658,6 +662,7 @@ impl Game {
         for (x, y, i) in &self.dun_chests { s += &format!(" {},{},{}", x, y, i); }
         s += "\n";
         s += &self.marks_save_str();
+        s += &self.seasons_save_str();
         s += "camps";
         for (x, y) in &self.camps_found { s += &format!(" {},{}", x, y); }
         s += "\nseen";
@@ -769,6 +774,7 @@ impl Game {
                     if n.len() == 2 { g.camps_found.insert((n[0], n[1])); }
                 },
                 "marks" | "bless" => g.marks_load_line(tag, &rest),
+                "felled" | "planted" => g.seasons_load_line(tag, &rest),
                 "seen" => for v in &rest { if let Ok(b) = v.parse() { g.seen.insert(b); } },
                 "rem" | "plc" | "tmod" => {
                     for v in &rest {
@@ -926,7 +932,7 @@ impl Game {
             O_OBSIDIAN => { self.gain(STONE, 1, x, y); self.gain(GEM, 1, x, y - 8.); play(&self.sfx.gem); }
             O_CRYSTAL => { self.gain(GEM, 2, x, y); if gen_range(0., 1.) < 0.3 { self.gain(SHARD, 1, x, y - 8.); } play(&self.sfx.gem); }
             O_ACHEST => self.open_ancient(x, y),
-            2 => self.gain(BERRY, rnd(1, 3), x, y),
+            2 => { let n = if season(self) == 3 { rnd(0, 1) } else { rnd(1, 3) }; if n > 0 { self.gain(BERRY, n, x, y); } }
             7 => self.gain(BERRY, 1, x, y),
             4 => self.gain(STONE, rnd(2, 3), x, y),
             5 => {
@@ -959,6 +965,7 @@ impl Game {
             }
             _ => {}
         }
+        if !in_dun && is_tree(o) { self.on_tree_felled(k); }
         self.save();
         true
     }
@@ -1321,13 +1328,16 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     let wf = ((t_now / 0.6) as i32 % 2) as usize;
     let foam = Color::new(0.86, 0.94, 1., 0.75);
     let mut lava_l: Vec<(f32, f32, f32, bool)> = vec![];
+    let ssn = season(g);
+    let indun = w.dun.is_some();
     for ty in ty0..=ty1 {
         for tx in tx0..=tx1 {
             let t = w.tile_at(tx, ty) as usize;
             let var = (hash(tx, ty, w.seed.wrapping_add(9)) * 4.) as usize;
             let (px, py) = (tx as f32 * 16. - v.cx, ty as f32 * 16. - v.cy);
             let idx = if t < 2 || t == T_LAVA as usize { (var & 2) | wf } else { var };
-            blit(sp, v, sp.tiles[t][idx], px, py, false, WHITE);
+            blit(sp, v, sp.tiles[t][idx], px, py, false, if indun { WHITE } else { ground_tint(ssn, t as u8) });
+            if ssn == 3 && !indun && wintry(t as u8) { prect(v, px, py, 16., 16., Color::new(1., 1., 1., 0.5 + hash(tx, ty, 919) as f32 * 0.08)); }
             if t == T_LAVA as usize && (tx + ty) % 2 == 0 { lava_l.push((px + 8., py + 8., pulse_r(30., t_now, tx as f32 * 0.7 + ty as f32, 1.2), true)); }
             if t < 2 && fish_spot(w.seed, tx, ty) {
                 let ph = ((t_now * 0.9 + hash(tx, ty, 3) as f32 * 6.).fract()) * 6.;
@@ -1421,6 +1431,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
             Draw::Obj(o, tx, ty) => {
                 let (px, py) = (tx as f32 * 16. - v.cx, ty as f32 * 16. - v.cy);
                 if o == 3 {
+                    if season(g) == 3 && w.dun.is_none() { continue; }
                     let h = hash(tx, ty, w.seed.wrapping_add(13));
                     let c = hx([0xff6b8a, 0xffd84a, 0xffffff, 0xb98cff][(h * 4.) as usize]);
                     let st = hx(0x3d7a2e);
@@ -1441,7 +1452,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                 let r = if o == 15 { sp.ex.merchant[if near_m && (t_now * 3.) as i32 % 2 == 0 { 1 } else { 0 }] } else { sp.obj[o as usize] };
                 let (px, py) = if matches!(o, 19 | 20 | 21 | 22) { (px, py - (r.h - 16.).max(0.) + (r.h - 16.).max(0.)) } else { (px, py) };
                 let ox = if r.w > 16. { 8. - (r.w / 2.).floor() } else { 0. };
-                blit(sp, v, r, px + sx + ox, py + 16. - r.h, false, WHITE);
+                blit(sp, v, r, px + sx + ox, py + 16. - r.h, false, if w.dun.is_some() { WHITE } else { tree_tint(season(g), o) });
                 if near_m { text_c(font, "พ่อค้า", (px + 8.) * v.s, (py + 16. - r.h - 3.) * v.s, 6. * v.s, hx(0xffee99)); }
                 if o == 9 {
                     let c = if gen_range(0., 1.) < 0.5 { hx(0xffe680) } else { hx(0xff8a30) };
@@ -1698,7 +1709,7 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
     let hr = ((g.time / DAYLEN * 24.) + 6.) % 24.;
     let day = (g.time / DAYLEN) as i32 + 1;
     let night = !(6. ..18.).contains(&hr);
-    text(font, &format!("{} วันที่ {} · {:02}:{:02} · {}", if night { "กลางคืน" } else { "กลางวัน" }, day, hr as i32, ((hr.fract()) * 60.) as i32, TN[g.w.tile_at(tfloor(p.x), tfloor(p.y)) as usize]), x, y + 13. * u, 13. * u, if night { hx(0xaabbff) } else { hx(0xffee99) });
+    text(font, &format!("{} {} วันที่ {} · {:02}:{:02} · {}", SEASON_N[season(g) as usize], if night { "คืน" } else { "วัน" }, day, hr as i32, ((hr.fract()) * 60.) as i32, TN[g.w.tile_at(tfloor(p.x), tfloor(p.y)) as usize]), x, y + 13. * u, 13. * u, if night { hx(0xaabbff) } else { hx(0xffee99) });
     y += 20. * u;
     let mut ix = x;
     for &i in &[WOOD, STONE, BERRY, GEM, COIN, FIRE, ARROW, POTION, SHARD, MEAT, SHROOM, HERB, DISH_STEW, DISH_SPEED, DISH_CRIT, DISH_FISH, FISH] {
@@ -3984,6 +3995,7 @@ mod needs_tests {
     #[test]
     fn thirst_drains_faster_than_hunger_and_rest_slowest() {
         let mut g = g0();
+        g.time = DAYLEN * 15.2; // ฤดูใบไม้ผลิ = อัตราพื้นฐาน
         for _ in 0..240 { g.needs_tick(1., 1); } // 1 วันเกม
         let (h, t, r) = (100. - g.p.hunger, 100. - g.p.thirst, 100. - g.p.rest);
         assert!(t > h && h > r, "หิว {:.1} กระหาย {:.1} เหนื่อย {:.1}", h, t, r);
@@ -4855,5 +4867,153 @@ mod land_tests {
         assert!(obj[O_GIANT as usize].w > 40. && obj[O_HUT_LOG as usize].w == 40.);
         for o in 50..70usize { if o != O_FILL as usize { assert!(OSOLID[o] || matches!(o as u8, O_REED | O_SHROOM | O_DRYGRASS | O_BONES)); } }
         for o in [O_ALTAR, O_GIANT, O_FILL, O_HUT_FISH] { assert!(land_fixed(o)); }
+    }
+}
+
+#[cfg(test)]
+mod season_tests {
+    use super::*;
+
+    fn at_day(g: &mut Game, d: i32) { g.time = DAYLEN * (d as f32 + 0.3); }
+    fn dawn_to(g: &mut Game, d: i32) { while day_of(g) < d { g.time += DAYLEN; g.season_dawn(); } }
+
+    #[test]
+    fn year_cycle_starts_in_summer() {
+        let names: Vec<u8> = [0, 4, 5, 9, 10, 14, 15, 19, 20].iter().map(|&d| season_of_day(d)).collect();
+        assert_eq!(names, vec![1, 1, 2, 2, 3, 3, 0, 0, 1]);
+        assert_eq!(SEASON_N[season_of_day(0) as usize], "ฤดูร้อน");
+    }
+
+    #[test]
+    fn seasons_change_climate_crops_and_weather() {
+        let mut g = Game::new_world_seed(777, Sfx::default());
+        at_day(&mut g, 0);
+        assert!(g.season_climate().0 > 1., "ร้อน = กระหายเร็ว");
+        at_day(&mut g, 11);
+        assert!(g.season_climate().1 > 1., "หนาว = หิวเร็ว");
+        assert!(g.crop_season_mul() < 0.5, "หนาว พืชแทบไม่โต");
+        assert_eq!(g.season_weather(1, 3), 2, "หนาว ทุ่งหญ้าหิมะตก");
+        assert_eq!(g.season_weather(1, 2), 1, "ชายหาดยังเป็นฝน");
+        assert_eq!(g.season_weather(0, 8), 0, "ทะเลทรายไม่มีฝน/หิมะ");
+        at_day(&mut g, 16);
+        assert!(g.crop_season_mul() > 1.);
+        assert!(g.rain_len_mul().1 < 1., "ใบไม้ผลิฝนบ่อย");
+        at_day(&mut g, 1);
+        assert!(g.rain_len_mul().1 > 1., "ร้อนฝนน้อย");
+        assert_eq!(g.season_weather(1, 3), 1);
+    }
+
+    fn find_tree(g: &Game, sp: u8) -> (i32, i32) {
+        for r in 0..200 { for dx in -r..=r { for dy in [-r, r] {
+            if g.w.obj_at(dx, dy) == sp && !g.near_build((dx, dy)) { return (dx, dy); }
+        } } }
+        panic!("ไม่พบต้นไม้ {}", sp)
+    }
+
+    #[test]
+    fn apples_only_in_summer_and_autumn() {
+        let mut g = Game::new_world_seed(777, Sfx::default());
+        let k = find_tree(&g, T_APPLE);
+        at_day(&mut g, 2);
+        assert!(g.fruit_ready(k));
+        at_day(&mut g, 7);
+        assert!(g.fruit_ready(k));
+        at_day(&mut g, 12);
+        assert!(!g.fruit_ready(k), "หนาวไม่มีแอปเปิล");
+        assert_eq!(g.display_obj(T_APPLE, k), T_DEAD, "หนาวผลัดใบหมด");
+        at_day(&mut g, 17);
+        assert!(!g.fruit_ready(k), "ใบไม้ผลิยังไม่ออกผล");
+        let p = find_tree(&g, T_PALM);
+        assert!(g.fruit_ready(p), "มะพร้าวออกตลอดปี");
+    }
+
+    #[test]
+    fn felled_tree_regrows_as_sapling_then_original_species() {
+        let mut g = Game::new_world_seed(777, Sfx::default());
+        at_day(&mut g, 0);
+        let k = find_tree(&g, T_BIRCH);
+        g.p.x = -9999.;
+        for _ in 0..10 { if g.w.obj_at(k.0, k.1) == 0 { break; } g.hit_object(k.0, k.1, 1); }
+        assert_eq!(g.w.obj_at(k.0, k.1), 0, "โค่นแล้ว");
+        assert!(g.felled.contains_key(&k));
+        dawn_to(&mut g, 2);
+        assert_eq!(g.w.obj_at(k.0, k.1), 0, "ยังไม่งอก");
+        dawn_to(&mut g, 3);
+        assert_eq!(g.w.obj_at(k.0, k.1), T_SAPLING, "งอกเป็นต้นกล้า");
+        // ตัดต้นกล้าที่งอก → เริ่มนับใหม่ ไม่โผล่เป็นต้นใหญ่ทันที
+        g.hit_object(k.0, k.1, 5);
+        assert_eq!(g.w.obj_at(k.0, k.1), 0);
+        assert_eq!(g.felled.get(&k), Some(&(0, 0)));
+        dawn_to(&mut g, 6);
+        assert_eq!(g.w.obj_at(k.0, k.1), T_SAPLING);
+        dawn_to(&mut g, 9);
+        assert_eq!(g.w.obj_at(k.0, k.1), T_BIRCH, "โตกลับเป็นชนิดเดิม");
+        assert!(!g.felled.contains_key(&k));
+    }
+
+    #[test]
+    fn no_regrowth_in_winter_or_inside_base() {
+        let mut g = Game::new_world_seed(777, Sfx::default());
+        at_day(&mut g, 10); // ต้นหนาว
+        let k = find_tree(&g, 1);
+        g.p.x = -9999.;
+        for _ in 0..10 { if g.w.obj_at(k.0, k.1) == 0 { break; } g.hit_object(k.0, k.1, 1); }
+        dawn_to(&mut g, 15);
+        assert_eq!(g.w.obj_at(k.0, k.1), 0, "หนาวทั้งฤดู ไม่งอก");
+        dawn_to(&mut g, 18);
+        assert_eq!(g.w.obj_at(k.0, k.1), T_SAPLING, "ใบไม้ผลิแล้วงอก");
+        // ต้นที่อยู่ติดสิ่งก่อสร้าง ไม่งอกทับฐาน
+        let k2 = find_tree(&g, T_SPRUCE);
+        for _ in 0..10 { if g.w.obj_at(k2.0, k2.1) == 0 { break; } g.hit_object(k2.0, k2.1, 1); }
+        g.w.placed.insert((k2.0 + 2, k2.1), 10);
+        dawn_to(&mut g, 25);
+        assert_eq!(g.w.obj_at(k2.0, k2.1), 0, "ในเขตฐานไม่งอก");
+    }
+
+    #[test]
+    fn planted_sapling_grows_by_biome_and_old_saves_regrow() {
+        let mut g = Game::new_world_seed(777, Sfx::default());
+        at_day(&mut g, 0);
+        let mut spot = None;
+        'a: for r in 0..150 { for dx in -r..=r { for dy in [-r, r] {
+            if g.w.tile_at(dx, dy) == 2 && g.w.obj_at(dx, dy) == 0 && !g.near_build((dx, dy)) { spot = Some((dx, dy)); break 'a; }
+        } } }
+        let k = spot.expect("ชายหาด");
+        assert!(g.plant_sapling(k));
+        assert_eq!(g.w.obj_at(k.0, k.1), T_SAPLING);
+        dawn_to(&mut g, 3);
+        assert_eq!(g.w.obj_at(k.0, k.1), T_SAPLING);
+        dawn_to(&mut g, 4);
+        assert_eq!(g.w.obj_at(k.0, k.1), T_PALM, "ปลูกที่หาดได้มะพร้าว");
+        // ตัดต้นที่ปลูกเอง → หายไป ไม่งอกเอง
+        for _ in 0..10 { if g.w.obj_at(k.0, k.1) == 0 { break; } g.hit_object(k.0, k.1, 1); }
+        assert_eq!(g.w.obj_at(k.0, k.1), 0);
+        assert!(!g.felled.contains_key(&k));
+        // ปลูกบนน้ำไม่ได้
+        let mut wat = (0, 0);
+        'b: for r in 0..150 { for dx in -r..=r { if g.w.tile_at(dx, r) == 1 { wat = (dx, r); break 'b; } } }
+        assert!(!g.plant_sapling(wat));
+        // เซฟเก่า: ต้นไม้ที่ถูกโค่นไว้ (มีแค่ใน removed) งอกใหม่ได้
+        let t = find_tree(&g, 1);
+        g.w.removed.insert(t);
+        g.time += DAYLEN; g.season_dawn();
+        assert!(g.felled.contains_key(&t));
+        // เซฟ/โหลด
+        g.planted.insert((5, 5), 2);
+        let s = g.seasons_save_str();
+        let mut h = Game::new_world_seed(777, Sfx::default());
+        for line in s.lines() { let mut it = line.split_whitespace(); let tag = it.next().unwrap(); let rest: Vec<&str> = it.collect(); h.seasons_load_line(tag, &rest); }
+        assert_eq!(h.felled, g.felled);
+        assert_eq!(h.planted, g.planted);
+    }
+
+    #[test]
+    fn tints_only_touch_leafy_trees_and_green_ground() {
+        assert_eq!(tree_tint(2, 8), WHITE, "สนไม่เปลี่ยนสี");
+        assert_ne!(tree_tint(2, 1), WHITE, "โอ๊กใบส้มในฤดูใบไม้ร่วง");
+        assert_eq!(tree_tint(1, 1), WHITE);
+        assert_eq!(ground_tint(3, 8), WHITE, "ทะเลทรายไม่เปลี่ยน");
+        assert_ne!(ground_tint(2, 3), WHITE);
+        assert!(PIECES.iter().any(|p| p.obj == T_SAPLING && p.cost.contains(&(BERRY, 1))));
     }
 }

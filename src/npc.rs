@@ -366,6 +366,7 @@ impl Game {
             self.last_day += 1;
             guard += 1;
             self.npc_dawn();
+            self.season_dawn();
         }
         self.last_day = day;
         // ได้ยินเสียงขอความช่วยเหลือ (ครั้งเดียวต่อคน)
