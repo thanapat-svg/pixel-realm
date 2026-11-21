@@ -766,7 +766,7 @@ impl Game {
                 }
                 "rod" => g.p.rod = f(0) > 0.,
                 "tut" => g.tut = f(0) as u8,
-                "body" => g.p.body = Body::load(&(0..7).map(|i| f(i)).collect::<Vec<f32>>()),
+                "body" => g.p.body = Body::load(&(0..rest.len().min(10)).map(|i| f(i)).collect::<Vec<f32>>()),
                 "need" => { g.p.hunger = f(0).clamp(0., 100.); g.p.thirst = f(1).clamp(0., 100.); g.p.rest = f(2).clamp(0., 100.); g.p.sick = f(3).max(0.); }
                 "town" | "npc" | "npcseen" => g.npc_load_line(tag, &rest),
                 "nsoc" | "nrel" | "nnews" => g.soc_load_line(tag, &rest),
@@ -2419,7 +2419,7 @@ async fn main() {
                     }
                     _ => {
                         // สร้างตัวละคร: สีผิว/ผม · ทรงผม · สีเสื้อ · ส่วนสูง · น้ำหนัก
-                        let (w, h) = ((660. * u).min(sw * 0.97), (372. * u).min(sh * 0.97));
+                        let (w, h) = ((660. * u).min(sw * 0.97), (430. * u).min(sh * 0.97));
                         let (x, y) = (sw / 2. - w / 2., sh / 2. - h / 2.);
                         panel(x, y, w, h);
                         text_c(&font, "สร้างตัวละคร", sw / 2., y + 34. * u, 24. * u, hx(0xffcc66));
@@ -2435,13 +2435,16 @@ async fn main() {
                         // แถวปรับค่า
                         let rx = x + 226. * u;
                         let rw = w - 226. * u - 16. * u;
-                        let rows: [(&str, String, Option<u32>); 6] = [
+                        let rows: [(&str, String, Option<u32>); 9] = [
+                            ("เชื้อสาย", ETH[new_body.eth as usize].0.to_string(), None),
+                            ("เพศ", if new_body.fem { "หญิง" } else { "ชาย" }.to_string(), None),
                             ("สีผิว", SKIN_NAME[new_body.skin as usize].to_string(), Some(SKIN_TONES[new_body.skin as usize])),
                             ("สีผม", HAIR_NAME[new_body.hair as usize].to_string(), Some(HAIR_COLS[new_body.hair as usize])),
                             ("ทรงผม", STYLE_NAME[new_body.style as usize].to_string(), None),
                             ("สีเสื้อ", CLOTH_NAME[new_body.cloth as usize].to_string(), Some(CLOTH_COLS[new_body.cloth as usize])),
                             ("ส่วนสูง", format!("{} ซม.", new_body.cm), None),
                             ("น้ำหนัก", format!("{} กก.", new_body.kg), None),
+                            ("กล้ามเนื้อ", format!("{} ({})", new_body.mus, mus_word(new_body.mus)), None),
                         ];
                         let mut ry = y + 56. * u;
                         for (i, (label, val, sw_col)) in rows.iter().enumerate() {
@@ -2463,13 +2466,24 @@ async fn main() {
                             if dir != 0 {
                                 let b = &mut new_body;
                                 let wrap = |v: u8, n: usize| ((v as i32 + dir + n as i32) % n as i32) as u8;
+                                // เปลี่ยนเชื้อสาย/เพศ = ตั้งสีผิว ส่วนสูง น้ำหนัก เป็นค่าเฉลี่ยของกลุ่ม (ปรับต่อเองได้)
+                                let typical = |b: &mut Body| {
+                                    let e = ETH[b.eth as usize];
+                                    b.skin = (e.3 .0 + e.3 .1 + 1) / 2;
+                                    b.cm = (if b.fem { e.2 } else { e.1 }).round() as u16;
+                                    let m = b.cm as f64 / 100.;
+                                    b.kg = ((22.6 + e.4 - if b.fem { 0.6 } else { 0. }) * m * m).round() as u16;
+                                };
                                 match i {
-                                    0 => b.skin = wrap(b.skin, SKIN_N),
-                                    1 => b.hair = wrap(b.hair, HAIR_N),
-                                    2 => b.style = wrap(b.style, STYLE_N),
-                                    3 => b.cloth = wrap(b.cloth, CLOTH_N),
-                                    4 => b.cm = (b.cm as i32 + dir).clamp(CM_MIN, CM_MAX) as u16,
-                                    _ => b.kg = (b.kg as i32 + dir).clamp(KG_MIN, KG_MAX) as u16,
+                                    0 => { b.eth = wrap(b.eth, ETH_N); typical(b); }
+                                    1 => { b.fem = !b.fem; typical(b); }
+                                    2 => b.skin = wrap(b.skin, SKIN_N),
+                                    3 => b.hair = wrap(b.hair, HAIR_N),
+                                    4 => b.style = wrap(b.style, STYLE_N),
+                                    5 => b.cloth = wrap(b.cloth, CLOTH_N),
+                                    6 => b.cm = (b.cm as i32 + dir).clamp(CM_MIN, CM_MAX) as u16,
+                                    7 => b.kg = (b.kg as i32 + dir).clamp(KG_MIN, KG_MAX) as u16,
+                                    _ => b.mus = (b.mus as i32 + dir * 5).clamp(0, 100) as u8,
                                 }
                             }
                             let cx = rx + 76. * u + 34. * u + (rw - 76. * u - 68. * u) / 2.;
@@ -2480,9 +2494,9 @@ async fn main() {
                             } else {
                                 text_c(&font, val, cx, ry + 24. * u, 14. * u, WHITE);
                             }
-                            ry += 38. * u;
+                            ry += 33. * u;
                         }
-                        text_c(&font, "ร่างใหญ่หิวเร็วกว่า · ตัวสูงก้าวยาวกว่า · น้ำหนักเกินเดินช้าลงนิดหน่อย", x + w / 2., y + h - 62. * u, 11. * u, hx(0x9aa0b8));
+                        text_c(&font, "ตัวสูงก้าวยาว · ร่างใหญ่หิวเร็ว · กล้ามเยอะตีแรงขึ้นนิดหน่อยแต่หิวเร็วขึ้น · อ้วนเดินช้าลงนิดหน่อย", x + w / 2., y + h - 62. * u, 11. * u, hx(0x9aa0b8));
                         let bw3 = 128. * u;
                         if button(&font, Rect::new(x + 16. * u, y + h - 48. * u, bw3, 38. * u), "กลับ", true, u) || is_key_pressed(KeyCode::Escape) { tview = 0; }
                         if button(&font, Rect::new(x + w / 2. - bw3 / 2., y + h - 48. * u, bw3, 38. * u), "สุ่ม", true, u) { new_body = Body::random_player(); }
@@ -4502,7 +4516,7 @@ mod body_tests {
         let big = Body { cm: 190, kg: 110, ..d };
         let small = Body { cm: 155, kg: 48, ..d };
         assert!(big.hunger_mul() > 1.15 && small.hunger_mul() < 0.9);
-        assert!(big.hunger_mul() <= 1.2 && small.hunger_mul() >= 0.85);
+        assert!(big.hunger_mul() <= 1.25 && small.hunger_mul() >= 0.85);
         let obese = Body { cm: 170, kg: 130, ..d };
         assert!(obese.speed_mul() < 0.96 && obese.speed_mul() >= 0.92);
         assert!(Body { cm: 195, kg: 80, ..d }.speed_mul() > 1.01);
@@ -4522,7 +4536,7 @@ mod body_tests {
     #[test]
     fn body_saves_and_old_saves_default() {
         let mut g = g0();
-        g.p.body = Body { skin: 6, hair: 7, style: 3, cloth: 8, cm: 181, kg: 92, age: 25 };
+        g.p.body = Body { skin: 6, hair: 7, style: 3, cloth: 8, cm: 181, kg: 92, age: 25, eth: 7, mus: 70, fem: true };
         let txt = g.save_string();
         assert!(txt.contains("body 6 7 3 8 181 92 25"));
         let l = Game::load_str(&txt, Sfx::default()).ok().unwrap();
@@ -5706,5 +5720,50 @@ mod v12_tests {
         let mut h = Game::new_world_seed(777, Sfx::default());
         h.balance_load_line(&s.lines().next().unwrap().split_whitespace().skip(1).collect::<Vec<_>>());
         assert!(h.final_won);
+    }
+}
+
+#[cfg(test)]
+mod body2_tests {
+    use super::*;
+    #[test]
+    fn height_ethnicity_muscle_are_visibly_different() {
+        let d = Body::default();
+        let a = Body { cm: 170, ..d };
+        let b = Body { cm: 205, ..d };
+        let (ha, hb) = (a.scale().1 * 15., b.scale().1 * 15.);
+        assert!(hb - ha >= 4., "205 กับ 170 ต้องต่างกันอย่างน้อย 4 พิกเซลสไปรต์ ({} vs {})", hb, ha);
+        // คนสูงหัวเล็กเมื่อเทียบตัว · เด็กหัวโตเมื่อเทียบตัว
+        let (_, hh_b, _, _, rest_b) = b.part_scale();
+        assert!(rest_b > hh_b);
+        let kid = Body { cm: 110, age: 7, kg: 20, ..d };
+        let (_, hh_k, _, _, rest_k) = kid.part_scale();
+        assert!(hh_k > rest_k);
+        // กล้ามทำให้ลำตัวกว้าง ไม่เปลี่ยนความสูง
+        let m = Body { mus: 90, ..d };
+        assert!(m.part_scale().2 > d.part_scale().2 * 1.2);
+        assert_eq!(m.scale().1, d.scale().1);
+        // อ้วนกว้างกว่าผอมชัดเจน
+        let fat = Body { kg: 110, ..d };
+        let thin = Body { kg: 52, ..d };
+        assert!(fat.part_scale().2 / thin.part_scale().2 > 1.5);
+        // ค่าเฉลี่ยส่วนสูงตามเชื้อสาย (สุ่ม 400 คนต่อเพศ)
+        let avg = |eth: u8, fem: bool| {
+            let v: Vec<f64> = (0..5000u32).map(|s| Body::generate(s, fem)).filter(|x| x.eth == eth && x.age < 50).map(|x| x.cm as f64).collect();
+            (v.iter().sum::<f64>() / v.len().max(1) as f64, v.len())
+        };
+        let (sea, n1) = avg(0, false);
+        let (neu, n2) = avg(3, false);
+        assert!(n1 > 50 && n2 > 20, "{} {}", n1, n2);
+        assert!((sea - 169.).abs() < 3. && (neu - 181.).abs() < 4., "เอเชียตะวันออกเฉียงใต้ {:.1} · ยุโรปเหนือ {:.1}", sea, neu);
+        assert!(neu - sea > 8.);
+        let (seaf, _) = avg(0, true);
+        assert!(sea - seaf > 8., "ชายสูงกว่าหญิงโดยเฉลี่ย");
+        // สีผิวอยู่ในช่วงของกลุ่ม
+        for s in 0..2000u32 { let x = Body::generate(s, s % 2 == 0); let e = ETH[x.eth as usize]; assert!(x.skin >= e.3 .0 && x.skin <= e.3 .1); }
+        let s = Body { eth: 9, mus: 77, fem: true, ..d };
+        let t = s.save_str();
+        let f: Vec<f32> = t.split_whitespace().skip(1).map(|v| v.parse().unwrap()).collect();
+        assert_eq!(Body::load(&f), s);
     }
 }

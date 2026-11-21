@@ -13,7 +13,7 @@ impl Player {
         0.05 + 0.03 * self.st[3] as f32 + if self.buff_crit > 0. { 0.2 } else { 0. }
     }
     pub fn atk_mul(&self, weapon: u8) -> f32 {
-        (1. + 0.12 * self.st[1] as f32) * (1. + 0.2 * self.wplus[weapon as usize] as f32)
+        (1. + 0.12 * self.st[1] as f32) * (1. + 0.2 * self.wplus[weapon as usize] as f32) * if weapon == 0 { self.body.str_mul() } else { 1. }
     }
 }
 
