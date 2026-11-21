@@ -100,6 +100,8 @@ pub struct Sfx {
     pub hammer: Option<Sound>,
     /// เสียงเดิน [พื้นผิว][แบบ] — หญ้า ดิน ทราย หิมะ หิน ไม้ โคลน
     pub steps: [Vec<Sound>; 7],
+    /// เสียงเดินมอนสเตอร์/สัตว์ [ชนิด][แบบ] — สไลม์ กระดูก ปีก กีบ อุ้งเท้า ย่ำหนัก
+    pub mob: [Vec<Sound>; 6],
 }
 
 async fn load(s: Vec<f32>) -> Option<Sound> {
@@ -142,6 +144,7 @@ pub async fn load_sfx() -> Sfx {
         splash: snd(900., 0.2, -500., 0.15, 3).await,
         hammer: snd(300., 0.06, -100., 0.25, 0).await,
         steps: Default::default(),
+        mob: Default::default(),
     };
     // วางไฟล์ assets/audio/sfx_<ชื่อ>.ogg|wav หรือ bgm_<n>.ogg|wav เพื่อแทนเสียงสังเคราะห์
     crate::assets::override_audio(&mut s).await;

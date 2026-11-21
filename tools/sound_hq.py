@@ -606,6 +606,61 @@ def footstep(surface, i):
 SURFACES = ["grass", "dirt", "sand", "snow", "stone", "wood", "mud"]
 
 
+# ------------------------------------------------------------------ เสียงเดินของมอนสเตอร์/สัตว์ (v15.2)
+MOBS = ["slime", "bone", "flap", "hoof", "paw", "stomp"]
+
+
+def mob_step(kind, i):
+    if kind == "slime":
+        # สไลม์กระดึ๊บ: ก้อนวุ้นกระแทกพื้น (ไซน์ต่ำสั่นยวบ) + เสียงแฉะ + ฟองเล็ก
+        d = 0.32
+        t = T(d)
+        f = rng.uniform(150, 210) * (1 - 0.45 * t / d) * (1 + 0.12 * np.sin(2 * np.pi * rng.uniform(16, 24) * t))
+        blob = np.sin(2 * np.pi * np.cumsum(f) / SR) * expdec(len(t), 0.07, 0.004)
+        sq = bp(white(d), 300, 1400) * expdec(len(t), 0.04, 0.003) * (0.6 + 0.4 * np.sin(2 * np.pi * 30 * t))
+        y = mix(fade(blob, 0, 0.06), fade(sq, 0, 0.06) * 0.5, bubbles(0.2, 3, 300, 800, (0.015, 0.03)) * 0.25)
+        room = "small"
+    elif kind == "bone":
+        # โครงกระดูก: กระดูกกระทบกันกรุกกริก 3–4 ครั้ง + เท้ากระดูกแตะพื้น
+        y = np.zeros(int(0.25 * SR))
+        put(y, thump(160, 90, 0.06, 0.012) * 0.5, 0)
+        for k in range(rng.integers(3, 5)):
+            f = rng.uniform(1600, 3200)
+            put(y, modal([f, f * 1.83, f * 2.7], [0.012, 0.008, 0.005], [0.8, 0.4, 0.2], 0.05, 0.05), rng.uniform(0, 0.07), rng.uniform(0.4, 1))
+        put(y, click(0.003, 2500, 9000) * 0.6, 0)
+        room = "small"
+    elif kind == "flap":
+        # ปีกค้างคาว/นก: ลมตีพั่บ 2 จังหวะ (หนังปีก)
+        y = np.zeros(int(0.22 * SR))
+        for k, at in enumerate([0, rng.uniform(0.07, 0.1)]):
+            n = int(0.07 * SR)
+            tt = np.arange(n) / SR
+            w = bp(rng.standard_normal(n), 250, 1600) * np.exp(-((tt - 0.02) / 0.012) ** 2)
+            put(y, w, at, 1 - 0.35 * k)
+        room = "out"
+    elif kind == "hoof":
+        # กีบ (กวาง/แอนทิโลป/หมูป่า): ต๊อกแข็ง 2 ที เหมือนเท้าหน้า-หลัง
+        y = np.zeros(int(0.25 * SR))
+        for k, at in enumerate([0, rng.uniform(0.06, 0.09)]):
+            f = rng.uniform(380, 520)
+            put(y, mix(modal([f, f * 2.3, f * 4.1], [0.025, 0.015, 0.008], [0.8, 0.4, 0.2], 0.08), click(0.003, 1500, 7000) * 0.5, thump(120, 70, 0.06, 0.015) * 0.5), at, 1 - 0.3 * k)
+        room = "out"
+    elif kind == "paw":
+        # อุ้งเท้านุ่ม (หมาป่า/กระต่าย/จระเข้/สัตว์เลี้ยง): ตุบเบาๆ + ใบไม้/ดินกรุบนิดๆ
+        y = mix(thump(rng.uniform(100, 140), 60, 0.08, 0.018) * 0.7, grains(0.1, 1500, 700, 4500, (0.0005, 0.002), np.exp(-T(0.1) * 30)) * 0.4)
+        room = "out"
+    else:
+        # ย่ำหนัก (บอส): ตึงต่ำ + พื้นสะเทือน + เศษหินกรุ
+        y = np.zeros(int(1.0 * SR))
+        put(y, thump(rng.uniform(55, 70), 28, 0.5, 0.14) * 1.2, 0)
+        put(y, lp(white(0.3), 700) * expdec(int(0.3 * SR), 0.06), 0, 0.6)
+        put(y, grains(0.5, 50, 700, 4000, (0.002, 0.008), np.exp(-T(0.5) * 7)) * 0.6, 0.04)
+        room = "room"
+    y = lp(y, 9000)
+    y = reverb(trim(y), room, 0.12)[:, 0]
+    return norm(fade(trim(y), 0.0005, 0.03), 0.8)
+
+
 # ------------------------------------------------------------------ บรรยากาศ (วนลูป)
 def amb_bank(secs=12.0):
     D = secs + 1.5
@@ -840,12 +895,17 @@ def generate(out_dir):
             p = os.path.join(out_dir, f"step_{s}_{i}.wav")
             write_wav(p, footstep(s, i))
             total += os.path.getsize(p)
+    for m in MOBS:
+        for i in range(4):
+            p = os.path.join(out_dir, f"mob_{m}_{i}.wav")
+            write_wav(p, mob_step(m, i))
+            total += os.path.getsize(p)
     A = amb_bank()
     for k, v in A.items():
         p = os.path.join(out_dir, f"amb_{k}.wav")
         write_wav(p, v)
         total += os.path.getsize(p)
-    print(f"HQ: sfx {len(B)} · เดิน {len(SURFACES) * 5} · บรรยากาศ {len(A)} · {total / 1e6:.1f} MB (WAV)")
+    print(f"HQ: sfx {len(B)} · เดิน {len(SURFACES) * 5} + สัตว์/มอน {len(MOBS) * 4} · บรรยากาศ {len(A)} · {total / 1e6:.1f} MB (WAV)")
     return B, A
 
 

@@ -350,7 +350,7 @@ def main():
         import sound_hq
         sound_hq.generate(a.out)
         for f in os.listdir(a.out):
-            if f.startswith(("sfx_", "step_", "amb_")):
+            if f.startswith(("sfx_", "step_", "amb_", "mob_")):
                 total += os.path.getsize(os.path.join(a.out, f))
     print(f"รวมเสียง {total / 1e6:.1f} MB")
 

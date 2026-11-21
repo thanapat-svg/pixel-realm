@@ -23,6 +23,21 @@ const A_CAVE: usize = 8;
 const A_LAVA: usize = 9;
 const A_SWAMP: usize = 10;
 
+/// เสียงเดินสิ่งมีชีวิตอื่น (ลำดับตรงกับ Sfx.mob)
+pub const MOBS: [&str; 6] = ["slime", "bone", "flap", "hoof", "paw", "stomp"];
+const M_SLIME: usize = 0;
+const M_BONE: usize = 1;
+const M_FLAP: usize = 2;
+const M_HOOF: usize = 3;
+const M_PAW: usize = 4;
+const M_STOMP: usize = 5;
+/// ได้ยินเสียงเดินของสิ่งอื่นในรัศมีนี้ (พิกเซล ~11 ช่อง)
+const HEAR_R: f32 = 176.;
+
+/// สถานะเสียงเดินของสิ่งมีชีวิตแต่ละตัว: ตำแหน่งเฟรมก่อน + ระยะสะสม + ตัวจับเวลา (ปีก)
+#[derive(Clone, Copy, Default)]
+pub struct StepTrack { pub x: f32, pub y: f32, pub acc: f32, pub t: f32 }
+
 /// พื้นผิวเสียงเดิน (ลำดับตรงกับ Sfx.steps)
 pub const SURFACES: [&str; 7] = ["grass", "dirt", "sand", "snow", "stone", "wood", "mud"];
 
@@ -120,6 +135,75 @@ impl Game {
         self.step_last = i;
         let vol = match s { 3 | 6 => 0.42, 5 | 4 => 0.36, _ => 0.32 } * if self.p.dash_t > 0. { 1.25 } else { 1. };
         play_step(&bank[i], vol);
+    }
+}
+
+impl Game {
+    /// เสียงเดินของชาวบ้าน มอนสเตอร์ สัตว์ (รวมสัตว์เลี้ยง) และบอส — ดังตามระยะ · ข้างนอกเบาลงถ้าเราอยู่ในบ้าน
+    /// จำกัดไม่เกิน ~4 เสียงต่อ 0.15 วิ กันเสียงตีกันเมื่อมีฝูงมอน
+    pub fn world_steps_tick(&mut self, dt: f32) {
+        self.step_budget = (self.step_budget + dt * 26.).min(4.);
+        let (px, py) = (self.p.x, self.p.y);
+        let inside = self.indoors();
+        let in_room = |g: &Game, x: f32, y: f32| g.room_of.contains_key(&(tfloor(x), tfloor(y - 3.)));
+        let winter = seasons::season(self) == 3 && self.w.dun.is_none();
+        // (ประเภท, x, y, ชนิดเสียง (-1 = พื้นผิว), ระยะต่อก้าว, ความดังพื้นฐาน, บิน?)
+        let mut list: Vec<(u8, f32, f32, i32, f32, f32, bool)> = vec![];
+        for n in &self.npcs { list.push((0, n.x, n.y, -1, 17., 0.55, false)); }
+        for e in &self.en {
+            if e.dead { list.push((1, f32::NAN, 0., 0, 1., 0., false)); continue; }
+            let (m, stride, v, fly) = match e.k { EK::Slime => (M_SLIME, 20., 0.6, false), EK::Skel => (M_BONE, 15., 0.6, false), EK::Bat => (M_FLAP, 0., 0.45, true) };
+            list.push((1, e.x, e.y, m as i32, stride, v, fly));
+        }
+        for a in &self.animals {
+            if a.dead { list.push((2, f32::NAN, 0., 0, 1., 0., false)); continue; }
+            let (m, stride, v, fly) = match a.k { A_BIRD => (M_FLAP, 0., 0.3, true), A_DEER | A_ANTE | A_BOAR => (M_HOOF, 22., 0.5, false), A_CROC => (M_PAW, 22., 0.5, false), _ => (M_PAW, 15., if a.tame { 0.45 } else { 0.4 }, false) };
+            list.push((2, a.x, a.y, m as i32, stride, v, fly));
+        }
+        for b in &self.bosses {
+            if b.dead { list.push((3, f32::NAN, 0., 0, 1., 0., false)); continue; }
+            list.push((3, b.x, b.y, M_STOMP as i32, 30., 1.0, false));
+        }
+        let mut tr = std::mem::take(&mut self.step_tracks);
+        if tr.len() != list.len() { tr = list.iter().map(|l| StepTrack { x: l.1, y: l.2, acc: 0., t: gen_range(0., 0.2) }).collect(); }
+        let mut plays: Vec<(usize, usize, f32)> = vec![]; // (กลุ่มเสียง: 0..6 พื้นผิว / 10+ mob, ดัชนีแบบ, ความดัง)
+        for (i, &(_, x, y, m, stride, base, fly)) in list.iter().enumerate() {
+            let t = &mut tr[i];
+            if x.is_nan() { continue; }
+            let moved = (x - t.x).hypot(y - t.y);
+            t.x = x;
+            t.y = y;
+            if moved > 40. { continue; } // วาร์ป/เกิดใหม่
+            let d = (x - px).hypot(y - py);
+            let trigger = if fly {
+                t.t -= dt;
+                if t.t <= 0. { t.t = gen_range(0.2, 0.3); true } else { false }
+            } else {
+                t.acc += moved;
+                if t.acc >= stride { t.acc -= stride; true } else { false }
+            };
+            if !trigger || d > HEAR_R { continue; }
+            let mut vol = base * (1. - d / HEAR_R).powf(1.6);
+            if inside && !in_room(self, x, y) { vol *= 0.35; }
+            if vol < 0.02 { continue; }
+            if m < 0 {
+                let mut s = surface_of(self.w.tile_at(tfloor(x), tfloor(y - 2.)));
+                if s == 0 && winter { s = 3; }
+                plays.push((s, 0, vol * 0.85));
+            } else {
+                plays.push((10 + m as usize, 0, vol));
+            }
+        }
+        self.step_tracks = tr;
+        // ดังสุดก่อน แล้วตัดตามโควตา
+        plays.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap());
+        for (grp, _, vol) in plays {
+            if self.step_budget < 1. { break; }
+            self.step_budget -= 1.;
+            let bank = if grp >= 10 { &self.sfx.mob[grp - 10] } else { &self.sfx.steps[grp] };
+            if bank.is_empty() { continue; }
+            play_step(&bank[gen_range(0, bank.len())], vol.min(1.));
+        }
     }
 }
 

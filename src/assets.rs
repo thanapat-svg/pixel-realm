@@ -44,6 +44,12 @@ pub async fn override_audio(s: &mut Sfx) {
             match try_sound(&format!("step_{}_{}", surf, n)).await { Some(x) => s.steps[i].push(x), None => break }
         }
     }
+    for (i, m) in crate::ambience::MOBS.iter().enumerate() {
+        for n in 0..8 {
+            match try_sound(&format!("mob_{}_{}", m, n)).await { Some(x) => s.mob[i].push(x), None => break }
+        }
+    }
+    eprintln!("audio: mob {:?}", s.mob.iter().map(|v| v.len()).collect::<Vec<_>>());
     eprintln!("audio: steps {:?} thunder {} hammer {}", s.steps.iter().map(|v| v.len()).collect::<Vec<_>>(), s.thunder.is_some(), s.hammer.is_some());
 }
 

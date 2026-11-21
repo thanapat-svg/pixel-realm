@@ -567,6 +567,8 @@ struct Game {
     sites: Vec<Site>,
     step_d: f32,
     step_last: usize,
+    step_tracks: Vec<StepTrack>,
+    step_budget: f32,
     amb: [f32; AMB_N],
     amb_t: f32,
     hammer_t: f32,
@@ -682,7 +684,7 @@ impl Game {
             w, p: Player::new(0., 0.), en: vec![], parts: vec![], floats: vec![], toasts: vec![], time: 0., spawn: (0., 0.),
             seen: HashSet::new(), obj_dmg: HashMap::new(), shake: ((0, 0), 0.), hurt_flash: 0., darkv: 0., last_biome: -1,
             spawn_t: 0., save_t: 0., mini_t: 99., died: false, big_map: false, sfx,
-            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, rooms: vec![], room_of: HashMap::new(), room_t: 0., paint_last: None, auto_doors: HashSet::new(), sites: vec![], step_d: 0., step_last: 0, amb: [0.; AMB_N], amb_t: 0., hammer_t: 0., aim_last: None, aim_last_t: 0., site_wait_t: 0., sit: None, sit_t: 0., psy: HashMap::new(), psy_t: 0., gather: HashMap::new(), an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
+            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, rooms: vec![], room_of: HashMap::new(), room_t: 0., paint_last: None, auto_doors: HashSet::new(), sites: vec![], step_d: 0., step_last: 0, step_tracks: vec![], step_budget: 4., amb: [0.; AMB_N], amb_t: 0., hammer_t: 0., aim_last: None, aim_last_t: 0., site_wait_t: 0., sit: None, sit_t: 0., psy: HashMap::new(), psy_t: 0., gather: HashMap::new(), an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
@@ -1416,6 +1418,7 @@ impl Game {
         if self.camp_t <= 0. { self.camp_t = 1.; self.discover_camps(); self.discover_marks(); self.tips_check(); }
         self.house_tick(dt);
         self.sites_tick(dt);
+        self.world_steps_tick(dt);
         self.psy_tick(dt);
         self.land_tick(dt);
         self.upd_enemies(dt);
@@ -6293,5 +6296,42 @@ mod move_tests {
         assert_eq!(g.en.len(), 2);
         let a = g.auto_target(40.).unwrap();
         assert!(a.x > 0., "ศัตรูข้างหน้าได้แต้มต่อ แม้อีกตัวด้านหลังจะใกล้กว่านิดหน่อย");
+    }
+}
+
+#[cfg(test)]
+mod world_step_tests {
+    use super::*;
+    fn villager(id: u32, x: f32, y: f32) -> npc::Npc {
+        npc::Npc { id, name: 1, look: 0, x, y, state: npc::ST_HOME, hearts: 3, mood: 70, married: false, child: false, role: 0, bed: (0, 0), anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false, soc: Soc::generate(id, 1) }
+    }
+    #[test]
+    fn nearby_walkers_make_steps_far_ones_dont() {
+        let mut g = Game::new_world_seed(4242, Sfx::default());
+        g.p.x = 1000. * 16.; g.p.y = 1000. * 16.;
+        g.npcs.push(villager(1, g.p.x + 40., g.p.y));
+        g.world_steps_tick(0.016);
+        g.step_budget = 4.;
+        for _ in 0..20 { g.npcs[0].x += 2.; g.world_steps_tick(0.0); }
+        assert!(g.step_budget < 4., "ชาวบ้านเดินใกล้ๆ ต้องมีเสียงก้าว");
+        // ไกลเกินระยะได้ยิน
+        let mut h = Game::new_world_seed(4242, Sfx::default());
+        h.p.x = 1000. * 16.; h.p.y = 1000. * 16.;
+        h.npcs.push(villager(1, h.p.x + 400., h.p.y));
+        h.world_steps_tick(0.016);
+        h.step_budget = 4.;
+        for _ in 0..20 { h.npcs[0].x += 2.; h.world_steps_tick(0.0); }
+        assert_eq!(h.step_budget, 4.);
+    }
+    #[test]
+    fn crowd_is_throttled() {
+        let mut g = Game::new_world_seed(4242, Sfx::default());
+        g.p.x = 1000. * 16.; g.p.y = 1000. * 16.;
+        for i in 0..30 { g.npcs.push(villager(i, g.p.x + 20., g.p.y)); }
+        g.world_steps_tick(0.016);
+        g.step_budget = 4.;
+        for n in g.npcs.iter_mut() { n.x += 18.; }
+        g.world_steps_tick(0.0);
+        assert!(g.step_budget >= 0., "เล่นได้ไม่เกินโควตา แม้ 30 คนก้าวพร้อมกัน");
     }
 }
