@@ -33,6 +33,7 @@ mod seasons;
 mod animals;
 mod quests;
 mod balance;
+mod mcui;
 use extra::*;
 use farm::*;
 use guide::*;
@@ -55,6 +56,7 @@ use seasons::*;
 use animals::*;
 use quests::*;
 use balance::*;
+use mcui::*;
 
 // ======================= ค่าคงที่ =======================
 const DAYLEN: f32 = 240.0;
@@ -1725,44 +1727,15 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
     let u = ui_scale();
     let (x, mut y) = (10. * u, 10. * u);
     let p = &g.p;
-    text(font, &format!("Lv {} · {}{}{}", p.lvl, p.weapon_name(), if p.wplus[p.weapon as usize] > 0 { format!(" +{}", p.wplus[p.weapon as usize]) } else { String::new() }, if p.pick { " · มีอีเต้อ" } else { "" }), x, y + 13. * u, 15. * u, WHITE);
-    y += 20. * u;
-    let bw = 160. * u;
-    let bh = 12. * u;
-    draw_rectangle(x, y, bw, bh, hx(0x441111));
-    draw_rectangle(x, y, bw * (p.hp as f32 / p.maxhp as f32).clamp(0., 1.), bh, hx(0xee3333));
-    draw_rectangle_lines(x, y, bw, bh, 2., BLACK);
-    text_c(font, &format!("HP {}/{}", p.hp, p.maxhp), x + bw / 2., y + bh - 2. * u, 11. * u, WHITE);
-    y += bh + 4. * u;
-    let need = p.lvl * 10;
-    draw_rectangle(x, y, bw, bh, hx(0x112233));
-    draw_rectangle(x, y, bw * (p.xp as f32 / need as f32).clamp(0., 1.), bh, hx(0x44ccff));
-    draw_rectangle_lines(x, y, bw, bh, 2., BLACK);
-    text_c(font, &format!("XP {}/{}", p.xp, need), x + bw / 2., y + bh - 2. * u, 11. * u, WHITE);
-    y += bh + 4. * u;
-    y += draw_need_bars(g, font, x, y, bw, u);
     let hr = ((g.time / DAYLEN * 24.) + 6.) % 24.;
     let day = (g.time / DAYLEN) as i32 + 1;
     let night = !(6. ..18.).contains(&hr);
     text(font, &format!("{} {} วันที่ {} · {:02}:{:02} · {}", SEASON_N[season(g) as usize], if night { "คืน" } else { "วัน" }, day, hr as i32, ((hr.fract()) * 60.) as i32, TN[g.w.tile_at(tfloor(p.x), tfloor(p.y)) as usize]), x, y + 13. * u, 13. * u, if night { hx(0xaabbff) } else { hx(0xffee99) });
     y += 20. * u;
-    let mut ix = x;
-    for &i in &[WOOD, STONE, BERRY, GEM, COIN, FIRE, ARROW, POTION, SHARD, MEAT, SHROOM, HERB, DISH_STEW, DISH_SPEED, DISH_CRIT, DISH_FISH, FISH] {
-        if (i == POTION || i >= SHARD) && p.inv[i] == 0 { continue; }
-        if i == ARROW && !p.bow && p.inv[i] == 0 { continue; }
-        let s = format!("{}", p.inv[i]);
-        let d = measure_text(&s, Some(font), (13. * u) as u16, 1.);
-        let w = 20. * u + d.width;
-        draw_rectangle(ix, y, w, 18. * u, Color::new(0., 0., 0., 0.55));
-        icon(sp, i, ix + 3. * u, y + 2. * u, 14. * u);
-        text(font, &s, ix + 18. * u, y + 14. * u, 13. * u, WHITE);
-        ix += w + 4. * u;
-    }
+    if let Some(st) = g.need_status() { text(font, st, x, y + 10. * u, 12. * u, hx(0xffbb77)); y += 16. * u; }
     if p.hides > 0 || p.coat {
-        let s = format!("หนัง {}{}", p.hides, if p.coat { " · ใส่เสื้อขนสัตว์" } else { "" });
-        let d = measure_text(&s, Some(font), (12. * u) as u16, 1.);
-        draw_rectangle(ix, y, d.width + 10. * u, 18. * u, Color::new(0.25, 0.15, 0.05, 0.7));
-        text(font, &s, ix + 5. * u, y + 13. * u, 12. * u, hx(0xe8c890));
+        text(font, &format!("หนังสัตว์ {}{}", p.hides, if p.coat { " · ใส่เสื้อขนสัตว์" } else { "" }), x, y + 10. * u, 11. * u, hx(0xe8c890));
+        y += 14. * u;
     }
     y += 24. * u;
     if p.reduction() > 0. {
@@ -1817,32 +1790,34 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
             ty += h + 4. * u;
         }
     }
+    draw_mc_hud(g, sp, font);
     draw_boss_bar(g, font);
+    let hint_y = sh - bottom_hud_h(g, u) - 34. * u;
     if let Some(f) = &g.fish {
         let s = if f.bite_t > 0. { if touch { "ปลากิน! กดปุ่ม \"ใช้\" เลย" } else { "ปลากิน! กด Q เลย" } } else { "รอปลากินเบ็ด... (ขยับ = เลิก)" };
         let d = measure_text(s, Some(font), (15. * u) as u16, 1.);
-        draw_rectangle(sw / 2. - d.width / 2. - 12. * u, sh - 74. * u, d.width + 24. * u, 28. * u, Color::new(0., 0., 0., 0.65));
-        text_c(font, s, sw / 2., sh - 54. * u, 15. * u, if f.bite_t > 0. { hx(0xffee44) } else { hx(0xbfe8ff) });
+        draw_rectangle(sw / 2. - d.width / 2. - 12. * u, hint_y, d.width + 24. * u, 28. * u, Color::new(0., 0., 0., 0.65));
+        text_c(font, s, sw / 2., hint_y + 20. * u, 15. * u, if f.bite_t > 0. { hx(0xffee44) } else { hx(0xbfe8ff) });
     } else if g.interact_target().is_none() && g.water_ahead().is_some() {
         let thirsty = g.survival_mode() > 0 && g.p.thirst < 90.;
         let s = if thirsty { if touch { "ปุ่ม \"ใช้\": ดื่มน้ำ" } else { "Q: ดื่มน้ำ" } } else if touch { "ปุ่ม \"ใช้\": ตกปลา" } else { "Q: ตกปลา" };
         let d = measure_text(s, Some(font), (15. * u) as u16, 1.);
-        draw_rectangle(sw / 2. - d.width / 2. - 12. * u, sh - 74. * u, d.width + 24. * u, 28. * u, Color::new(0., 0., 0., 0.65));
-        text_c(font, s, sw / 2., sh - 54. * u, 15. * u, hx(0xbfe8ff));
+        draw_rectangle(sw / 2. - d.width / 2. - 12. * u, hint_y, d.width + 24. * u, 28. * u, Color::new(0., 0., 0., 0.65));
+        text_c(font, s, sw / 2., hint_y + 20. * u, 15. * u, hx(0xbfe8ff));
     }
     if let Some(s) = g.npc_hint(touch) {
         let d = measure_text(&s, Some(font), (15. * u) as u16, 1.);
-        draw_rectangle(sw / 2. - d.width / 2. - 12. * u, sh - 74. * u, d.width + 24. * u, 28. * u, Color::new(0., 0., 0., 0.65));
-        text_c(font, &s, sw / 2., sh - 54. * u, 15. * u, hx(0xffd0e0));
+        draw_rectangle(sw / 2. - d.width / 2. - 12. * u, hint_y, d.width + 24. * u, 28. * u, Color::new(0., 0., 0., 0.65));
+        text_c(font, &s, sw / 2., hint_y + 20. * u, 15. * u, hx(0xffd0e0));
     } else if let Some((_, o)) = g.interact_target() {
         let s = interact_hint(o, touch);
         let d = measure_text(&s, Some(font), (15. * u) as u16, 1.);
-        draw_rectangle(sw / 2. - d.width / 2. - 12. * u, sh - 74. * u, d.width + 24. * u, 28. * u, Color::new(0., 0., 0., 0.65));
-        text_c(font, &s, sw / 2., sh - 54. * u, 15. * u, hx(0xffee99));
+        draw_rectangle(sw / 2. - d.width / 2. - 12. * u, hint_y, d.width + 24. * u, 28. * u, Color::new(0., 0., 0., 0.65));
+        text_c(font, &s, sw / 2., hint_y + 20. * u, 15. * u, hx(0xffee99));
     } else if let Some(s) = g.farm_hint(touch) {
         let d = measure_text(&s, Some(font), (15. * u) as u16, 1.);
-        draw_rectangle(sw / 2. - d.width / 2. - 12. * u, sh - 74. * u, d.width + 24. * u, 28. * u, Color::new(0., 0., 0., 0.65));
-        text_c(font, &s, sw / 2., sh - 54. * u, 15. * u, hx(0xb8ffb0));
+        draw_rectangle(sw / 2. - d.width / 2. - 12. * u, hint_y, d.width + 24. * u, 28. * u, Color::new(0., 0., 0., 0.65));
+        text_c(font, &s, sw / 2., hint_y + 20. * u, 15. * u, hx(0xb8ffb0));
     }
     if g.sleep_fx > 0. {
         draw_rectangle(0., 0., sw, sh, Color::new(0., 0., 0.05, g.sleep_fx.min(1.)));

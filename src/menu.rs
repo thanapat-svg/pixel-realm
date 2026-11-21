@@ -15,6 +15,10 @@ pub struct UiState {
     pub npc: Option<u32>,
     pub gift_open: bool,
     pub greet: usize,
+    /// ช่องที่เลือกในตาราง (คราฟต์/สร้าง/กระเป๋า)
+    pub sel_r: usize,
+    pub sel_b: usize,
+    pub sel_i: usize,
     press: Option<Vec2>,
     last: Vec2,
     drag: f32,
@@ -24,7 +28,7 @@ pub struct UiState {
 }
 impl UiState {
     pub fn new() -> Self {
-        UiState { tab: 0, scroll: 0., max_scroll: 0., chest: None, shop: false, forge: false, cook: false, adv: false, npc: None, gift_open: false, greet: 0, press: None, last: Vec2::ZERO, drag: 0., click: None, clip: Rect::new(0., 0., 1., 1.), close: false }
+        UiState { tab: 0, scroll: 0., max_scroll: 0., chest: None, shop: false, forge: false, cook: false, adv: false, npc: None, gift_open: false, greet: 0, sel_r: usize::MAX, sel_b: usize::MAX, sel_i: usize::MAX, press: None, last: Vec2::ZERO, drag: 0., click: None, clip: Rect::new(0., 0., 1., 1.), close: false }
     }
     pub fn open(&mut self, tab: usize) {
         self.tab = tab;
@@ -105,84 +109,178 @@ fn tab_craft(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect,
 fn tab_adv(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32 {
     recipe_list(g, sp, font, ui, c, u, &ADV_RECIPES)
 }
+/// ไอคอนผลลัพธ์ของสูตร
+enum RIcon { At(usize, Color), Pick, Rod, Heart }
+fn recipe_icon(r: &Recipe) -> RIcon {
+    match r.eff {
+        Eff::Sword(t) => RIcon::At(ICON_SWORD, hx(SWC[t.min(5)])),
+        Eff::Pick => RIcon::Pick,
+        Eff::Fire => RIcon::At(FIRE, WHITE),
+        Eff::Heart => RIcon::Heart,
+        Eff::Bow => RIcon::At(IC_BOW, WHITE),
+        Eff::Staff(_) => RIcon::At(IC_STAFF, WHITE),
+        Eff::Arrows(_) => RIcon::At(ARROW, WHITE),
+        Eff::Elem(e) => RIcon::At(IC_STAFF, [hx(0xff8a4a), hx(0x8ae0ff), hx(0xffe060)][(e as usize).min(2)]),
+        Eff::Rod => RIcon::Rod,
+        Eff::Armor(sl, t) => RIcon::At(SLOT_ICON[sl], hx(ATC[(t as usize).min(4)])),
+        Eff::Can => RIcon::At(IC_CAN, WHITE),
+        Eff::Outfit(o) => RIcon::At(IC_CHEST, if o == 1 { hx(0xd8b85a) } else { hx(0x5a9a4a) }),
+        Eff::Coat => RIcon::At(IC_CHEST, hx(0xa8784a)),
+    }
+}
+fn draw_ricon(sp: &Sprites, ic: &RIcon, x: f32, y: f32, s: f32, dim: bool) {
+    let a = if dim { 0.35 } else { 1. };
+    match ic {
+        RIcon::At(i, c) => icon_c(sp, *i, x, y, s, Color::new(c.r, c.g, c.b, a)),
+        RIcon::Pick => mcui::pix_icon_pick(x, y, s / 12.),
+        RIcon::Rod => mcui::pix_icon_rod(x, y, s / 12.),
+        RIcon::Heart => mcui::pix_icon_heart(x, y, s / 12.),
+    }
+    if dim && !matches!(ic, RIcon::At(..)) { draw_rectangle(x, y, s, s, Color::new(0.1, 0.1, 0.12, 0.6)); }
+}
+/// วัตถุดิบเป็นช่องเล็ก: ไอคอน + มี/ต้องใช้ (เขียว = พอ แดง = ไม่พอ)
+fn cost_chips(g: &Game, sp: &Sprites, font: &Font, cost: &[(usize, i32)], need: Option<usize>, x: f32, y: f32, u: f32) {
+    let s = 26. * u;
+    let mut cx = x;
+    for &(it, n) in cost {
+        mcui::slot(cx, y, s, false, false);
+        icon_c(sp, it, cx + s * 0.15, y + s * 0.15, s * 0.7, WHITE);
+        let ok = g.p.inv[it] >= n;
+        let t = format!("{}/{}", g.p.inv[it].min(999), n);
+        text(font, &t, cx + s + 3. * u, y + s * 0.68, 12. * u, if ok { hx(0x8cff8c) } else { hx(0xff7a7a) });
+        cx += s + 8. * u + measure_text(&t, Some(font), (12. * u) as u16, 1.).width;
+    }
+    if let Some(nd) = need {
+        mcui::slot(cx, y, s, false, false);
+        icon_c(sp, nd, cx + s * 0.15, y + s * 0.15, s * 0.7, WHITE);
+        let ok = g.p.inv[nd] >= 1;
+        text(font, if ok { "มี" } else { "ต้องมี" }, cx + s + 3. * u, y + s * 0.68, 12. * u, if ok { hx(0x8cff8c) } else { hx(0xff7a7a) });
+    }
+}
+/// เครื่องหมายถูก (วาดด้วยเส้น ไม่พึ่งฟอนต์)
+fn tick(x: f32, y: f32, s: f32) {
+    let w = (s * 0.12).max(2.);
+    draw_line(x, y + s * 0.5, x + s * 0.35, y + s * 0.85, w, hx(0x1a1a1a));
+    draw_line(x + s * 0.35, y + s * 0.85, x + s, y + s * 0.1, w, hx(0x1a1a1a));
+    draw_line(x, y + s * 0.45, x + s * 0.35, y + s * 0.8, w * 0.6, hx(0x6cff6c));
+    draw_line(x + s * 0.35, y + s * 0.8, x + s, y + s * 0.05, w * 0.6, hx(0x6cff6c));
+}
+/// ตารางช่องแบบ Minecraft: คืน index ที่แตะ
+fn grid<F: Fn(usize, f32, f32, f32)>(ui: &UiState, c: Rect, y: &mut f32, n: usize, s: f32, gap: f32, sel: usize, draw: F) -> Option<usize> {
+    let cols = (((c.w - 12.) / (s + gap)).floor() as usize).max(1);
+    let x0 = c.x + (c.w - cols as f32 * (s + gap) + gap) / 2.;
+    let mut hit = None;
+    for k in 0..n {
+        let (col, row) = (k % cols, k / cols);
+        let (x, yy) = (x0 + col as f32 * (s + gap), *y + row as f32 * (s + gap));
+        if visible(yy, s, c) {
+            mcui::slot(x, yy, s, k == sel, false);
+            draw(k, x, yy, s);
+            if ui.click.map_or(false, |p| Rect::new(x, yy, s, s).contains(p) && ui.clip.contains(p)) { hit = Some(k); }
+        }
+    }
+    let rows = (n + cols - 1) / cols;
+    *y += rows as f32 * (s + gap);
+    hit
+}
+/// กล่องรายละเอียดด้านบน (ช่องใหญ่ + ชื่อ + คำอธิบาย) — คืนความสูง
+fn detail_box(font: &Font, c: Rect, y: f32, u: f32, name: &str, desc: &str, draw_big: &dyn Fn(f32, f32, f32)) -> f32 {
+    let h = 108. * u;
+    if visible(y, h, c) {
+        draw_rectangle(c.x + 4. * u, y + 4. * u, c.w - 8. * u, h - 8. * u, hx(0x262938));
+        let s = 58. * u;
+        mcui::slot(c.x + 12. * u, y + 14. * u, s, false, false);
+        draw_big(c.x + 12. * u + s * 0.12, y + 14. * u + s * 0.12, s * 0.76);
+        text(font, name, c.x + 82. * u, y + 30. * u, 17. * u, hx(0xffcc66));
+        let ws = wrap_th(font, desc, 12. * u, c.w - 200. * u);
+        for (k, w) in ws.iter().take(2).enumerate() { text(font, w, c.x + 82. * u, y + 48. * u + k as f32 * 14. * u, 12. * u, hx(0xc8c8d0)); }
+    }
+    h
+}
+
 fn recipe_list(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, u: f32, list: &'static [Recipe]) -> f32 {
-    let rh = 58. * u;
     let top = c.y - ui.scroll;
     let mut y = top;
-    let mut act: Option<usize> = None;
-    // เปิดเผยทีละน้อย: แสดงสูตรพื้นฐาน + สูตรที่เกี่ยวกับของที่มีอยู่ (ซ่อนที่เหลือไว้ ไม่ให้เมนูล้น)
+    // เปิดเผยทีละน้อย: แสดงสูตรพื้นฐาน + สูตรที่เกี่ยวกับของที่มีอยู่
     let basic = if list.len() >= 20 { 2 } else { 0 };
-    let mut hidden = 0;
-    for (i, r) in list.iter().enumerate() {
-        let st0 = recipe_state(&g.p, r);
-        let related = r.cost.iter().any(|&(it, _)| g.p.inv[it] > 0) || r.need.map_or(false, |n| g.p.inv[n] > 0);
-        if !(i < basic || st0 == 1 || related) {
-            hidden += 1;
-            continue;
-        }
-        if visible(y, rh, c) {
-            let st = recipe_state(&g.p, r);
-            text(font, r.name, c.x + 8. * u, y + 18. * u, 15. * u, if st == 1 { hx(0x88aa88) } else { hx(0xffcc66) });
-            text(font, r.desc, c.x + 8. * u, y + 34. * u, 11. * u, hx(0xaaaaaa));
-            costs(g, sp, font, r.cost, r.need, c.x + 8. * u, y + 39. * u, u);
-            let br = Rect::new(c.x + c.w - 104. * u, y + 13. * u, 92. * u, 32. * u);
-            if btn(ui, font, br, ["คราฟต์", "มีแล้ว", "ล็อกอยู่"][st as usize], st == 0 && can_pay(&g.p, r.cost), u) {
-                act = Some(i);
-            }
-            sep(c, y + rh - 2.);
-        }
-        y += rh;
+    let shown: Vec<usize> = (0..list.len()).filter(|&i| {
+        let r = &list[i];
+        i < basic || recipe_state(&g.p, r) == 1 || r.cost.iter().any(|&(it, _)| g.p.inv[it] > 0) || r.need.map_or(false, |n| g.p.inv[n] > 0) || matches!(r.eff, Eff::Coat if g.p.hides > 0)
+    }).collect();
+    let hidden = list.len() - shown.len();
+    if shown.is_empty() { return 0.; }
+    // ค่าเริ่มต้น: สูตรแรกที่คราฟต์ได้
+    if !shown.contains(&ui.sel_r) || ui.sel_r >= list.len() {
+        ui.sel_r = shown.iter().copied().find(|&i| recipe_state(&g.p, &list[i]) == 0 && can_pay(&g.p, list[i].cost)).unwrap_or(shown[0]);
     }
+    let r = &list[ui.sel_r];
+    let st = recipe_state(&g.p, r);
+    let ic = recipe_icon(r);
+    let dh = detail_box(font, c, y, u, r.name, r.desc, &|x, yy, s| draw_ricon(sp, &ic, x, yy, s, false));
+    let mut act = false;
+    if visible(y, dh, c) {
+        cost_chips(g, sp, font, r.cost, r.need, c.x + 82. * u, y + 70. * u, u);
+        let lab = match st { 1 => "มีแล้ว", 2 => "ล็อก", _ => if can_pay(&g.p, r.cost) { "คราฟต์!" } else { "ของไม่พอ" } };
+        if btn(ui, font, Rect::new(c.x + c.w - 112. * u, y + 20. * u, 100. * u, 40. * u), lab, st == 0 && can_pay(&g.p, r.cost), u) { act = true; }
+    }
+    y += dh + 4. * u;
+    let sel_pos = shown.iter().position(|&i| i == ui.sel_r).unwrap_or(usize::MAX);
+    let hit = grid(ui, c, &mut y, shown.len(), 50. * u, 6. * u, sel_pos, |k, x, yy, s| {
+        let rr = &list[shown[k]];
+        let stt = recipe_state(&g.p, rr);
+        let ok = stt == 0 && can_pay(&g.p, rr.cost);
+        if ok { draw_rectangle_lines(x + 2., yy + 2., s - 4., s - 4., 3., hx(0xffcc44)); }
+        draw_ricon(sp, &recipe_icon(rr), x + s * 0.14, yy + s * 0.14, s * 0.72, stt == 2);
+        if stt == 1 { tick(x + s * 0.55, yy + s * 0.58, s * 0.38); }
+        if stt == 2 { mcui::pix_lock(x + s * 0.58, yy + s * 0.55, s * 0.042); }
+    });
+    if let Some(k) = hit { ui.sel_r = shown[k]; }
     if hidden > 0 {
         if visible(y, 30. * u, c) {
-            text(font, &format!("มีอีก {} สูตรที่ยังซ่อนอยู่ — เก็บวัตถุดิบใหม่ๆ แล้วจะปรากฏเอง", hidden), c.x + 8. * u, y + 20. * u, 11. * u, hx(0x888899));
+            text(font, &format!("ยังมีอีก {} สูตร — เก็บของใหม่ๆ แล้วจะโผล่มาเอง", hidden), c.x + 8. * u, y + 20. * u, 12. * u, hx(0x9a9aaa));
         }
         y += 30. * u;
     }
-    if let Some(i) = act {
-        g.craft_from(list, i);
+    if visible(y, 24. * u, c) {
+        text(font, "กรอบทอง = คราฟต์ได้เลย · ติ๊กเขียว = มีแล้ว · แม่กุญแจ = ต้องมีของก่อนหน้า", c.x + 8. * u, y + 16. * u, 11. * u, hx(0x8a8a9a));
     }
+    y += 26. * u;
+    if act { g.craft_from(list, ui.sel_r); }
     y - top
 }
 
 fn tab_build(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32 {
-    let rh = 58. * u;
     let top = c.y - ui.scroll;
     let mut y = top;
-    let mut pick: Option<usize> = None;
-    for (i, pc) in PIECES.iter().enumerate() {
-        if visible(y, rh, c) {
-            draw_rectangle(c.x + 6. * u, y + 8. * u, 34. * u, 34. * u, hx(0x2a2d3f));
-            icon_c(sp, pc.icon, c.x + 8. * u, y + 10. * u, 30. * u, WHITE);
-            text(font, pc.name, c.x + 48. * u, y + 18. * u, 15. * u, hx(0xffcc66));
-            text(font, pc.desc, c.x + 48. * u, y + 34. * u, 11. * u, hx(0xaaaaaa));
-            costs(g, sp, font, pc.cost, None, c.x + 48. * u, y + 39. * u, u);
-            let sel = g.build_sel == Some(i);
-            if btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 13. * u, 92. * u, 32. * u), if sel { "กำลังใช้" } else { "เลือก" }, !sel, u) {
-                pick = Some(i);
-            }
-            sep(c, y + rh - 2.);
+    if ui.sel_b >= PIECES.len() { ui.sel_b = g.build_sel.unwrap_or(0); }
+    let pc = &PIECES[ui.sel_b];
+    let dh = detail_box(font, c, y, u, pc.name, pc.desc, &|x, yy, s| icon_c(sp, pc.icon, x, yy, s, WHITE));
+    let mut pick = false;
+    let mut cancel = false;
+    if visible(y, dh, c) {
+        cost_chips(g, sp, font, pc.cost, None, c.x + 82. * u, y + 70. * u, u);
+        let using = g.build_sel == Some(ui.sel_b);
+        if btn(ui, font, Rect::new(c.x + c.w - 112. * u, y + 20. * u, 100. * u, 40. * u), if using { "ยกเลิก" } else if can_pay(&g.p, pc.cost) { "เลือกวาง" } else { "ของไม่พอ" }, using || can_pay(&g.p, pc.cost), u) {
+            if using { cancel = true; } else { pick = true; }
         }
-        y += rh;
     }
-    if let Some(s) = g.build_sel {
-        if visible(y, rh, c) {
-            text(font, &format!("โหมดสร้าง: {}", PIECES[s].name), c.x + 8. * u, y + 24. * u, 15. * u, hx(0x88ff88));
-            text(font, "R = วาง · T / Esc = ยกเลิก", c.x + 8. * u, y + 42. * u, 11. * u, hx(0xaaaaaa));
-            if btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 13. * u, 92. * u, 32. * u), "ยกเลิก", true, u) {
-                g.build_sel = None;
-            }
-            sep(c, y + rh - 2.);
-        }
-        y += rh;
-    }
+    y += dh + 4. * u;
+    let cur = ui.sel_b;
+    let hit = grid(ui, c, &mut y, PIECES.len(), 50. * u, 6. * u, cur, |k, x, yy, s| {
+        let p = &PIECES[k];
+        let ok = can_pay(&g.p, p.cost);
+        icon_c(sp, p.icon, x + s * 0.14, yy + s * 0.14, s * 0.72, if ok { WHITE } else { Color::new(1., 1., 1., 0.4) });
+        if g.build_sel == Some(k) { tick(x + s * 0.55, yy + s * 0.58, s * 0.38); }
+    });
+    if let Some(k) = hit { ui.sel_b = k; }
     if visible(y, 40. * u, c) {
-        text(font, "เลือกแล้วหันหน้าไปทางที่ต้องการ กด R / ปุ่มสร้าง เพื่อวาง · ตีเพื่อรื้อถอน", c.x + 8. * u, y + 22. * u, 11. * u, hx(0x888899));
+        text(font, "เลือกแล้วหันหน้าไปทางที่ต้องการ กด R / ปุ่มสร้าง เพื่อวาง · ตีเพื่อรื้อถอน", c.x + 8. * u, y + 22. * u, 12. * u, hx(0x9a9aaa));
     }
     y += 40. * u;
-    if let Some(i) = pick {
-        g.build_sel = Some(i);
-        g.toast(format!("เลือก {} — กด R / ปุ่มสร้างเพื่อวาง", PIECES[i].name));
+    if cancel { g.build_sel = None; }
+    if pick {
+        g.build_sel = Some(ui.sel_b);
+        g.toast(format!("เลือก {} — กด R / ปุ่มสร้างเพื่อวาง", PIECES[ui.sel_b].name));
         ui.close = true;
     }
     y - top
@@ -192,6 +290,45 @@ fn tab_gear(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
     let top = c.y - ui.scroll;
     let mut y = top;
     let rh = 46. * u;
+    header(font, c, y, "กระเป๋า", u);
+    y += 28. * u;
+    if g.p.can {
+        if visible(y, 24. * u, c) { text(font, &format!("บัวรดน้ำ: น้ำ {}/{}", g.p.water, WATER_MAX), c.x + 8. * u, y + 16. * u, 12. * u, hx(0x9ad0ff)); }
+        y += 24. * u;
+    }
+    let mut seed_pick: Option<u8> = None;
+    let mut crop_eat: Option<usize> = None;
+    let mut raw_eat: Option<usize> = None;
+    let mut drink = false;
+    let mut dish: Option<usize> = None;
+    // กระเป๋าแบบตารางช่อง (แสดงเฉพาะของที่มี) + กล่องรายละเอียดของช่องที่เลือก
+    let owned: Vec<usize> = (0..NI).filter(|&i| g.p.inv[i] > 0).collect();
+    if owned.is_empty() {
+        if visible(y, 30. * u, c) { text(font, "กระเป๋าว่าง — ตีต้นไม้/หิน เก็บผลไม้ เพื่อเริ่มต้น", c.x + 8. * u, y + 20. * u, 12. * u, hx(0x9a9aaa)); }
+        y += 30. * u;
+    } else {
+        if !owned.contains(&ui.sel_i) { ui.sel_i = owned[0]; }
+        let it = ui.sel_i;
+        let desc = item_desc(it);
+        let dh = detail_box(font, c, y, u, &format!("{} x{}", INAME[it], g.p.inv[it]), &desc, &|x, yy, s| icon_c(sp, it, x, yy, s, WHITE));
+        if visible(y, dh, c) {
+            let br = Rect::new(c.x + c.w - 112. * u, y + 20. * u, 100. * u, 40. * u);
+            if it == POTION && btn(ui, font, br, "ดื่มยา", true, u) { drink = true; }
+            if (it == SEED_CORN || it == SEED_CARROT) && btn(ui, font, br, if g.seed_sel as usize == it - SEED_CORN { "ปลูกอยู่" } else { "เลือกปลูก" }, g.seed_sel as usize != it - SEED_CORN, u) { seed_pick = Some((it - SEED_CORN) as u8); }
+            if (it == CORN || it == CARROT) && btn(ui, font, br, "กิน", true, u) { crop_eat = Some(it); }
+            if matches!(it, BERRY | FISH | MEAT | SHROOM | HERB) && btn(ui, font, br, if it == HERB { "ใช้" } else if matches!(it, FISH | MEAT | SHROOM) { "กิน (ดิบ)" } else { "กิน" }, true, u) { raw_eat = Some(it); }
+            if (DISH_STEW..=DISH_FISH).contains(&it) && btn(ui, font, br, "กิน", true, u) { dish = Some(it); }
+        }
+        y += dh + 4. * u;
+        let sel = owned.iter().position(|&i| i == ui.sel_i).unwrap_or(usize::MAX);
+        let hit = grid(ui, c, &mut y, owned.len(), 50. * u, 6. * u, sel, |k, x, yy, s| {
+            let i = owned[k];
+            icon_c(sp, i, x + s * 0.14, yy + s * 0.14, s * 0.72, WHITE);
+            mcui::slot_count(font, g.p.inv[i], x, yy, s);
+        });
+        if let Some(k) = hit { ui.sel_i = owned[k]; }
+        y += 8. * u;
+    }
     header(font, c, y, "อาวุธ (กด Tab เพื่อสลับ)", u);
     y += 28. * u;
     let mut equip: Option<u8> = None;
@@ -275,42 +412,6 @@ fn tab_gear(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
         text(font, &format!("ลดดาเมจรวม {:.0}% · ความเร็วเดิน +{:.0}%", g.p.reduction() * 100., (g.p.speed_mul() - 1.) * 100.), c.x + 8. * u, y + 26. * u, 13. * u, hx(0x88ff88));
     }
     y += 34. * u;
-    header(font, c, y, "กระเป๋า", u);
-    y += 28. * u;
-    if visible(y, 24. * u, c) {
-        let s = if g.p.can { format!("บัวรดน้ำ: น้ำ {}/{}", g.p.water, WATER_MAX) } else { "บัวรดน้ำ: ยังไม่มี (คราฟต์ได้ที่เมนู C)".to_string() };
-        text(font, &s, c.x + 8. * u, y + 16. * u, 12. * u, hx(0x9ad0ff));
-    }
-    y += 24. * u;
-    let mut seed_pick: Option<u8> = None;
-    let mut crop_eat: Option<usize> = None;
-    let mut raw_eat: Option<usize> = None;
-    let mut drink = false;
-    let mut dish: Option<usize> = None;
-    for i in 0..NI {
-        let rh2 = 30. * u;
-        if visible(y, rh2, c) {
-            icon_c(sp, i, c.x + 8. * u, y + 5. * u, 20. * u, WHITE);
-            text(font, INAME[i], c.x + 36. * u, y + 20. * u, 13. * u, if g.p.inv[i] > 0 { WHITE } else { hx(0x777777) });
-            text(font, &format!("x{}", g.p.inv[i]), c.x + c.w * 0.55, y + 20. * u, 13. * u, hx(0xffee99));
-            if i == POTION && btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 2. * u, 92. * u, 26. * u), "ใช้ยา", g.p.inv[POTION] > 0, u) {
-                drink = true;
-            }
-            if (i == SEED_CORN || i == SEED_CARROT) && btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 2. * u, 92. * u, 26. * u), if g.seed_sel as usize == i - SEED_CORN { "ปลูกอยู่" } else { "เลือกปลูก" }, g.seed_sel as usize != i - SEED_CORN, u) {
-                seed_pick = Some((i - SEED_CORN) as u8);
-            }
-            if (i == CORN || i == CARROT) && btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 2. * u, 92. * u, 26. * u), "กิน", g.p.inv[i] > 0, u) {
-                crop_eat = Some(i);
-            }
-            if matches!(i, BERRY | FISH | MEAT | SHROOM | HERB) && btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 2. * u, 92. * u, 26. * u), if i == HERB { "ใช้" } else if matches!(i, FISH | MEAT | SHROOM) { "กิน (ดิบ)" } else { "กิน" }, g.p.inv[i] > 0, u) {
-                raw_eat = Some(i);
-            }
-            if (DISH_STEW..=DISH_FISH).contains(&i) && btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 2. * u, 92. * u, 26. * u), "กิน", g.p.inv[i] > 0, u) {
-                dish = Some(i);
-            }
-        }
-        y += rh2;
-    }
     if let Some(s) = seed_pick { g.seed_sel = s; }
     if let Some(i) = crop_eat { g.eat_crop(i); }
     if let Some(i) = raw_eat { g.eat_generic(i); }
@@ -321,6 +422,28 @@ fn tab_gear(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
         g.use_dish(i);
     }
     y - top
+}
+
+/// คำอธิบายสั้นของไอเทม (สำหรับเด็ก: บอกว่าใช้ทำอะไร)
+fn item_desc(i: usize) -> String {
+    match i {
+        WOOD => "ใช้คราฟต์และสร้างของแทบทุกอย่าง",
+        STONE => "ใช้ทำเครื่องมือ เกราะ และกำแพง",
+        BERRY => "กินแก้หิว · ใช้ปลูกต้นไม้ (เมนูสร้าง)",
+        GEM => "ของมีค่า ใช้ทำดาบ/คทา/เกราะชั้นดี",
+        COIN => "ใช้ซื้อของจากพ่อค้า",
+        FIRE => "วางเป็นกองไฟ ให้แสงและความอบอุ่น",
+        ARROW => "กระสุนของธนู",
+        POTION => "ดื่มแล้วเลือดเพิ่ม",
+        MEAT => "กินดิบอาจท้องเสีย — เอาไปย่างที่กองไฟก่อน",
+        FISH => "กินดิบอาจท้องเสีย — ทำปลาย่างก่อน",
+        SHROOM | HERB => "ใช้ทำอาหาร/ยา",
+        DISH_STEW | DISH_SPEED | DISH_CRIT | DISH_FISH => "อาหารปรุงสุก อิ่มนานและได้บัฟ",
+        SEED_CORN | SEED_CARROT => "เลือกแล้วใช้จอบปลูกในแปลง",
+        CORN | CARROT => "ผลผลิต กินได้หรือใช้ทำอาหาร",
+        SHARD => "วัสดุหายาก ใช้ที่โต๊ะคราฟต์ขั้นสูง",
+        _ => "วัสดุพิเศษสำหรับคราฟต์",
+    }.to_string()
 }
 
 fn tab_chest(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32 {
@@ -717,7 +840,7 @@ pub fn draw_menu(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState) -> b
     draw_rectangle_lines(x, y, w, h, 3., hx(0xffcc66));
 
     // ---- แท็บ
-    let mut tabs: Vec<(usize, &str)> = vec![(0, "คราฟต์"), (1, "สร้าง"), (2, "ชุด/ของ")];
+    let mut tabs: Vec<(usize, &str)> = vec![(0, "คราฟต์"), (1, "สร้าง"), (2, "กระเป๋า")];
     if ui.chest.is_some() {
         tabs.push((3, "กล่อง"));
     }
