@@ -9,7 +9,9 @@ pub struct Piece {
     pub icon: usize,
     pub cost: &'static [(usize, i32)],
 }
-pub const PIECES: [Piece; 26] = [
+pub const PIECES: [Piece; 30] = [
+    Piece { name: "เต็นท์", desc: "ที่หลบภัยเร็วที่สุด! ผ้าใบ+เตียง 3×4 ช่อง · สร้าง 6 วินาที · กันฝน นอนดีกว่ากลางแจ้ง", obj: OBJ_TENT, icon: IC_WWALL, cost: &[(WOOD, 8)] },
+    Piece { name: "กระท่อม", desc: "บ้านไม้หลังเล็ก 5×4 ช่อง มีเตียง ท่อนไม้นั่ง หน้าต่าง · สร้าง 15 วินาที", obj: OBJ_HUT, icon: IC_WWALL, cost: &[(WOOD, 22)] },
     Piece { name: "บ้านสำเร็จรูป (เล็ก)", desc: "วางทีเดียวได้ทั้งหลัง! กำแพงไม้ ประตู หน้าต่าง พื้นไม้ เตียง โคมไฟ · ประตูอยู่ช่องที่เลือก ตัวบ้านขึ้นไปด้านบน 5×5 ช่อง", obj: OBJ_HOUSE_S, icon: IC_WWALL, cost: &[(WOOD, 40), (STONE, 4)] },
     Piece { name: "บ้านสำเร็จรูป (ใหญ่)", desc: "บ้านหินพร้อมเฟอร์นิเจอร์: เตียง โต๊ะ เก้าอี้ ชั้นหนังสือ พรม กระถางต้นไม้ โคมไฟ กล่องเก็บของ · 7×6 ช่อง", obj: OBJ_HOUSE_L, icon: IC_SWALL, cost: &[(STONE, 55), (WOOD, 45), (BERRY, 3)] },
     Piece { name: "กำแพงไม้", desc: "กั้นทางได้ ตีพังได้ (ได้ไม้คืน)", obj: 10, icon: IC_WWALL, cost: &[(WOOD, 2)] },
@@ -35,6 +37,8 @@ pub const PIECES: [Piece; 26] = [
     Piece { name: "ชั้นหนังสือ", desc: "เฟอร์นิเจอร์ · +ความน่าอยู่", obj: O_SHELF, icon: IC_WWALL, cost: &[(WOOD, 6)] },
     Piece { name: "ตู้เสื้อผ้า", desc: "เฟอร์นิเจอร์ · +ความน่าอยู่", obj: O_WARDROBE, icon: IC_WWALL, cost: &[(WOOD, 6)] },
     Piece { name: "กระถางต้นไม้", desc: "ต้นไม้ในบ้าน · +ความน่าอยู่", obj: O_PLANT, icon: IC_WWALL, cost: &[(STONE, 2), (BERRY, 1)] },
+    Piece { name: "วงกองไฟ", desc: "กองไฟ + ท่อนไม้นั่ง 4 ท่อน · ตอนเย็นชาวบ้านมานั่งคุยกัน (นั่งด้วยได้!) · สร้าง 8 วินาที", obj: OBJ_FIRERING, icon: IC_WWALL, cost: &[(WOOD, 10), (STONE, 3)] },
+    Piece { name: "ท่อนไม้นั่ง", desc: "แตะเพื่อนั่ง · วางใกล้กองไฟให้ชาวบ้านมานั่งคุยกัน", obj: O_LOG, icon: IC_WWALL, cost: &[(WOOD, 2)] },
     Piece { name: "โคมไฟ", desc: "ไฟสว่างในบ้านตอนกลางคืน (เป็นเขตปลอดภัยเหมือนคบเพลิง) · +ความน่าอยู่", obj: O_LAMP, icon: IC_TORCH, cost: &[(WOOD, 1), (STONE, 2)] },
 ];
 
@@ -60,7 +64,7 @@ impl Game {
     }
     pub fn can_place_at(&self, tx: i32, ty: i32) -> bool {
         let o = self.w.obj_at(tx, ty);
-        !SOLIDT[self.w.tile_at(tx, ty) as usize] && (o == 0 || o == 3) && !self.player_in_tile(tx, ty)
+        !SOLIDT[self.w.tile_at(tx, ty) as usize] && (o == 0 || o == 3) && !self.player_in_tile(tx, ty) && !self.site_reserved((tx, ty))
     }
     pub fn place_piece(&mut self) {
         if self.w.dun.is_some() {
@@ -133,10 +137,11 @@ impl Game {
         for ty in pty - 2..=pty + 2 {
             for tx in ptx - 2..=ptx + 2 {
                 let o = self.w.obj_at(tx, ty);
-                if !matches!(o, 12 | 13 | 14 | 15 | 17 | 19 | 20 | 24 | 25 | 26 | 33 | 34 | 36 | 39 | 41 | 42 | O_ALTAR | O_GIANT) {
+                if !matches!(o, 12 | 13 | 14 | 15 | 17 | 19 | 20 | 24 | 25 | 26 | 33 | 34 | 36 | 39 | 41 | 42 | O_ALTAR | O_GIANT | O_CHAIR | O_LOG) {
                     continue;
                 }
                 if (o == 41 || o == 42) && !self.fruit_ready((tx, ty)) { continue; }
+                if is_seat(o) && self.sit == Some((tx, ty)) { continue; }
                 let d = (tx as f32 * 16. + 8. - self.p.x).hypot(ty as f32 * 16. + 8. - (self.p.y - 3.));
                 if d < 28. && best.map_or(true, |b| d < b.0) {
                     best = Some((d, (tx, ty), o));
@@ -167,6 +172,7 @@ impl Game {
             return;
         };
         match o {
+            O_CHAIR | O_LOG => self.sit_on(k),
             12 => {
                 self.auto_doors.remove(&k);
                 self.w.placed.insert(k, 13);
@@ -241,6 +247,7 @@ pub fn interact_hint(o: u8, touch: bool) -> String {
     let key = if touch { "ปุ่ม \"ใช้\"" } else { "Q" };
     match o {
         12 => format!("{}: เปิดประตู", key),
+        O_CHAIR | O_LOG => format!("{}: นั่ง (นั่งกินอิ่มขึ้น · ใกล้กองไฟคุยกับชาวบ้านได้)", key),
         13 => format!("{}: ปิดประตู", key),
         14 => format!("{}: เปิดกล่องเก็บของ", key),
         17 => format!("{}: ใช้ทั่งตีบวก", key),

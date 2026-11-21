@@ -1051,6 +1051,7 @@ fn tab_npc_dialog(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c:
         let trs: Vec<&str> = n.soc.traits_ranked().into_iter().take(known).map(|(k, hi)| Soc::trait_name(k, hi)).collect();
         let body = g.npc_body(&n);
         let mut info = vec![format!("รูปร่าง: {} · {}", body.describe(), body.look_words())];
+        for l in g.psy_info(n.id) { info.push(l); }
         if n.state == ST_HOME {
             let bed_ok = g.w.placed.get(&n.bed) == Some(&33);
             info.push(if !bed_ok { "บ้าน: ไม่มีเตียง (ความสุขลดทุกวัน)".to_string() } else if let Some(r) = g.w.room_from(n.bed) { format!("บ้าน: มีบ้านมีหลังคา {} (ความสุข +{}/วัน{})", stars(r.comfort), if r.comfort >= 3 { 6 } else { 4 }, if r.comfort >= 3 { "" } else { " · บ้าน 3 ดาวขึ้นไป = +6" }) } else { "บ้าน: นอนกลางแจ้ง — ล้อมเตียงด้วยกำแพง+ประตู (ความสุข -3/วัน)".to_string() });

@@ -39,6 +39,8 @@ mod saves;
 mod finale;
 mod house;
 use house::*;
+mod psy;
+use psy::*;
 use extra::*;
 use farm::*;
 use guide::*;
@@ -82,8 +84,8 @@ const SOLIDT: [bool; 21] = [true, true, false, false, false, false, true, false,
 //   10 กำแพงไม้,11 กำแพงหิน,12 ประตูปิด,13 ประตูเปิด,14 กล่องเก็บของ,15 พ่อค้า,16 เต็นท์
 //   37 ปราสาท,38 กำแพงเมือง,39 บ่อน้ำ
 //   17 โต๊ะตีเหล็ก,18 คบเพลิง,19 ทางเข้าดันเจี้ยน,20 ทางออกดันเจี้ยน,21 หนามหุบ,22 หนามโผล่,23 ป้อมลูกไฟ,24 หีบสมบัติหายาก
-const OSOLID: [bool; 78] = [false, true, true, false, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, false, false, false, false, true, true, true, true, false, false, false, false, false, false, true, true, false, false, true, true, true, true, true, true, true, true, true, true, true, true, true, false, true, false, true, false, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false, true, false, false, true, true, true, true, true];
-const OHP: [i32; 78] = [0, 3, 1, 0, 3, 4, 1, 2, 3, 2, 5, 8, 4, 4, 5, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 1, 1, 1, 1, 4, 8, 0, 0, 20, 8, 6, 3, 3, 3, 4, 2, 3, 6, 1, 0, 0, 1, 3, 1, 3, 1, 8, 10, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 3, 1, 1, 3, 1, 1, 5, 3];
+const OSOLID: [bool; 80] = [false, true, true, false, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, false, false, false, false, true, true, true, true, false, false, false, false, false, false, true, true, false, false, true, true, true, true, true, true, true, true, true, true, true, true, true, false, true, false, true, false, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false, true, false, false, true, true, true, true, true, true, false];
+const OHP: [i32; 80] = [0, 3, 1, 0, 3, 4, 1, 2, 3, 2, 5, 8, 4, 4, 5, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 1, 1, 1, 1, 4, 8, 0, 0, 20, 8, 6, 3, 3, 3, 4, 2, 3, 6, 1, 0, 0, 1, 3, 1, 3, 1, 8, 10, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 3, 1, 1, 3, 1, 1, 5, 3, 2, 1];
 
 const WOOD: usize = 0;
 const STONE: usize = 1;
@@ -438,7 +440,7 @@ fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
     let fl_bat = [at.add(&art::white_of(&bat_img[0])), at.add(&art::white_of(&bat_img[1]))];
     // ---- objects
     let rp: &[(char, u32)] = &[('k', 0x3a3a40), ('L', 0x9a9aa4), ('l', 0xc8c8d0), ('D', 0x6a6a74), ('c', 0x4ef0ff), ('C', 0xb0ffff)];
-    let mut obj = vec![Rect::new(0., 0., 1., 1.); 78];
+    let mut obj = vec![Rect::new(0., 0., 1., 1.); 80];
     obj[1] = at.add(&spr(&["......gggg......", "....gGGGGGGg....", "...GGGgGGGGGG...", "..GGGGGGGgGGGG..", ".GGgGGGGGGGGGGG.", ".GGGGGGGGGGgGGG.", "GGGGGgGGGGGGGGGG", "GGGGGGGGGGGGgGGG", "GGgGGGGGGGGGGGGG", "GGGGGGGGgGGGGGGd", ".GGGGGGGGGGGGGd.", ".dGGGgGGGGGGGdd.", "..ddGGGGGGGGdd..", "...dddGGGGddd...", ".....ddTTdd.....", "......TTTT......", "......TTtT......", "......TTTT......", "......TtTT......", "......TTTT......", ".....TTTTTT.....", "....tt....tt...."],
         &[('g', 0x7cd06a), ('G', 0x3f9a3f), ('d', 0x2a6a2a), ('T', 0x7a4a24), ('t', 0x5a3418)]));
     obj[2] = at.add(&spr(&["................", "................", "................", "................", "................", "................", "......gggg......", "....gggggggg....", "...ggrgggggrg...", "..gggggggggggg..", "..ggggrggggggg..", ".gggggggggrgggg.", ".ggrgggggggggg..", "..dgggggggggd...", "...dddddddddd...", "................"], &[('g', 0x3d9440), ('r', 0xe8344a), ('d', 0x2a6a2a)]));
@@ -537,6 +539,13 @@ struct Game {
     room_t: f32,
     paint_last: Option<(i32, i32)>,
     auto_doors: HashSet<(i32, i32)>,
+    sites: Vec<Site>,
+    site_wait_t: f32,
+    sit: Option<(i32, i32)>,
+    sit_t: f32,
+    psy: HashMap<u32, Psy>,
+    psy_t: f32,
+    gather: HashMap<u32, ((f32, f32), (f32, f32))>,
     an_hunted: u32,
     codex_done: u32,
     adv_done: u32,
@@ -641,7 +650,7 @@ impl Game {
             w, p: Player::new(0., 0.), en: vec![], parts: vec![], floats: vec![], toasts: vec![], time: 0., spawn: (0., 0.),
             seen: HashSet::new(), obj_dmg: HashMap::new(), shake: ((0, 0), 0.), hurt_flash: 0., darkv: 0., last_biome: -1,
             spawn_t: 0., save_t: 0., mini_t: 99., died: false, big_map: false, sfx,
-            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, rooms: vec![], room_of: HashMap::new(), room_t: 0., paint_last: None, auto_doors: HashSet::new(), an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
+            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, rooms: vec![], room_of: HashMap::new(), room_t: 0., paint_last: None, auto_doors: HashSet::new(), sites: vec![], site_wait_t: 0., sit: None, sit_t: 0., psy: HashMap::new(), psy_t: 0., gather: HashMap::new(), an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
@@ -686,6 +695,7 @@ impl Game {
         s += &format!("need {:.1} {:.1} {:.1} {:.1}\n", p.hunger, p.thirst, p.rest, p.sick);
         s += &p.body.save_str();
         s += &self.npc_save_str();
+        s += &self.sites_save();
         if let Some(b) = self.bed { s += &format!("bed {} {}\n", b.0, b.1); }
         s += "crops";
         for ((x, y), c) in &self.crops { s += &format!(" {},{},{},{:.1},{:.1}", x, y, c.kind, c.grown, c.wet); }
@@ -779,6 +789,8 @@ impl Game {
                 "need" => { g.p.hunger = f(0).clamp(0., 100.); g.p.thirst = f(1).clamp(0., 100.); g.p.rest = f(2).clamp(0., 100.); g.p.sick = f(3).max(0.); }
                 "town" | "npc" | "npcseen" => g.npc_load_line(tag, &rest),
                 "nsoc" | "nrel" | "nnews" => g.soc_load_line(tag, &rest),
+                "npsy" => g.psy_load(&rest),
+                "site" => g.sites_load(&rest),
                 "nreq" => g.quests_load_line(&rest),
                 "v9" => g.balance_load_line(&rest),
                 "pet" => g.pets_load_line(&rest),
@@ -1007,6 +1019,7 @@ impl Game {
             O_SHELF | O_WARDROBE => self.gain(WOOD, 4, x, y),
             O_PLANT | O_LAMP => self.gain(STONE, 1, x, y),
             O_WINDOW => self.gain(WOOD, 2, x, y),
+            O_TENTWALL | O_LOG => self.gain(WOOD, 1, x, y),
             11 => self.gain(STONE, 2, x, y),
             12 | 13 => self.gain(WOOD, 2, x, y),
             14 => { self.chests.remove(&k); self.gain(WOOD, 4, x, y); self.gain(STONE, 1, x, y - 8.); }
@@ -1269,6 +1282,7 @@ impl Game {
         let wmul = self.weather_mul();
         // movement
         let mut mv = inp.mv;
+        if self.sit.is_some() { if mv.length() > 0.3 || inp.dash { self.sit = None; } else { mv = Vec2::ZERO; } }
         let il = mv.length();
         if il > 1. { mv /= il; }
         let boating = self.on_boat();
@@ -1348,6 +1362,8 @@ impl Game {
         self.camp_t -= dt;
         if self.camp_t <= 0. { self.camp_t = 1.; self.discover_camps(); self.discover_marks(); self.tips_check(); }
         self.house_tick(dt);
+        self.sites_tick(dt);
+        self.psy_tick(dt);
         self.land_tick(dt);
         self.upd_enemies(dt);
         self.upd_drops(dt);
@@ -1606,7 +1622,8 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                     let tool = tool_in_hand(g);
                     let held_sword = held_sword && tool == 0;
                     if held_sword && p.dir == 1 { draw_sword(false); }
-                    draw_skin(sp, p, (sx - 6.) * v.s, (sy - 15.) * v.s, v.s, p.dir, f, p.dir == 2 && p.flip, WHITE);
+                    if g.sit.is_some() { skin::draw_skin_sit(sp, p, (sx - 6.) * v.s, (sy - 15.) * v.s, v.s, p.dir, p.dir == 2 && p.flip, WHITE); }
+                    else { draw_skin(sp, p, (sx - 6.) * v.s, (sy - 15.) * v.s, v.s, p.dir, f, p.dir == 2 && p.flip, WHITE); }
                     if held_sword && p.dir != 1 { draw_sword(true); }
                     if tool > 0 && p.dir != 1 {
                         let left = p.dir == 2 && p.flip;
@@ -1642,6 +1659,8 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     for pr in &g.proj { if matches!(pr.kind, 1 | 7 | 8 | 9) { lights.push((pr.x - v.cx, pr.y - v.cy, pulse_r(26., t_now, pr.x * 0.3, 1.5), false)); } }
     draw_interior(g, v, t_now, 1);
     draw_roofs(g, v);
+    draw_sites(g, sp, v, font, t_now);
+    draw_bubbles(g, v, font);
     if let Some(sel) = g.build_sel {
         let (tx, ty) = g.build_target();
         // กริดช่วยวางให้ตรงช่อง (เฉพาะช่องที่อยู่ในระยะ)
@@ -1665,6 +1684,10 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                     Cell::Wall(o) => blit(sp, v, sp.obj[o as usize], px, py, false, tint),
                     Cell::Floor(t, f) => {
                         blit(sp, v, sp.tiles[t as usize][0], px, py, false, tint);
+                        if f != 0 { let r = sp.obj[f as usize]; blit(sp, v, r, px + 8. - r.w / 2., py + 16. - r.h, false, tint); }
+                    }
+                    Cell::Ground(f) => {
+                        prect(v, px, py, 16., 16., Color::new(tint.r, tint.g, tint.b, 0.18));
                         if f != 0 { let r = sp.obj[f as usize]; blit(sp, v, r, px + 8. - r.w / 2., py + 16. - r.h, false, tint); }
                     }
                 }
@@ -1924,7 +1947,7 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
     }
     if let Some(sel) = g.build_sel {
         let k = if touch { "ปุ่มสร้าง" } else { "R" };
-        text(font, &format!("โหมดสร้าง: {} · {} = วาง · {} · {}", PIECES[sel].name, k, if touch { "แตะพื้นเพื่อเลือกช่อง" } else { "คลิก/เมาส์ = เลือกช่อง" }, if touch { "เมนู = เปลี่ยน" } else { "T = ยกเลิก" }), x, sh - 16. * u, 13. * u, hx(0x88ff88));
+        text(font, &format!("โหมดสร้าง: {} · {} = วาง · {} · {}", PIECES[sel].name, k, if touch { "แตะพื้นเพื่อเลือกช่อง" } else { "คลิก/เมาส์ = เลือกช่อง" }, if touch { "ปุ่มแดง = เลิกสร้าง" } else { "T = ยกเลิก" }), x, sh - 16. * u, 13. * u, hx(0x88ff88));
     }
 }
 
@@ -2073,7 +2096,7 @@ fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool) {
                         2 => inp.fire = true,
                         3 => inp.menu = Some(0),
                         4 => inp.map = true,
-                        5 => inp.swap = true,
+                        5 => if build { inp.cancel = true; } else { inp.swap = true; },
                         6 => inp.act = true,
                         8 => inp.dash = true,
                         _ => { inp.place = true; tu.place_id = Some(t.id); }
@@ -2153,6 +2176,12 @@ fn draw_touch(tu: &TouchUI, sp: &Sprites, font: &Font, build: bool, weapon: u8, 
             2 => { ic(FIRE, c.x - r * 0.5, c.y - r * 0.6, r); lab("ไฟ"); }
             3 => tc("เมนู", c.x, c.y + 5. * u, 14. * u, WHITE),
             4 => tc("แผนที่", c.x, c.y + 5. * u, 13. * u, WHITE),
+            5 if build => {
+                // โหมดสร้าง: ปุ่มสลับกลายเป็น "เลิกสร้าง" สีแดง
+                draw_circle(c.x, c.y, r, Color::new(0.8, 0.15, 0.15, 0.55));
+                tc("เลิก", c.x, c.y - 2. * u, 14. * u, WHITE);
+                tc("สร้าง", c.x, c.y + 13. * u, 11. * u, WHITE);
+            }
             5 => tc("สลับ", c.x, c.y + 5. * u, 14. * u, WHITE),
             6 => match use_lab {
                 Some(l) => {
@@ -2919,7 +2948,7 @@ mod tests {
         g.p.y = ty as f32 * 16. + 10.;
         g.p.dir = 2;
         g.p.flip = false;
-        g.build_sel = Some(4); // ประตู
+        g.build_sel = PIECES.iter().position(|p| p.obj == 12); // ประตู
         g.place_piece();
         let (dx, dy) = g.build_target();
         assert_eq!((dx, dy), (tx + 1, ty));
@@ -2931,7 +2960,7 @@ mod tests {
         g.interact();
         assert_eq!(g.w.obj_at(dx, dy), 12);
         // กล่อง: วางไม่ทับของเดิม
-        g.build_sel = Some(5);
+        g.build_sel = PIECES.iter().position(|p| p.obj == 14);
         g.place_piece();
         assert_eq!(g.w.obj_at(dx, dy), 12, "ห้ามวางทับ");
         g.w.placed.remove(&(dx, dy));
@@ -3430,7 +3459,7 @@ mod tests {
         assert_eq!(g.build_target(), face, "นอกระยะต้องกลับไปหน้าตัว");
         // วางกำแพงตรงช่องที่เลือก (ไม่ใช่หน้าตัว)
         g.p.inv[WOOD] = 10;
-        g.build_sel = Some(2);
+        g.build_sel = PIECES.iter().position(|p| p.obj == 10);
         g.build_cur = Some((tx + 2, ty));
         g.cur_pos = (g.p.x, g.p.y);
         g.place_piece();
@@ -4737,12 +4766,12 @@ mod tree_tests {
     fn tree_stats_tables_and_sprites_are_consistent() {
         for o in 40..=47usize { assert!(OSOLID[o] && OHP[o] > 0, "ต้นไม้ {} ต้องชนได้และตีได้", o); }
         assert!(OHP[T_OLD as usize] > OHP[T_BIRCH as usize] && OHP[T_SAPLING as usize] == 1);
-        assert_eq!(OSOLID.len(), 78);
+        assert_eq!(OSOLID.len(), 80);
         for o in 40..=47u8 { let (a, b) = wood_range(o); assert!(a >= 1 && b >= a, "{}", o); assert!(!tree_name(o).is_empty()); }
         assert!(wood_range(T_OLD).0 >= 5 && wood_range(T_SAPLING).1 == 1 && wood_range(T_SPRUCE).1 >= 4);
         // สไปรต์ทุกชิ้นกว้าง 16 พิกเซล วางเข้าแอตลาสได้ ไม่ซ้ำกัน
         let mut at = Atlas { img: Image::gen_image_color(512, 1024, BLANK), cx: 0, cy: 0, rowh: 0 };
-        let mut obj = vec![Rect::new(0., 0., 1., 1.); 78];
+        let mut obj = vec![Rect::new(0., 0., 1., 1.); 80];
         trees::build_trees(&mut at, &mut obj);
         for o in 40..=49usize { assert!(obj[o].w == 16. && obj[o].h >= 14. && obj[o].h <= 22., "{} {:?}", o, obj[o]); }
         let mut pos: Vec<(i32, i32)> = (40..=49).map(|o| (obj[o].x as i32, obj[o].y as i32)).collect();
@@ -5060,7 +5089,7 @@ mod land_tests {
     #[test]
     fn land_sprites_fit_atlas() {
         let mut at = Atlas { img: Image::gen_image_color(512, 1024, BLANK), cx: 0, cy: 0, rowh: 0 };
-        let mut obj = vec![Rect::new(0., 0., 0., 0.); 78];
+        let mut obj = vec![Rect::new(0., 0., 0., 0.); 80];
         land::build_land(&mut at, &mut obj);
         for o in 50..70usize { assert!(obj[o].w >= 1. && obj[o].h >= 1., "{}", o); }
         assert!(obj[O_GIANT as usize].w > 40. && obj[O_HUT_LOG as usize].w == 40.);
@@ -5943,8 +5972,14 @@ mod house2_tests {
         assert!(!g.prefab_cells(OBJ_HOUSE_S, k).iter().any(|((x, y), _)| SOLIDT[g.w.tile_at(*x, *y) as usize]), "ที่ทดสอบต้องเป็นพื้นดิน");
         g.p.inv[WOOD] = 50; g.p.inv[STONE] = 10;
         let cost = PIECES.iter().find(|p| p.obj == OBJ_HOUSE_S).unwrap().cost;
+        g.build_sel = Some(0);
         assert!(g.place_prefab(OBJ_HOUSE_S, k, cost));
         assert_eq!(g.p.inv[WOOD], 10);
+        assert!(g.build_sel.is_none(), "วางแล้วออกจากโหมดสร้างเอง");
+        assert!(g.w.room_from((1000, 999)).is_none(), "ยังไม่เสร็จทันที ต้องใช้เวลาสร้าง");
+        assert!(!g.can_place_at(999, 998), "พื้นที่ก่อสร้างถูกจองไว้");
+        for _ in 0..(31 * 30) { g.sites_tick(1. / 30.); }
+        assert!(g.sites.is_empty(), "30 วินาทีต้องเสร็จ");
         let r = g.w.room_from((1000, 999)).expect("บ้านสำเร็จรูปต้องเป็นห้องปิด");
         assert_eq!(r.tiles.len(), 9);
         assert!(r.has_bed);
@@ -5969,6 +6004,8 @@ mod house2_tests {
         g.p.inv[WOOD] = 50; g.p.inv[STONE] = 60; g.p.inv[BERRY] = 3;
         let cost = PIECES.iter().find(|p| p.obj == OBJ_HOUSE_L).unwrap().cost;
         assert!(g.place_prefab(OBJ_HOUSE_L, k, cost));
+        for _ in 0..(61 * 30) { g.sites_tick(1. / 30.); }
+        assert!(g.sites.is_empty());
         let r = g.w.room_from((1000, 999)).unwrap();
         assert_eq!(r.tiles.len(), 20);
         assert!(r.stone);
@@ -6012,5 +6049,139 @@ mod house2_tests {
         assert!(!OSOLID[O_CHAIR as usize] && !OSOLID[O_RUG as usize] && OSOLID[O_TABLE as usize]);
         assert!(is_wall_obj(O_WINDOW) && !is_furniture(O_WINDOW));
         assert_eq!(stars(3), "3/5 ดาว");
+    }
+}
+
+#[cfg(test)]
+mod psy_tests {
+    use super::*;
+    fn villager(id: u32, bed: (i32, i32)) -> npc::Npc {
+        npc::Npc { id, name: (id % 12) as u8, look: 0, x: bed.0 as f32 * 16. + 8., y: bed.1 as f32 * 16. + 18., state: npc::ST_HOME, hearts: 3, mood: 70, married: false, child: false, role: 0, bed, anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false, soc: Soc::generate(id, (id % 12) as u8) }
+    }
+    fn lot() -> Game {
+        let mut g = Game::new_world_seed(4242, Sfx::default());
+        for y in 980..1020 { for x in 980..1020 { g.w.removed.insert((x, y)); } }
+        g
+    }
+    #[test]
+    fn personality_starts_consistent_with_old_traits() {
+        for id in 1..40 {
+            let n = villager(id, (0, 0));
+            let p = Psy::from_npc(&n);
+            let s = p.surface();
+            for k in 0..5 { assert!((s[k] as i32 - n.soc.tr[k] as i32).abs() <= 1, "id {} trait {} {} vs {}", id, k, s[k], n.soc.tr[k]); }
+            assert_eq!(p.mbti().len(), 4);
+        }
+    }
+    #[test]
+    fn personality_changes_with_life_and_saves() {
+        let mut g = lot();
+        g.npcs.push(villager(7, (1000, 1000)));
+        g.psy_ensure();
+        let n0 = g.psy[&7].t[PN];
+        let a0 = g.psy[&7].t[PA];
+        // ชีวิตดีต่อเนื่อง 20 วัน: อิ่ม มีคนคุยด้วย ได้ของขวัญ
+        for d in 0..20 {
+            g.time = (d + 1) as f32 * DAYLEN;
+            g.npcs[0].mood = 90; g.npcs[0].talked = true; g.npcs[0].gifted = true;
+            g.psy_dawn();
+        }
+        assert!(g.psy[&7].t[PN] < n0 - 4., "ใจเย็นขึ้น {} -> {}", n0, g.psy[&7].t[PN]);
+        assert!(g.psy[&7].t[PA] > a0 + 4.);
+        assert_eq!(g.npcs[0].soc.tr[T_KIND], g.psy[&7].surface()[T_KIND], "นิสัยเดิมเปลี่ยนตาม");
+        // เซฟ/โหลด
+        let s = g.psy_save();
+        let mut h = lot();
+        for l in s.lines() { let r: Vec<&str> = l.split_whitespace().skip(1).collect(); h.psy_load(&r); }
+        assert!((h.psy[&7].t[PN] - g.psy[&7].t[PN]).abs() < 0.11);
+        assert!((h.psy[&7].base[PA] - a0).abs() < 0.11);
+        let info = g.psy_info(7);
+        assert!(info.iter().any(|l| l.contains("เปลี่ยนไป")));
+    }
+    #[test]
+    fn evening_villagers_sit_around_campfire_and_chat() {
+        let mut g = lot();
+        g.w.placed.insert((1000, 1000), 9);
+        for (i, k) in [(-2, 0), (2, 0), (0, -2), (0, 2)].iter().enumerate() { g.w.placed.insert((1000 + k.0, 1000 + k.1), O_LOG); let _ = i; }
+        for id in 1..=3 {
+            let mut n = villager(id, (1005 + id as i32, 1004));
+            n.soc.tr[T_SOCIAL] = 90;
+            g.npcs.push(n);
+        }
+        g.psy_ensure();
+        for p in g.psy.values_mut() { p.t[PE] = 90.; p.bat = 90.; }
+        g.time = (19. - 6.) / 24. * DAYLEN; // 19:00
+        assert!(g.is_night_hr());
+        g.p.x = 1000. * 16.; g.p.y = 990. * 16.;
+        g.psy_t = 0.;
+        g.psy_tick(0.01);
+        assert_eq!(g.gather.len(), 3, "เอ็กซ์โทรเวิร์ตทุกคนอยากไปนั่ง");
+        // เดินไปนั่ง
+        for _ in 0..(20 * 30) { g.npc_tick(1. / 30.); }
+        g.psy_t = 0.;
+        g.psy_tick(0.01);
+        assert!(g.psy.values().all(|p| p.sitting), "ทุกคนนั่งแล้ว");
+        // คุยกัน: ภายใน 10 วินาทีต้องมีคนพูด
+        let mut said = false;
+        for _ in 0..12 { g.time += 1.; g.psy_t = 0.; g.psy_tick(0.01); if g.psy.values().any(|p| p.bubble.is_some()) { said = true; } }
+        assert!(said);
+        // ผู้เล่นนั่งท่อนไม้ที่เหลือ
+        let free = [(998, 1000), (1002, 1000), (1000, 998), (1000, 1002)].into_iter().find(|k| !g.npcs.iter().any(|n| (tfloor(n.x), tfloor(n.y - 3.)) == *k)).unwrap();
+        g.sit_on(free);
+        assert_eq!(g.sit, Some(free));
+        for _ in 0..12 { g.time += 1.; g.psy_t = 0.; g.psy_tick(0.01); }
+        assert!(g.npcs.iter().any(|n| n.talked), "นั่งในวงนับเป็นการคุย");
+    }
+    #[test]
+    fn introvert_battery_drains_in_crowd() {
+        let mut g = lot();
+        for id in 1..=4 { g.npcs.push(villager(id, (1000, 1000))); }
+        g.psy_ensure();
+        g.psy.get_mut(&1).unwrap().t[PE] = 15.;
+        g.psy.get_mut(&1).unwrap().bat = 60.;
+        g.time = 0.3 * DAYLEN;
+        for _ in 0..10 { g.psy_t = 0.; g.psy_tick(0.01); }
+        assert!(g.psy[&1].bat < 50., "อินโทรเวิร์ตอยู่กับคนเยอะ แบตลด {}", g.psy[&1].bat);
+    }
+    #[test]
+    fn sitting_heals_and_eating_is_better() {
+        let mut g = lot();
+        g.w.placed.insert((1000, 1000), O_CHAIR);
+        g.sit_on((1000, 1000));
+        g.p.hp = 3; g.p.maxhp = 10;
+        for _ in 0..(7 * 30) { g.psy_tick(1. / 30.); }
+        assert!(g.p.hp >= 5);
+        g.p.hunger = 20.; g.p.inv[BERRY] = 2;
+        assert!(g.eat_generic_roll(BERRY, 1.));
+        let sat = g.p.hunger - 20.;
+        g.sit = None;
+        g.p.hunger = 20.;
+        assert!(g.eat_generic_roll(BERRY, 1.));
+        assert!(sat > (g.p.hunger - 20.) * 1.3, "นั่งกินอิ่มกว่า {} vs {}", sat, g.p.hunger - 20.);
+    }
+    #[test]
+    fn tent_builds_fast_into_a_room() {
+        let mut g = lot();
+        let k = (1000, 1003);
+        for ((x, y), _) in g.prefab_cells(OBJ_TENT, k) { assert!(!SOLIDT[g.w.tile_at(x, y) as usize]); }
+        g.p.x = 1000. * 16. + 8.; g.p.y = 1005. * 16.;
+        g.p.inv[WOOD] = 8;
+        assert!(g.place_prefab(OBJ_TENT, k, &[(WOOD, 8)]));
+        for _ in 0..(7 * 30) { g.sites_tick(1. / 30.); }
+        assert!(g.sites.is_empty());
+        let r = g.w.room_from((1000, 1001)).expect("เต็นท์เป็นห้อง");
+        assert!(r.tent && r.has_bed);
+        // ไซต์ที่อยู่ไกลไม่คืบ
+        g.p.inv[WOOD] = 30;
+        assert!(g.place_prefab(OBJ_HUT, (1010, 1003), &[(WOOD, 22)]));
+        g.p.x = 0.; g.p.y = 0.;
+        for _ in 0..(20 * 30) { g.sites_tick(1. / 30.); }
+        assert_eq!(g.sites[0].done, 0);
+        // เซฟ/โหลดไซต์
+        let s = g.sites_save();
+        let mut h = lot();
+        let r: Vec<&str> = s.split_whitespace().skip(1).collect();
+        h.sites_load(&r);
+        assert_eq!(h.sites[0].kind, OBJ_HUT);
     }
 }

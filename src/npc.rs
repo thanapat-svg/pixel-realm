@@ -265,6 +265,7 @@ impl Game {
 
     // ---------------- รุ่งเช้า: อาหาร เตียง ความสุข งานชาวไร่ ภาษี ลูก ----------------
     pub fn npc_dawn(&mut self) {
+        self.psy_dawn();
         let mut fed_n = 0;
         let mut hungry_n = 0;
         let mut thirsty_n = 0;
@@ -401,6 +402,7 @@ impl Game {
         let (px, py) = (self.p.x, self.p.y);
         let enemies: Vec<(usize, f32, f32)> = self.en.iter().enumerate().filter(|(_, e)| !e.dead).map(|(i, e)| (i, e.x, e.y)).collect();
         let mut hits: Vec<(usize, f32, f32)> = vec![];
+        let gather = std::mem::take(&mut self.gather);
         let mut npcs = std::mem::take(&mut self.npcs);
         for n in npcs.iter_mut() {
             n.anim += dt;
@@ -424,7 +426,11 @@ impl Game {
                         }
                     }
                     if spd == 0. {
-                        if night { tx = home.0; ty = home.1; if (n.x - tx).hypot(n.y - ty) > 6. { spd = 40.; } }
+                        if let Some(&(seat, fire)) = gather.get(&n.id) {
+                            // ตอนเย็น: ไปนั่งล้อมกองไฟ หันหน้าเข้าหาไฟ
+                            tx = seat.0; ty = seat.1;
+                            if (n.x - tx).hypot(n.y - ty) > 3. { spd = 40.; } else { n.x = tx; n.y = ty; n.left = fire.0 < n.x; }
+                        } else if night { tx = home.0; ty = home.1; if (n.x - tx).hypot(n.y - ty) > 6. { spd = 40.; } }
                         else {
                             if n.wt <= 0. { n.wt = 1.5 + (n.id % 3) as f32; let a = (n.id as f32 * 1.7 + self.time * 0.31).sin() * 3.14; n.wd = (a.cos() * 40., a.sin() * 40.); }
                             tx = home.0 + n.wd.0; ty = home.1 + n.wd.1;
@@ -443,11 +449,12 @@ impl Game {
                 if !blk(nx, n.y) { n.x = nx; n.moving = true; }
                 if !blk(n.x, ny) { n.y = ny; n.moving = true; }
                 // กลางคืนติดกำแพงกลับบ้านไม่ได้ → เดินอ้อมเข้าบ้านไปเอง (วาร์ปไปที่เตียง)
-                if night && !n.moving && n.state == ST_HOME && (n.x - home.0).hypot(n.y - home.1) > 10. && n.wt < -2. { n.x = home.0; n.y = home.1; n.wt = 0.; }
+                if (night || gather.contains_key(&n.id)) && !n.moving && n.state == ST_HOME && (n.x - tx).hypot(n.y - ty) > 10. && n.wt < -2. { n.x = tx; n.y = ty; n.wt = 0.; }
                 if vx.abs() > 0.01 { n.left = vx < 0.; }
             }
         }
         self.npcs = npcs;
+        self.gather = gather;
         let bonus = self.tier() as i32;
         for (ei, dx, dy) in hits {
             if ei < self.en.len() && !self.en[ei].dead {
@@ -464,11 +471,18 @@ pub fn draw_npc(g: &Game, sp: &Sprites, v: &View, i: usize, t_now: f32) {
     let n = &g.npcs[i];
     let (sx, sy) = ((n.x - v.cx).round(), (n.y - v.cy).round());
     let f = if n.moving { ((n.anim * 7.) as usize) % 2 } else { 0 };
-    let bob = if n.moving { ((n.anim * 14.).sin().abs() * 1.0).round() } else { 0. };
+    let (sit, laugh) = g.psy.get(&n.id).map_or((false, 0.), |p| (p.sitting, p.laugh));
+    // หัวเราะ = ตัวสั่นขึ้นลงเร็วๆ
+    let bob = if n.moving { ((n.anim * 14.).sin().abs() * 1.0).round() } else if laugh > 0. { ((t_now * 22.).sin().abs() * 1.5).round() } else { 0. };
     let body = g.npc_body(n);
     let (bw, k) = body.scale();
     prect(v, sx - 4. * bw, sy - 1., 8. * bw, 2., Color::new(0., 0., 0., 0.25));
-    skin::draw_figure(sp, &body, skin::ROLE_PARTS[(n.role as usize).min(3)], (sx - 6.) * v.s, (sy - 15. - bob) * v.s, v.s, 0, f, n.left, WHITE);
+    if sit {
+        // นั่ง: หันข้างเข้าหากองไฟ
+        skin::draw_figure_ex(sp, &body, skin::ROLE_PARTS[(n.role as usize).min(3)], (sx - 6.) * v.s, (sy - 15. - bob) * v.s, v.s, 2, 0, n.left, WHITE, 0.4);
+    } else {
+        skin::draw_figure(sp, &body, skin::ROLE_PARTS[(n.role as usize).min(3)], (sx - 6.) * v.s, (sy - 15. - bob) * v.s, v.s, 0, f, n.left, WHITE);
+    }
     if n.married {
         prect(v, sx - 2., sy - 20. * k - bob, 2., 1., hx(0xff6688));
         prect(v, sx + 1., sy - 20. * k - bob, 2., 1., hx(0xff6688));
@@ -520,6 +534,7 @@ impl Game {
             s += &format!("npc {} {} {} {} {} {} {} {} {} {} {} {} {}\n", n.id, n.name, n.look, n.x, n.y, n.state, n.hearts, n.mood, n.married as u8, n.child as u8, n.role, n.bed.0, n.bed.1);
         }
         s += &self.soc_save_str();
+        s += &self.psy_save();
         if !self.npc_seen.is_empty() {
             s += "npcseen";
             for (x, y) in &self.npc_seen { s += &format!(" {},{}", x, y); }

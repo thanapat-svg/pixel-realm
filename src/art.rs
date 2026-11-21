@@ -325,6 +325,15 @@ pub fn build_extra(at: &mut Atlas, obj: &mut Vec<Rect>, icons: &mut Vec<Rect>) -
     obj[O_PLANT as usize] = at.add(&spr(&["................", "......gG........", "....gGGgG.Gg....", "...GgGGGGgGGg...", "..gGGgGGGGGgGG..", "...GGGGgGGGGg...", "..gGgGGGGGgGGg..", "...ggGGGGGGgg...", ".....gGGGGg.....", "....kkkkkkkk....", "....kooooook....", "....kOooooOk....", ".....kooook.....", ".....kOOOOk.....", "......kkkk......", "................"], fp));
     obj[O_LAMP as usize] = at.add(&spr(&["................", ".....yyyyyy.....", "....yYYYYYYy....", "...yYYwwwwYYy...", "...yYYYYYYYYy...", "....yyyyyyyy....", ".......kk.......", ".......kk.......", ".......kk.......", ".......kk.......", ".......kk.......", ".......kk.......", ".......kk.......", ".....kkkkkk.....", "....kddddddk....", "................"], fp));
     obj[O_WARDROBE as usize] = at.add(&spr(&["..kkkkkkkkkkkk..", "..kTTTTTTTTTTk..", "..kTttTTkTttTk..", "..kTTTTTkTTTTk..", "..kTTTTTkTTTTk..", "..kTTTTTkTTTTk..", "..kTTTyTkTyTTk..", "..kTTTTTkTTTTk..", "..kTTTTTkTTTTk..", "..kTttTTkTttTk..", "..kTTTTTkTTTTk..", "..kTTTTTkTTTTk..", "..kddddddddddk..", "..kkkkkkkkkkkk..", "..kk........kk..", "................"], fp));
+    obj[O_LOG as usize] = at.add(&spr(&["................", "................", "................", "................", "................", "..kkkkkkkkkkkk..", ".kTTTtTTTTTtTTTk", "kooOkTTTTTTTTtTk", "koOokTtTTTTTTTTk", "kOookTTTTtTTTTTk", ".kkkkddddddddddk", "..kkkkkkkkkkkkk.", "................", "................", "................", "................"], &[('k', 0x3a2410), ('T', 0x8a5a2c), ('t', 0x6a4220), ('d', 0x5a3418), ('o', 0xd8b080), ('O', 0xa87844)]));
+    obj[O_TENTWALL as usize] = at.add(&{
+        let mut im = Image::gen_image_color(16, 16, hx(0xd8c8a0));
+        for x in 0..16 { if x % 4 == 0 { rect(&mut im, x, 0, 1, 16, 0xc0ac80); } }
+        rect(&mut im, 0, 0, 16, 2, 0xa08860);
+        rect(&mut im, 0, 14, 16, 2, 0x8a7450);
+        rect(&mut im, 7, 2, 2, 12, 0xb09a70);
+        im
+    });
     obj[O_WINDOW as usize] = at.add(&{
         let mut im = wall_wood();
         rect(&mut im, 3, 3, 10, 9, 0x4a2e14);

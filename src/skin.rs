@@ -171,6 +171,10 @@ fn tint(c: Color, t: Color) -> Color { Color::new(c.r * t.r, c.g * t.g, c.b * t.
 /// วาดตัวละครแบบแยกชิ้น+ย้อมสีตามรูปร่าง (x,y = มุมซ้ายบนของกรอบ 12x15 พิกเซลสไปรต์, s = พิกเซลจอต่อพิกเซลสไปรต์)
 /// ส่วนสูง/น้ำหนักปรับสัดส่วนโดยยึดเท้าไว้ที่เดิม
 pub fn draw_figure(sp: &Sprites, body: &Body, vars: [usize; 3], x: f32, y: f32, s: f32, dir: usize, frame: usize, flip: bool, c: Color) {
+    draw_figure_ex(sp, body, vars, x, y, s, dir, frame, flip, c, 1.);
+}
+/// leg < 1 = ท่านั่ง (ขาพับ ลำตัวลดลงมา เท้ายังอยู่ที่เดิม = ที่นั่ง)
+pub fn draw_figure_ex(sp: &Sprites, body: &Body, vars: [usize; 3], x: f32, y: f32, s: f32, dir: usize, frame: usize, flip: bool, c: Color, leg: f32) {
     let k = &sp.skin;
     // แต่ละส่วนกว้าง/สูงต่างกัน ยึดเท้าไว้ที่เดิมและจัดกึ่งกลาง
     let (hw, hh, tw, lw, rest) = body.part_scale();
@@ -178,9 +182,9 @@ pub fn draw_figure(sp: &Sprites, body: &Body, vars: [usize; 3], x: f32, y: f32, 
     let cx = x + 6. * s;
     let (sk, hr, cl, hi) = (body.skin_col(), body.hair_col(), body.cloth_col(), body.cloth_hi());
     let parts = [
-        (k.head[(dir * NV + vars[0]) * STYLE_N + body.style as usize], feet - (8. * rest + 7. * hh) * s, hw, hh),
-        (k.torso[dir * NV + vars[1]], feet - 8. * rest * s, tw, rest),
-        (k.legs[(dir * 3 + frame) * NV + vars[2]], feet - 3. * rest * s, lw, rest),
+        (k.head[(dir * NV + vars[0]) * STYLE_N + body.style as usize], feet - ((5. + 3. * leg) * rest + 7. * hh) * s, hw, hh),
+        (k.torso[dir * NV + vars[1]], feet - (5. + 3. * leg) * rest * s, tw, rest),
+        (k.legs[(dir * 3 + frame) * NV + vars[2]], feet - 3. * leg * rest * s, lw, rest * leg),
     ];
     for (p, py, pw, ph) in parts {
         for (r, col) in [(p.base, c), (p.skin, tint(c, sk)), (p.hair, tint(c, hr)), (p.cloth, tint(c, cl)), (p.hi, tint(c, hi))] {
@@ -195,4 +199,7 @@ pub fn draw_figure(sp: &Sprites, body: &Body, vars: [usize; 3], x: f32, y: f32, 
 /// ผู้เล่น: ใส่เกราะ/ชุดตามที่สวม
 pub fn draw_skin(sp: &Sprites, p: &Player, x: f32, y: f32, s: f32, dir: usize, frame: usize, flip: bool, c: Color) {
     draw_figure(sp, &p.body, skin_parts(p), x, y, s, dir, frame, flip, c);
+}
+pub fn draw_skin_sit(sp: &Sprites, p: &Player, x: f32, y: f32, s: f32, dir: usize, flip: bool, c: Color) {
+    draw_figure_ex(sp, &p.body, skin_parts(p), x, y, s, dir, 0, flip, c, 0.4);
 }

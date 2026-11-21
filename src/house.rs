@@ -20,37 +20,52 @@ pub const O_PLANT: u8 = 74;
 pub const O_LAMP: u8 = 75;
 pub const O_WINDOW: u8 = 76;
 pub const O_WARDROBE: u8 = 77;
-// บ้านสำเร็จรูป (วางทีเดียวได้ทั้งหลัง)
+pub const O_TENTWALL: u8 = 78;
+pub const O_LOG: u8 = 79;
+// สิ่งก่อสร้างสำเร็จรูป (เลือกแล้ววางทีเดียว · ใช้เวลาสร้าง)
 pub const OBJ_HOUSE_S: u8 = 252;
 pub const OBJ_HOUSE_L: u8 = 251;
+pub const OBJ_TENT: u8 = 250;
+pub const OBJ_HUT: u8 = 249;
+pub const OBJ_FIRERING: u8 = 248;
 
-/// ผนังของห้อง: กำแพงไม้ · กำแพงหิน · กำแพงเมือง · ประตู (ปิด/เปิด) · หน้าต่าง
-pub fn is_wall_obj(o: u8) -> bool { matches!(o, 10 | 11 | 38 | 12 | 13 | O_WINDOW) }
-pub fn is_furniture(o: u8) -> bool { (O_TABLE..=O_WARDROBE).contains(&o) && o != O_WINDOW }
-pub fn is_prefab(o: u8) -> bool { o == OBJ_HOUSE_S || o == OBJ_HOUSE_L }
+/// ผนังของห้อง: กำแพงไม้ · กำแพงหิน · กำแพงเมือง · ประตู (ปิด/เปิด) · หน้าต่าง · ผ้าเต็นท์
+pub fn is_wall_obj(o: u8) -> bool { matches!(o, 10 | 11 | 38 | 12 | 13 | O_WINDOW | O_TENTWALL) }
+pub fn is_furniture(o: u8) -> bool { matches!(o, O_TABLE | O_CHAIR | O_RUG | O_SHELF | O_PLANT | O_LAMP | O_WARDROBE | O_LOG) }
+pub fn is_prefab(o: u8) -> bool { matches!(o, OBJ_HOUSE_S | OBJ_HOUSE_L | OBJ_TENT | OBJ_HUT | OBJ_FIRERING) }
+pub fn is_seat(o: u8) -> bool { o == O_CHAIR || o == O_LOG }
+/// เวลาสร้าง (วินาที ต้องอยู่ใกล้ๆ)
+pub fn prefab_time(kind: u8) -> f32 {
+    match kind { OBJ_TENT => 6., OBJ_FIRERING => 8., OBJ_HUT => 15., OBJ_HOUSE_S => 30., _ => 60. }
+}
+pub fn prefab_name(kind: u8) -> &'static str {
+    match kind { OBJ_TENT => "เต็นท์", OBJ_FIRERING => "วงกองไฟ", OBJ_HUT => "กระท่อม", OBJ_HOUSE_S => "บ้านเล็ก", _ => "บ้านใหญ่" }
+}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub enum Cell { Wall(u8), Floor(u8, u8) }
+pub enum Cell { Wall(u8), Floor(u8, u8), Ground(u8) }
 
-/// แบบบ้านสำเร็จรูป: ประตูอยู่ที่ (0,0) ตัวบ้านยื่นขึ้นไปด้านบน · Floor(พื้น, ของบนพื้น 0=ว่าง)
+/// แบบสิ่งก่อสร้าง: ช่องที่เลือก = (0,0) (บ้าน = ประตู ตัวบ้านยื่นขึ้นไปด้านบน · วงกองไฟ = กองไฟตรงกลาง)
+/// Floor(พื้น, ของบนพื้น) · Ground(ของบนดินเดิม 0 = เว้นว่าง)
 pub fn prefab_layout(kind: u8) -> Vec<((i32, i32), Cell)> {
-    let big = kind == OBJ_HOUSE_L;
-    let (hw, h): (i32, i32) = if big { (3, 5) } else { (2, 4) };
-    let wall = if big { 11 } else { 10 };
+    if kind == OBJ_FIRERING {
+        return vec![((0, 0), Cell::Ground(9)), ((-2, 0), Cell::Ground(O_LOG)), ((2, 0), Cell::Ground(O_LOG)), ((0, -2), Cell::Ground(O_LOG)), ((0, 2), Cell::Ground(O_LOG))];
+    }
+    let (hw, h, wall): (i32, i32, u8) = match kind { OBJ_TENT => (1, 3, O_TENTWALL), OBJ_HUT => (2, 3, 10), OBJ_HOUSE_L => (3, 5, 11), _ => (2, 4, 10) };
     let mut v = vec![];
     for dy in -h..=0 {
         for dx in -hw..=hw {
             let edge = dy == -h || dy == 0 || dx.abs() == hw;
             let c = if !edge {
-                let furn = if big {
-                    match (dx, dy) { (-2, -4) => 33, (2, -4) => O_LAMP, (-1, -4) => O_SHELF, (1, -3) => O_TABLE, (0, -3) => O_CHAIR, (2, -1) => O_PLANT, (-2, -1) => 14, (0, -2) => O_RUG, _ => 0 }
-                } else {
-                    match (dx, dy) { (-1, -3) => 33, (1, -3) => O_LAMP, _ => 0 }
-                };
-                Cell::Floor(if big { T_FLOORW } else { T_FLOORW }, furn)
+                match kind {
+                    OBJ_TENT => Cell::Ground(if (dx, dy) == (0, -2) { 33 } else { 0 }),
+                    OBJ_HUT => Cell::Ground(match (dx, dy) { (-1, -2) => 33, (1, -2) => O_LOG, _ => 0 }),
+                    OBJ_HOUSE_L => Cell::Floor(T_FLOORW, match (dx, dy) { (-2, -4) => 33, (2, -4) => O_LAMP, (-1, -4) => O_SHELF, (1, -3) => O_TABLE, (0, -3) => O_CHAIR, (2, -1) => O_PLANT, (-2, -1) => 14, (0, -2) => O_RUG, _ => 0 }),
+                    _ => Cell::Floor(T_FLOORW, match (dx, dy) { (-1, -3) => 33, (1, -3) => O_LAMP, _ => 0 }),
+                }
             } else if (dx, dy) == (0, 0) {
                 Cell::Wall(12)
-            } else if dy == -h && (if big { dx.abs() == 2 } else { dx == 0 }) {
+            } else if kind != OBJ_TENT && dy == -h && (if kind == OBJ_HOUSE_L { dx.abs() == 2 } else { dx == 0 }) {
                 Cell::Wall(O_WINDOW)
             } else {
                 Cell::Wall(wall)
@@ -60,6 +75,32 @@ pub fn prefab_layout(kind: u8) -> Vec<((i32, i32), Cell)> {
     }
     v
 }
+/// ขั้นตอนการสร้าง: พื้น (ล่าง→บน) → กำแพง (ล่าง→บน) → ของในบ้าน — ใช้ทั้งตอนสร้างทีละชิ้นและวาดนั่งร้าน
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Step { Tile(u8), Obj(u8) }
+pub fn prefab_steps(kind: u8, k: (i32, i32)) -> Vec<((i32, i32), Step)> {
+    let lay: Vec<((i32, i32), Cell)> = prefab_layout(kind).into_iter().map(|((dx, dy), c)| ((k.0 + dx, k.1 + dy), c)).collect();
+    let mut tiles = vec![];
+    let mut walls = vec![];
+    let mut furn = vec![];
+    for (p, c) in lay {
+        match c {
+            Cell::Floor(t, f) => { tiles.push((p, Step::Tile(t))); if f != 0 { furn.push((p, Step::Obj(f))); } }
+            Cell::Wall(o) => walls.push((p, Step::Obj(o))),
+            Cell::Ground(f) => if f != 0 { furn.push((p, Step::Obj(f))); },
+        }
+    }
+    let ord = |v: &mut Vec<((i32, i32), Step)>| v.sort_by_key(|((x, y), _)| (-*y, *x));
+    ord(&mut tiles);
+    ord(&mut walls);
+    tiles.extend(walls);
+    tiles.extend(furn);
+    tiles
+}
+
+/// ไซต์ก่อสร้างที่กำลังสร้างอยู่
+#[derive(Clone, Debug)]
+pub struct Site { pub kind: u8, pub k: (i32, i32), pub prog: f32, pub done: usize }
 
 /// ความน่าอยู่ของห้อง 0–5 ดาว: เตียง · ปูพื้นเกือบเต็ม · หน้าต่าง · เฟอร์นิเจอร์คนละแบบ (2 ชิ้น = 1 ดาว) · แสงไฟ/กองไฟ
 pub fn comfort_of(w: &World, r: &Room) -> u8 {
@@ -84,6 +125,7 @@ pub struct Room {
     pub walls: Vec<(i32, i32)>,
     pub doors: Vec<(i32, i32)>,
     pub stone: bool,
+    pub tent: bool,
     pub has_bed: bool,
     pub fire: bool,
     pub alpha: f32,
@@ -139,6 +181,7 @@ impl World {
             let o = self.obj_at(w.0, w.1);
             if o == 12 || o == 13 { r.doors.push(w); } else { r.walls.push(w); }
             if o == 11 || o == 38 { r.stone = true; }
+            if o == O_TENTWALL { r.tent = true; }
         }
         r.comfort = comfort_of(self, &r);
         Some(r)
@@ -249,7 +292,7 @@ pub fn draw_roofs(g: &Game, v: &View) {
         let (mut y0, mut y1) = (i32::MAX, i32::MIN);
         for &(_, y) in &all { y0 = y0.min(y); y1 = y1.max(y); }
         let mid = (y0 + y1) as f32 / 2.;
-        let (c1, c2, ridge) = if r.stone { (0x5a6a88, 0x4a5874, 0x8a9ab8) } else { (0xb04a32, 0x8e3a26, 0xd87a52) };
+        let (c1, c2, ridge) = if r.tent { (0xd8c8a0, 0xbfae84, 0x9a8460) } else if r.stone { (0x5a6a88, 0x4a5874, 0x8a9ab8) } else { (0xb04a32, 0x8e3a26, 0xd87a52) };
         let a = r.alpha;
         for &(tx, ty) in &all {
             let (px, py) = (tx as f32 * 16. - v.cx, ty as f32 * 16. - 8. - v.cy);
@@ -289,7 +332,11 @@ impl Game {
     pub fn prefab_cells(&self, kind: u8, k: (i32, i32)) -> Vec<((i32, i32), Cell)> {
         prefab_layout(kind).into_iter().map(|((dx, dy), c)| ((k.0 + dx, k.1 + dy), c)).collect()
     }
-    /// วางบ้านสำเร็จรูปตรงนี้ได้ไหม (None = ได้ · Some(เหตุผล))
+    /// ช่องนี้ถูกจองโดยไซต์ก่อสร้างที่ยังสร้างไม่เสร็จ
+    pub fn site_reserved(&self, k: (i32, i32)) -> bool {
+        self.sites.iter().any(|st| prefab_layout(st.kind).iter().any(|((dx, dy), _)| (st.k.0 + dx, st.k.1 + dy) == k))
+    }
+    /// วางสิ่งก่อสร้างสำเร็จรูปตรงนี้ได้ไหม (None = ได้ · Some(เหตุผล))
     pub fn prefab_blocked(&self, kind: u8, k: (i32, i32)) -> Option<&'static str> {
         if self.w.dun.is_some() { return Some("สร้างในดันเจี้ยนไม่ได้"); }
         let (ptx, pty) = (tfloor(self.p.x), tfloor(self.p.y - 3.));
@@ -298,35 +345,94 @@ impl Game {
             if SOLIDT[t as usize] { return Some("พื้นที่ติดน้ำ/ภูเขา — หาที่โล่งกว้างกว่านี้"); }
             if self.w.tmod.contains_key(&(x, y)) && t != T_FLOORW && t != T_FLOORS { return Some("ทับแปลงผัก/ดินที่ขุดไว้ — หาที่อื่น"); }
             if self.crops.contains_key(&(x, y)) { return Some("ทับแปลงผัก — หาที่อื่น"); }
+            if self.site_reserved((x, y)) { return Some("ทับที่ที่กำลังก่อสร้างอยู่"); }
             let o = self.w.obj_at(x, y);
             if !(o == 0 || ((o == 2 || o == 3 || o == O_DRYGRASS) && !self.w.placed.contains_key(&(x, y)))) { return Some("มีต้นไม้/หิน/ของวางอยู่ในพื้นที่ — ตีออกก่อน หรือหาที่โล่ง"); }
-            let solid_cell = match c { Cell::Wall(_) => true, Cell::Floor(_, f) => f != 0 && f != O_RUG && f != O_CHAIR };
+            let solid_cell = match c { Cell::Wall(_) => true, Cell::Floor(_, f) | Cell::Ground(f) => f != 0 && OSOLID[f as usize] };
             if solid_cell && (self.player_in_tile(x, y) || (x, y) == (ptx, pty)) { return Some("ถอยออกมาหน่อย ตัวละครยืนขวางอยู่"); }
         }
         None
     }
+    /// เริ่มก่อสร้าง: จ่ายของ เคลียร์หญ้า/ดอกไม้ จองพื้นที่ แล้วค่อยๆ สร้างขึ้นทีละชิ้นตอนผู้เล่นอยู่ใกล้
     pub fn place_prefab(&mut self, kind: u8, k: (i32, i32), cost: &[(usize, i32)]) -> bool {
         if let Some(why) = self.prefab_blocked(kind, k) { self.toast(why); return false; }
         if !can_pay(&self.p, cost) { self.toast("วัสดุไม่พอ"); return false; }
         for &(it, n) in cost { self.p.inv[it] -= n; }
-        for ((x, y), c) in self.prefab_cells(kind, k) {
+        for ((x, y), _) in self.prefab_cells(kind, k) {
             if !self.w.placed.contains_key(&(x, y)) && self.w.nat_obj(x, y) != 0 { self.w.removed.insert((x, y)); }
             self.obj_dmg.remove(&(x, y));
-            match c {
-                Cell::Wall(o) => { self.w.placed.insert((x, y), o); }
-                Cell::Floor(t, f) => {
-                    self.w.tmod.insert((x, y), t);
-                    if f != 0 { self.w.placed.insert((x, y), f); if f == 14 { self.chests.insert((x, y), [0; NI]); } }
-                }
-            }
-            if gen_range(0., 1.) < 0.4 { self.burst(x as f32 * 16. + 8., y as f32 * 16. + 10., hx(0xc8a070), 4, 40.); }
+            if gen_range(0., 1.) < 0.5 { self.burst(x as f32 * 16. + 8., y as f32 * 16. + 10., hx(0xc8a070), 3, 30.); }
         }
-        self.ev[3] += 1;
-        self.room_t = 0.;
-        self.refresh_torches();
-        play(&self.sfx.door);
-        self.toast("สร้างบ้านเสร็จ! เดินเข้าประตูได้เลย — เพิ่มเฟอร์นิเจอร์ให้บ้านน่าอยู่ขึ้น (ดาวความน่าอยู่)");
+        self.sites.push(Site { kind, k, prog: 0., done: 0 });
+        self.build_sel = None; // ออกจากโหมดสร้างเลย ไม่ต้องหาปุ่มยกเลิก
+        play(&self.sfx.craft);
+        self.toast(format!("เริ่มสร้าง{}! อยู่ใกล้ๆ แล้วจะค่อยๆ เสร็จ (~{} วินาที)", prefab_name(kind), prefab_time(kind) as i32));
         true
+    }
+    /// ก่อสร้างคืบหน้า: เฉพาะตอนผู้เล่นอยู่ในระยะ ~8 ช่อง · ชิ้นที่มีคน/มอนยืนขวางจะรอ
+    pub fn sites_tick(&mut self, dt: f32) {
+        if self.sites.is_empty() || self.w.dun.is_some() { return; }
+        let mut sites = std::mem::take(&mut self.sites);
+        let mut finished = vec![];
+        for (si, st) in sites.iter_mut().enumerate() {
+            let steps = prefab_steps(st.kind, st.k);
+            let n = steps.len().max(1);
+            let total = prefab_time(st.kind);
+            let c = self.site_center(st);
+            let near = (c.0 - self.p.x).hypot(c.1 - self.p.y) < 8. * 16.;
+            if !near { continue; }
+            st.prog = (st.prog + dt).min(total);
+            let target = ((st.prog / total) * n as f32).floor() as usize;
+            while st.done < target.min(n) {
+                let (p, step) = steps[st.done];
+                if let Step::Obj(o) = step {
+                    let busy = OSOLID[o as usize] && (self.player_in_tile(p.0, p.1) || (p.0, p.1) == (tfloor(self.p.x), tfloor(self.p.y - 3.))
+                        || self.npcs.iter().any(|q| (tfloor(q.x), tfloor(q.y - 3.)) == p) || self.en.iter().any(|e| !e.dead && (tfloor(e.x), tfloor(e.y - 3.)) == p));
+                    if busy {
+                        st.prog = st.prog.min((st.done as f32 + 0.99) / n as f32 * total);
+                        if self.site_wait_t <= 0. { self.site_wait_t = 3.; self.toast("ถอยออกจากจุดที่กำลังสร้างหน่อย"); }
+                        break;
+                    }
+                    self.w.placed.insert(p, o);
+                    if o == 14 { self.chests.entry(p).or_insert([0; NI]); }
+                } else if let Step::Tile(t) = step {
+                    self.w.tmod.insert(p, t);
+                }
+                self.burst(p.0 as f32 * 16. + 8., p.1 as f32 * 16. + 8., hx(0xd8b080), 5, 45.);
+                if st.done % 2 == 0 { play(&self.sfx.chop); }
+                st.done += 1;
+            }
+            if st.done >= n { finished.push(si); }
+        }
+        if self.site_wait_t > 0. { self.site_wait_t -= dt; }
+        for &si in finished.iter().rev() {
+            let st = sites.remove(si);
+            self.ev[3] += 1;
+            self.room_t = 0.;
+            self.refresh_torches();
+            play(&self.sfx.lvl);
+            let c = self.site_center(&st);
+            for _ in 0..3 { self.burst(c.0, c.1, hx(0xffe080), 10, 70.); }
+            self.toast(match st.kind {
+                OBJ_FIRERING => "วงกองไฟเสร็จแล้ว! แตะท่อนไม้ = นั่ง · ตอนเย็นชาวบ้านจะมานั่งคุยกัน".to_string(),
+                _ => format!("{}เสร็จแล้ว! เดินเข้าประตูได้เลย · แต่งบ้านเพิ่มดาวความน่าอยู่", prefab_name(st.kind)),
+            });
+            self.save();
+        }
+        self.sites = sites;
+    }
+    pub fn site_center(&self, st: &Site) -> (f32, f32) {
+        let lay = prefab_layout(st.kind);
+        let n = lay.len() as f32;
+        let (sx, sy) = lay.iter().fold((0., 0.), |a, ((dx, dy), _)| (a.0 + *dx as f32, a.1 + *dy as f32));
+        ((st.k.0 as f32 + sx / n) * 16. + 8., (st.k.1 as f32 + sy / n) * 16. + 8.)
+    }
+    pub fn sites_save(&self) -> String {
+        self.sites.iter().map(|st| format!("site {} {} {} {:.2} {}\n", st.kind, st.k.0, st.k.1, st.prog, st.done)).collect()
+    }
+    pub fn sites_load(&mut self, r: &[&str]) {
+        let v: Vec<f32> = r.iter().filter_map(|x| x.parse().ok()).collect();
+        if v.len() >= 5 && is_prefab(v[0] as u8) { self.sites.push(Site { kind: v[0] as u8, k: (v[1] as i32, v[2] as i32), prog: v[3], done: v[4] as usize }); }
     }
     /// กดค้างปุ่มสร้างแล้วเดิน = วางกำแพงตามทางที่เดินผ่าน (วางที่ช่องที่เพิ่งเดินออกมา) · พื้น = ปูใต้เท้า
     pub fn paint_tick(&mut self, held: bool) {
@@ -411,7 +517,7 @@ pub fn draw_interior(g: &Game, v: &View, t_now: f32, phase: u8) {
     }
     // 2) ผนัง: ผนังด้านหลัง (เหนือห้อง) = วอลเปเปอร์ · ผนังข้าง/ล่าง = สันกำแพงเข้ม
     let day = (1. - g.darkv).clamp(0., 1.);
-    let (wp1, wp2, base) = if r.stone { (0xb8b4a8, 0xa8a498, 0x6a6660) } else { (0xe8d8b0, 0xd8c498, 0x7a5028) };
+    let (wp1, wp2, base) = if r.tent { (0xe0d0a8, 0xccbc94, 0x9a8460) } else if r.stone { (0xb8b4a8, 0xa8a498, 0x6a6660) } else { (0xe8d8b0, 0xd8c498, 0x7a5028) };
     let c = |h: u32, a: f32| Color::new(((h >> 16) & 255) as f32 / 255., ((h >> 8) & 255) as f32 / 255., (h & 255) as f32 / 255., a);
     let kw = if r.alpha < 0.5 { 1. } else { k };
     for &(x, y) in r.walls.iter().chain(r.doors.iter()) {
@@ -472,5 +578,52 @@ impl Game {
             let blocked = self.en.iter().any(|e| !e.dead && tfloor(e.x) == k.0 && tfloor(e.y) == k.1) || self.npcs.iter().any(|n| tfloor(n.x) == k.0 && tfloor(n.y - 3.) == k.1);
             if self.w.placed.get(&k) == Some(&13) && !blocked { self.w.placed.insert(k, 12); play(&self.sfx.door); }
         }
+    }
+}
+
+/// ไซต์ก่อสร้าง: เงาสิ่งที่จะสร้าง + นั่งร้าน + ค้อนเคาะ + แถบความคืบหน้า
+pub fn draw_sites(g: &Game, sp: &Sprites, v: &View, font: &Font, t_now: f32) {
+    for st in &g.sites {
+        let steps = prefab_steps(st.kind, st.k);
+        let n = steps.len().max(1);
+        let near = { let c = g.site_center(st); (c.0 - g.p.x).hypot(c.1 - g.p.y) < 8. * 16. };
+        for (i, &((x, y), step)) in steps.iter().enumerate().skip(st.done) {
+            let (px, py) = (x as f32 * 16. - v.cx, y as f32 * 16. - v.cy);
+            match step {
+                Step::Tile(t) => blit(sp, v, sp.tiles[t as usize][0], px, py, false, Color::new(1., 1., 1., 0.18)),
+                Step::Obj(o) => {
+                    let r = sp.obj[o as usize];
+                    blit(sp, v, r, px + 8. - r.w / 2., py + 16. - r.h, false, Color::new(0.7, 0.85, 1., 0.22));
+                    if is_wall_obj(o) {
+                        // นั่งร้านไม้: เสา 2 ต้น + คานขวาง
+                        prect(v, px + 1., py - 4., 2., 20., hx(0x8a6034));
+                        prect(v, px + 13., py - 4., 2., 20., hx(0x8a6034));
+                        prect(v, px, py + 3., 16., 2., hx(0xa87844));
+                        if (x + y) % 2 == 0 { prect(v, px + 2., py + 10., 12., 1., hx(0x6a4420)); }
+                    }
+                }
+            }
+            if i == st.done && near {
+                // ค้อนเคาะขึ้นลง + ฝุ่น
+                let sw = ((t_now * 9.).sin() * 0.5 + 0.5) * 5.;
+                let (hx0, hy0) = (px + 10., py - 10. + sw);
+                prect(v, hx0, hy0, 2., 8., hx(0x8a5a2a));
+                prect(v, hx0 - 2., hy0 - 2., 6., 3., hx(0x9aa0aa));
+            }
+        }
+        // แถบความคืบหน้าเหนือไซต์
+        let lay = prefab_layout(st.kind);
+        let (x0, y0) = (lay.iter().map(|c| c.0 .0).min().unwrap(), lay.iter().map(|c| c.0 .1).min().unwrap());
+        let x1 = lay.iter().map(|c| c.0 .0).max().unwrap();
+        let (bx, by) = (((st.k.0 + x0) as f32 * 16. - v.cx) * v.s, ((st.k.1 + y0) as f32 * 16. - 14. - v.cy) * v.s);
+        let bw = (x1 - x0 + 1) as f32 * 16. * v.s;
+        let f = st.done as f32 / n as f32;
+        draw_rectangle(bx, by, bw, 8. * v.s / 2., Color::new(0., 0., 0., 0.6));
+        draw_rectangle(bx + 1., by + 1., (bw - 2.) * f, 8. * v.s / 2. - 2., hx(0x6ad04a));
+        let label = if near { format!("กำลังสร้าง{} {}%", prefab_name(st.kind), (f * 100.) as i32) } else { format!("{} {}% — หยุดอยู่ เข้าไปใกล้ๆ เพื่อสร้างต่อ", prefab_name(st.kind), (f * 100.) as i32) };
+        let fs = (5.5 * v.s) as u16;
+        let d = measure_text(&label, Some(font), fs, 1.);
+        draw_rectangle(bx + bw / 2. - d.width / 2. - 4., by - fs as f32 - 6., d.width + 8., fs as f32 + 6., Color::new(0., 0., 0., 0.55));
+        draw_text_ex(&label, bx + bw / 2. - d.width / 2., by - 5., TextParams { font: Some(font), font_size: fs, color: if near { hx(0xd8ffb0) } else { hx(0xffd080) }, ..Default::default() });
     }
 }

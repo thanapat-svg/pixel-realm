@@ -112,6 +112,8 @@ impl Game {
     }
     pub fn eat_generic_roll(&mut self, item: usize, roll: f32) -> bool {
         let Some((food, risk)) = nutrition(item) else { return false };
+        // นั่งกินอย่างใจเย็น อิ่มกว่ายืนกิน
+        let food = if self.sit.is_some() { food * 1.4 } else { food };
         if self.p.inv[item] <= 0 { return false; }
         if item == HERB {
             // สมุนไพร: แก้ท้องเสีย + ฟื้นเลือดนิดหน่อย
