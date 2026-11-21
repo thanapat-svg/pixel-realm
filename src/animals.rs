@@ -393,7 +393,9 @@ pub fn draw_animal(g: &Game, sp: &Sprites, v: &View, i: usize) {
     let base = if a.k == A_RABBIT && a.winter { 14 } else { a.k as usize * 2 };
     let r = sp.animals[base + fr];
     let shadow = Color::new(0., 0., 0., 0.22);
-    if a.k != A_BIRD || a.h < 4. { prect(v, sx - r.w / 2. + 2., sy - 1., r.w - 4., 2., shadow); }
+    let _ = shadow;
+    if a.k != A_BIRD || a.h < 4. { vfx::char_shadow(v, sx, sy, r.w - 4.); }
+    vfx::blit_outline(sp, v, r, sx - (r.w / 2.).floor(), sy - r.h - a.h, r.w, r.h, a.flip, 0.8);
     let c = if a.flash > 0. { Color::new(1., 0.5, 0.5, 1.) } else { WHITE };
     blit(sp, v, r, sx - (r.w / 2.).floor(), sy - r.h - a.h, a.flip, c);
     if a.tame {

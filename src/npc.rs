@@ -484,13 +484,13 @@ impl Game {
 pub fn draw_npc(g: &Game, sp: &Sprites, v: &View, i: usize, t_now: f32) {
     let n = &g.npcs[i];
     let (sx, sy) = ((n.x - v.cx).round(), (n.y - v.cy).round());
-    let f = if n.moving { ((n.anim * 7.) as usize) % 2 } else { 0 };
+    let (f, wb) = if n.moving { vfx::walk_cycle(n.anim, 8.) } else { (0, 0.) };
     let (sit, laugh) = g.psy.get(&n.id).map_or((false, 0.), |p| (p.sitting, p.laugh));
     // หัวเราะ = ตัวสั่นขึ้นลงเร็วๆ
-    let bob = if n.moving { ((n.anim * 14.).sin().abs() * 1.0).round() } else if laugh > 0. { ((t_now * 22.).sin().abs() * 1.5).round() } else { 0. };
+    let bob = if n.moving { wb } else if laugh > 0. { ((t_now * 22.).sin().abs() * 1.5).round() } else { 0. };
     let body = g.npc_body(n);
     let (bw, k) = body.scale();
-    prect(v, sx - 4. * bw, sy - 1., 8. * bw, 2., Color::new(0., 0., 0., 0.25));
+    vfx::char_shadow(v, sx, sy, 8. * bw);
     if sit {
         // นั่ง: หันข้างเข้าหากองไฟ
         skin::draw_figure_ex(sp, &body, role_parts(n.role), (sx - 6.) * v.s, (sy - 15. - bob) * v.s, v.s, 2, 0, n.left, WHITE, 0.4);
@@ -522,7 +522,7 @@ pub fn draw_npc(g: &Game, sp: &Sprites, v: &View, i: usize, t_now: f32) {
 }
 pub fn draw_lost(g: &Game, sp: &Sprites, v: &View, x: f32, y: f32, name: u8, look: u8, t_now: f32) {
     let (sx, sy) = ((x - v.cx).round(), (y - v.cy).round());
-    prect(v, sx - 4., sy - 1., 8., 2., Color::new(0., 0., 0., 0.25));
+    vfx::char_shadow(v, sx, sy, 8.);
     let body = Body::generate(look as u32, NPC_FEM[name as usize % NPC_FEM.len()]);
     skin::draw_figure(sp, &body, skin::ROLE_PARTS[0], (sx - 6.) * v.s, (sy - 15.) * v.s, v.s, 0, 0, false, WHITE);
     let k = body.scale().1;

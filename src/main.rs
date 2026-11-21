@@ -48,6 +48,7 @@ use nav::*;
 mod realm;
 mod path;
 use path::*;
+mod vfx;
 use realm::*;
 use extra::*;
 use farm::*;
@@ -408,6 +409,7 @@ struct Sprites {
     ex: art::Extras,
     skin: Skin,
     animals: Vec<Rect>,
+    edges: vfx::Edges,
 }
 fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
     let mut at = Atlas { img: Image::gen_image_color(512, 1024, BLANK), cx: 0, cy: 0, rowh: 0 };
@@ -509,9 +511,10 @@ fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
     ex.flash_bat = fl_bat;
     let skin = skin::build(&mut at, &pd, &pu, &pr, &lf, &ls, pp);
     ov.apply(&mut at, &mut tiles, &mut obj, &mut icons);
+    let edges = vfx::build_edges(&mut at, &tiles);
     let tex = Texture2D::from_image(&at.img);
     tex.set_filter(FilterMode::Nearest);
-    Sprites { tex, tiles, player, slime, skel, bat, obj, icons, ex, skin, animals: an_rects }
+    Sprites { tex, tiles, player, slime, skel, bat, obj, icons, ex, skin, animals: an_rects, edges }
 }
 
 // ======================= entities =======================
@@ -1532,9 +1535,10 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     let (tx1, ty1) = (((v.cx + v.vw) / 16.).floor() as i32, ((v.cy + v.vh) / 16.).floor() as i32);
     let wf = ((t_now / 0.6) as i32 % 2) as usize;
     let foam = Color::new(0.86, 0.94, 1., 0.75);
-    let mut lava_l: Vec<(f32, f32, f32, bool)> = vec![];
+    let mut lava_l: Vec<(f32, f32, f32, u8)> = vec![];
     let ssn = season(g);
     let indun = w.dun.is_some();
+    vfx::set_frame(g, t_now);
     for ty in ty0..=ty1 {
         for tx in tx0..=tx1 {
             let t = w.tile_at(tx, ty) as usize;
@@ -1542,17 +1546,20 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
             let (px, py) = (tx as f32 * 16. - v.cx, ty as f32 * 16. - v.cy);
             let idx = if t < 2 || t == T_LAVA as usize { (var & 2) | wf } else { var };
             blit(sp, v, sp.tiles[t][idx], px, py, false, if indun { WHITE } else { ground_tint(ssn, t as u8) });
+            // รอยต่อพื้น (ขอบหยัก + ฟองคลื่นริมฝั่ง) แล้วรายละเอียดเล็ก (ประกายน้ำ ใบหญ้า)
+            let shore = if indun { 0 } else { vfx::draw_edges(w, sp, v, tx, ty, t as u8, px, py, ssn, wf) };
+            if !indun { vfx::tile_detail(v, tx, ty, t as u8, px, py, ssn, w.seed); }
             if ssn == 3 && !indun && wintry(t as u8) { prect(v, px, py, 16., 16., Color::new(1., 1., 1., 0.5 + hash(tx, ty, 919) as f32 * 0.08)); }
-            if t == T_LAVA as usize && (tx + ty) % 2 == 0 { lava_l.push((px + 8., py + 8., pulse_r(30., t_now, tx as f32 * 0.7 + ty as f32, 1.2), true)); }
+            if t == T_LAVA as usize && (tx + ty) % 2 == 0 { lava_l.push((px + 8., py + 8., pulse_r(30., t_now, tx as f32 * 0.7 + ty as f32, 1.2), 4)); }
             if t < 2 && fish_spot(w.seed, tx, ty) {
                 let ph = ((t_now * 0.9 + hash(tx, ty, 3) as f32 * 6.).fract()) * 6.;
                 draw_circle_lines((px + 8.) * v.s, (py + 8.) * v.s, ph * v.s, 1., Color::new(1., 1., 1., 0.6 * (1. - ph / 6.)));
             }
             if t < 2 {
-                if w.tile_at(tx, ty - 1) > 1 { prect(v, px, py, 16., 1., foam); }
-                if w.tile_at(tx, ty + 1) > 1 { prect(v, px, py + 15., 16., 1., foam); }
-                if w.tile_at(tx - 1, ty) > 1 { prect(v, px, py, 1., 16., foam); }
-                if w.tile_at(tx + 1, ty) > 1 { prect(v, px + 15., py, 1., 16., foam); }
+                if shore & 1 == 0 && w.tile_at(tx, ty - 1) > 1 { prect(v, px, py, 16., 1., foam); }
+                if shore & 4 == 0 && w.tile_at(tx, ty + 1) > 1 { prect(v, px, py + 15., 16., 1., foam); }
+                if shore & 8 == 0 && w.tile_at(tx - 1, ty) > 1 { prect(v, px, py, 1., 16., foam); }
+                if shore & 2 == 0 && w.tile_at(tx + 1, ty) > 1 { prect(v, px + 15., py, 1., 16., foam); }
             } else if t == 6 {
                 if w.tile_at(tx, ty + 1) != 6 { prect(v, px, py + 13., 16., 3., hx(0x3e3733)); }
                 if let Some(&h) = g.obj_dmg.get(&(tx, ty)) {
@@ -1566,32 +1573,43 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     let hidden = interior_hidden(g);
     // y-sort
     let mut list: Vec<(f32, Draw)> = vec![];
-    let mut lights: Vec<(f32, f32, f32, bool)> = lava_l;
+    let mut lights: Vec<(f32, f32, f32, u8)> = lava_l;
     for ty in ty0 - 1..=ty1 + 3 {
         for tx in tx0 - 2..=tx1 + 2 {
             let o = w.obj_at(tx, ty);
             if o == 0 || hidden.contains(&(tx, ty)) { continue; }
             if o == O_LAMP {
-                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 3. - v.cy, pulse_r(60., t_now, tx as f32 * 1.1, 1.), true));
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 3. - v.cy, pulse_r(60., t_now, tx as f32 * 1.1, 1.), 2));
+            }
+            if o == O_WINDOW && g.darkv > 0.3 && w.dun.is_none() {
+                // หน้าต่างบ้านเรืองแสงตอนกลางคืน
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 10. - v.cy, 30., 2));
+            } else if o == O_BANNER {
+                // โคมที่ธงเมือง
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. - 6. - v.cy, pulse_r(58., t_now, tx as f32 * 0.9, 1.), 2));
+            } else if o == 37 && w.realm.city_at(tx, ty).is_some() {
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 4. - v.cy, pulse_r(70., t_now, tx as f32, 1.5), 1));
+            } else if o == O_STALL {
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 6. - v.cy, 24., 2));
             }
             if o == 9 {
-                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 10. - v.cy, pulse_r(80., t_now, tx as f32 * 1.7 + ty as f32 * 0.9, 2.5), true));
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 10. - v.cy, pulse_r(80., t_now, tx as f32 * 1.7 + ty as f32 * 0.9, 2.5), 1));
             } else if o == 15 {
-                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 8. - v.cy, 58., true));
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 8. - v.cy, 58., 1));
             } else if o == 18 {
-                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 6. - v.cy, pulse_r(66., t_now, tx as f32 * 1.7 + ty as f32 * 0.9, 2.), true));
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 6. - v.cy, pulse_r(66., t_now, tx as f32 * 1.7 + ty as f32 * 0.9, 2.), 1));
             } else if o == 19 || o == 20 || o == 36 {
-                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 8. - v.cy, 40., false));
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 8. - v.cy, 40., 0));
             } else if o == 25 {
-                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 6. - v.cy, 46. + (t_now * 1.6 + tx as f32).sin() * 4., false));
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 6. - v.cy, 46. + (t_now * 1.6 + tx as f32).sin() * 4., 0));
             } else if o == 26 {
-                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 8. - v.cy, pulse_r(44., t_now, tx as f32 * 1.7 + ty as f32 * 0.9, 1.5), true));
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 8. - v.cy, pulse_r(44., t_now, tx as f32 * 1.7 + ty as f32 * 0.9, 1.5), 1));
             } else if o == O_ALTAR || o == O_CRYSTAL {
-                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 4. - v.cy, pulse_r(34., t_now, tx as f32 * 1.3, 1.5), false));
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 4. - v.cy, pulse_r(34., t_now, tx as f32 * 1.3, 1.5), 0));
             } else if o == O_GIANT {
-                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. - 30. - v.cy, 40., false));
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. - 30. - v.cy, 40., 0));
             } else if o == 24 || o == 23 {
-                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 8. - v.cy, 26., false));
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 8. - v.cy, 26., 0));
             }
             let flat = matches!(o, 3 | 19 | 20 | 21 | 22 | 36 | O_RUG) || land_flat(o);
             list.push((ty as f32 * 16. + if flat { 0. } else { 14. }, Draw::Obj(o, tx, ty)));
@@ -1601,7 +1619,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         let (sx, sy) = (e.x - v.cx, e.y - v.cy);
         if sx < -20. || sx > v.vw + 20. || sy < -30. || sy > v.vh + 30. { continue; }
         list.push((e.y, Draw::Enemy(i)));
-        if e.k == EK::Skel && g.darkv > 0.3 { lights.push((sx, sy - 11., 12., false)); }
+        if e.k == EK::Skel && g.darkv > 0.3 { lights.push((sx, sy - 11., 12., 0)); }
     }
     list.push((g.p.y, Draw::Player));
     for (i, a) in g.animals.iter().enumerate() {
@@ -1613,7 +1631,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         let (sx, sy) = (l.x - v.cx, l.y - v.cy);
         if sx < -10. || sx > v.vw + 10. || sy < -10. || sy > v.vh + 10. { continue; }
         list.push((l.y, Draw::Loot(i)));
-        lights.push((sx, sy - 4., 10., false));
+        lights.push((sx, sy - 4., 10., 0));
     }
     if let Some(c) = &g.comp { list.push((c.y, Draw::Comp)); }
     for (i, n) in g.npcs.iter().enumerate() {
@@ -1641,9 +1659,19 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         let (sx, sy) = (b.x - v.cx, b.y - v.cy);
         if sx < -40. || sx > v.vw + 40. || sy < -50. || sy > v.vh + 50. { continue; }
         list.push((b.y, Draw::Boss(i)));
-        if g.darkv > 0.3 { lights.push((sx, sy - 14., 26., false)); }
+        if g.darkv > 0.3 { lights.push((sx, sy - 14., 26., 0)); }
     }
     list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    // เงาของสิ่งสูงทอดบนพื้นก่อน (อยู่ใต้ทุกอย่าง)
+    if !indun {
+        for (_, d) in &list {
+            if let Draw::Obj(o, tx, ty) = *d {
+                if hidden.contains(&(tx, ty)) { continue; }
+                let o2 = g.display_obj(o, (tx, ty));
+                vfx::obj_shadow(v, tx as f32 * 16. - v.cx, ty as f32 * 16. - v.cy, sp.obj[o2 as usize], o2);
+            }
+        }
+    }
     for (_, d) in &list {
         match *d {
             Draw::Obj(o, tx, ty) => {
@@ -1679,7 +1707,12 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                 let r = if o == 15 { sp.ex.merchant[if near_m && (t_now * 3.) as i32 % 2 == 0 { 1 } else { 0 }] } else { sp.obj[o as usize] };
                 let (px, py) = if matches!(o, 19 | 20 | 21 | 22) { (px, py - (r.h - 16.).max(0.) + (r.h - 16.).max(0.)) } else { (px, py) };
                 let ox = if r.w > 16. { 8. - (r.w / 2.).floor() } else { 0. };
-                blit(sp, v, r, px + sx + ox, py + 16. - r.h, false, if w.dun.is_some() { WHITE } else { tree_tint(season(g), o) });
+                let tc = if w.dun.is_some() { WHITE } else { tree_tint(season(g), o) };
+                if !indun && (is_tree(o) || matches!(o, 2 | O_REED | O_DRYGRASS)) && sx == 0. {
+                    vfx::blit_sway(sp, v, r, px + ox, py + 16. - r.h, tc, tx as f32 * 0.73 + ty as f32 * 0.41);
+                } else {
+                    blit(sp, v, r, px + sx + ox, py + 16. - r.h, false, tc);
+                }
                 if near_m { text_c(font, "พ่อค้า", (px + 8.) * v.s, (py + 16. - r.h - 3.) * v.s, 6. * v.s, hx(0xffee99)); }
                 if o == 9 {
                     let c = if gen_range(0., 1.) < 0.5 { hx(0xffe680) } else { hx(0xff8a30) };
@@ -1696,21 +1729,26 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                     EK::Slime => {
                         let sq = (e.anim * 1.6 * std::f32::consts::TAU).sin() * 0.15;
                         let (ww, hh) = ((12. * (1. + sq)).round(), (10. * (1. - sq)).round());
-                        prect(v, sx - 5., sy - 1., 10., 2., shadow);
+                        vfx::char_shadow(v, sx, sy, 10.);
                         if e.night { prect(v, sx - 7., sy - hh - 1., 14., hh + 2., Color::new(0.7, 0.3, 1., 0.28)); }
+                        vfx::blit_outline(sp, v, sp.slime[e.pal], (sx - ww / 2.).floor(), sy - hh, ww, hh, false, 1.);
                         blit_sz(sp, v, if white { sp.ex.flash_slime[e.pal] } else { sp.slime[e.pal] }, (sx - ww / 2.).floor(), sy - hh, ww, hh, c);
                     }
                     EK::Skel => {
                         let bob = ((e.anim * 6.) as i32 % 2) as f32;
-                        prect(v, sx - 4., sy - 1., 8., 2., shadow);
+                        vfx::char_shadow(v, sx, sy, 8.);
                         if e.night { prect(v, sx - 6., sy - 16., 12., 16., Color::new(0.7, 0.3, 1., 0.28)); }
-                        blit(sp, v, if white { sp.ex.flash_skel } else { sp.skel }, sx - 5., sy - 15. - bob, false, c);
+                        // โดนตี: เซถอยหลัง 1 พิกเซล
+                        let kx = if e.kb > 0. { e.vx.signum() } else { 0. };
+                        vfx::blit_outline(sp, v, sp.skel, sx - 5. + kx, sy - 15. - bob, sp.skel.w, sp.skel.h, false, 1.);
+                        blit(sp, v, if white { sp.ex.flash_skel } else { sp.skel }, sx - 5. + kx, sy - 15. - bob, false, c);
                     }
                     EK::Soldier => {
                         // ทหารอาณาจักร: คนใส่เกราะ + ผ้าคาดสีอาณาจักร
-                        prect(v, sx - 4., sy - 1., 8., 2., shadow);
+                        vfx::char_shadow(v, sx, sy, 8.);
                         let body = Body::generate(1000 + (e.anim * 0.) as u32 + e.pal as u32 * 7 + (e.x as u32 % 5), false);
-                        let f = ((e.anim * 7.) as usize) % 2;
+                        let (f, wb) = vfx::walk_cycle(e.anim, 9.);
+                        let sy = sy - wb;
                         let tint = if white { Color::new(2., 2., 2., 1.) } else { c };
                         skin::draw_figure(sp, &body, skin::ROLE_PARTS[2], (sx - 6.) * v.s, (sy - 15.) * v.s, v.s, 0, f, e.vx < 0., tint);
                         let kc = if e.pal < g.w.realm.ks.len() { hx(g.w.realm.ks[e.pal].color) } else { RED };
@@ -1721,6 +1759,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                         prect(v, sx - 3., sy - 1., 6., 2., Color::new(0., 0., 0., 0.2));
                         if e.night { prect(v, sx - 7., sy - 19., 14., 12., Color::new(0.7, 0.3, 1., 0.28)); }
                         let bi = (e.anim * 8.) as usize % 2;
+                        vfx::blit_outline(sp, v, sp.bat[bi], sx - 6., sy - 18. + ((e.anim * 4.).sin() * 2.).round(), sp.bat[bi].w, sp.bat[bi].h, false, 0.8);
                         blit(sp, v, if white { sp.ex.flash_bat[bi] } else { sp.bat[bi] }, sx - 6., sy - 18. + ((e.anim * 4.).sin() * 2.).round(), false, c);
                     }
                 }
@@ -1737,7 +1776,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                 let (sx, sy) = ((p.x - v.cx).round(), (p.y - v.cy).round());
                 // ขี่ม้า: วาดม้าก่อน แล้วยกตัวผู้เล่นขึ้นไปนั่งบนหลังม้า
                 if g.rs.riding {
-                    prect(v, sx - 8., sy - 1., 16., 2., Color::new(0., 0., 0., 0.25));
+                    vfx::char_shadow(v, sx, sy, 16.);
                     draw_horse(v, sx, sy, t_now, p.moving, p.dir == 2 && p.flip, p.dir != 2);
                 }
                 let sy = if g.rs.riding { sy - 8. } else { sy };
@@ -1745,8 +1784,10 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                     blit(sp, v, sp.player[gd][1], (gx - v.cx).round() - 6., (gy - v.cy).round() - 15., gd == 2 && gf, Color::new(0.5, 0.8, 1., gl * 1.2));
                 }
                 if !(p.invul > 0. && ((p.invul * 15.) as i32) % 2 == 1) {
-                    let f = if p.moving { 1 + (p.anim * 8.) as usize % 2 } else { 0 };
-                    prect(v, sx - 4., sy - 1., 8., 2., Color::new(0., 0., 0., 0.25));
+                    // เดิน 4 จังหวะ (ตัวยกตอนขาผ่านกัน) · ขี่ม้า/เรือ ไม่ก้าว
+                    let (f, wb) = if p.moving && !g.rs.riding && !g.on_boat() { vfx::walk_cycle(p.anim, 9.) } else { (0, 0.) };
+                    vfx::char_shadow(v, sx, sy, 8.);
+                    let sy = sy - wb;
                     if full_meteor(p) {
                         // ชุดเกราะดาวตกครบ 3 ชิ้น: ออร่าม่วงเต้น + ประกายโคจร
                         let pu_ = 0.5 + 0.5 * (t_now * 3.).sin();
@@ -1769,7 +1810,12 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                     let held_sword = held_sword && tool == 0;
                     if held_sword && p.dir == 1 { draw_sword(false); }
                     if g.sit.is_some() { skin::draw_skin_sit(sp, p, (sx - 6.) * v.s, (sy - 15.) * v.s, v.s, p.dir, p.dir == 2 && p.flip, WHITE); }
-                    else { draw_skin(sp, p, (sx - 6.) * v.s, (sy - 15.) * v.s, v.s, p.dir, f, p.dir == 2 && p.flip, WHITE); }
+                    else {
+                        // ท่าฟัน: โน้มตัวไปทางที่ฟัน · โดนตี: ตัวแดงแวบ
+                        let (lx, ly) = if p.atk_t > 0. { let (fx, fy) = p.facing(); ((fx * 1.5).round(), (fy * 1.5).round()) } else { (0., 0.) };
+                        let pc = if p.kbt > 0. { Color::new(1., 0.55, 0.55, 1.) } else { WHITE };
+                        draw_skin(sp, p, (sx - 6. + lx) * v.s, (sy - 15. + ly) * v.s, v.s, p.dir, f, p.dir == 2 && p.flip, pc);
+                    }
                     if held_sword && p.dir != 1 { draw_sword(true); }
                     if tool > 0 && p.dir != 1 {
                         let left = p.dir == 2 && p.flip;
@@ -1802,7 +1848,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         }
     }
     draw_proj(g, sp, v);
-    for pr in &g.proj { if matches!(pr.kind, 1 | 7 | 8 | 9) { lights.push((pr.x - v.cx, pr.y - v.cy, pulse_r(26., t_now, pr.x * 0.3, 1.5), false)); } }
+    for pr in &g.proj { if matches!(pr.kind, 1 | 7 | 8 | 9) { lights.push((pr.x - v.cx, pr.y - v.cy, pulse_r(26., t_now, pr.x * 0.3, 1.5), 0)); } }
     draw_interior(g, v, t_now, 1);
     draw_roofs(g, v);
     draw_sites(g, sp, v, font, t_now);
@@ -1877,12 +1923,21 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         prect(v, (p.x - v.cx).round(), (p.y - v.cy).round(), 1., 1., c);
     }
     if prefs::weather_fx() && !g.indoors() { draw_weather(g, v, t_now); }
-    // night lighting (เซลล์ 4px ให้ดูเป็นพิกเซล)
-    if g.darkv > 0.02 {
+    vfx::draw_ambient(g, v, &mut lights);
+    // แสง+โทนสี (shader) — ถ้าใช้ไม่ได้ใช้ระบบเดิม (เซลล์สี่เหลี่ยมบน CPU)
+    let pr0 = if g.p.weapon == 2 && g.p.staff > 0 { pulse_r(62., t_now, 0., 0.) } else { 48. };
+    if g.darkv > 0.02 && g.p.weapon == 2 && g.p.staff > 0 {
+        let mc = hx(ELEM_C[g.p.elem as usize]);
+        for k in 1..4 { draw_circle((g.p.x - v.cx).round() * v.s, ((g.p.y - v.cy).round() - 6.) * v.s, pr0 * v.s * 0.2 * k as f32, Color::new(mc.r, mc.g, mc.b, 0.05 * g.darkv)); }
+    }
+    let mut lit_l = lights.clone();
+    lit_l.insert(0, ((g.p.x - v.cx).round(), (g.p.y - v.cy).round() - 6., pr0, if g.p.weapon == 2 && g.p.staff > 0 { 3 } else { 0 }));
+    let shader_ok = vfx::lighting(g, v, &mut lit_l);
+    if g.darkv > 0.02 && !shader_ok {
         // คทาเวทมนตร์: แสงรอบตัวกว้างกว่าและเต้นตามจังหวะ มีสีตามธาตุ
         let staff = g.p.weapon == 2 && g.p.staff > 0;
         let pr = if staff { pulse_r(62., t_now, 0., 0.) } else { 48. };
-        lights.push(((g.p.x - v.cx).round(), (g.p.y - v.cy).round() - 6., pr, false));
+        lights.push(((g.p.x - v.cx).round(), (g.p.y - v.cy).round() - 6., pr, 0));
         if staff {
             let mc = hx(ELEM_C[g.p.elem as usize]);
             for k in 1..4 {
@@ -1913,7 +1968,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
             }
         }
         for &(lx, ly, lr, fire) in &lights {
-            if fire {
+            if fire == 1 {
                 for k in 1..4 {
                     draw_circle(lx * v.s, ly * v.s, lr * v.s * 0.2 * k as f32, Color::new(1., 0.55, 0.15, 0.05 * g.darkv));
                 }

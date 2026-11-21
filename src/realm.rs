@@ -1286,8 +1286,9 @@ pub fn draw_citizen(g: &Game, sp: &Sprites, v: &View, i: usize) {
     let (sx, sy) = ((c.x - v.cx).round(), (c.y - v.cy).round());
     let body = Body::generate(c.look, c.look % 2 == 0);
     let moving = (c.tx - c.x).hypot(c.ty - c.y) > 2.;
-    let f = if moving { ((c.anim * 7.) as usize) % 2 } else { 0 };
-    prect(v, sx - 4., sy - 1., 8., 2., Color::new(0., 0., 0., 0.25));
+    let (f, wb) = if moving { vfx::walk_cycle(c.anim, 8.) } else { (0, 0.) };
+    vfx::char_shadow(v, sx, sy, 8.);
+    let sy = sy - wb;
     let parts = if c.guard { skin::ROLE_PARTS[2] } else { skin::ROLE_PARTS[(c.look % 4) as usize] };
     skin::draw_figure(sp, &body, parts, (sx - 6.) * v.s, (sy - 15.) * v.s, v.s, 0, f, c.left, WHITE);
     if c.guard {

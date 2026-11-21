@@ -318,7 +318,10 @@ pub fn draw_roofs(g: &Game, v: &View) {
             if ty == y1 { prect(v, px, py + 15., 16., 2., Color::new(0., 0., 0., 0.35 * a)); }
         }
         // ปล่องไฟ + ควัน ถ้าในบ้านมีกองไฟ/หม้อ
-        if r.fire {
+        // บ้านในเมือง: ควันจากครัวช่วงเช้า/เย็น (บางหลัง)
+        let h = g.hour();
+        let city_smoke = r.tiles.first().map_or(false, |&(x, y)| g.w.realm.city_at(x, y).is_some() && hash(x, y, 313) < 0.55 && ((5.5..9.).contains(&h) || (16.5..21.).contains(&h)));
+        if r.fire || city_smoke {
             if let Some(&(tx, ty)) = r.tiles.iter().min_by_key(|t| (t.1, -t.0)) {
                 let (px, py) = (tx as f32 * 16. + 9. - v.cx, ty as f32 * 16. - 18. - v.cy);
                 prect(v, px, py, 5., 8., Color::new(0.35, 0.3, 0.28, a));

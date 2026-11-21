@@ -186,6 +186,18 @@ pub fn draw_figure_ex(sp: &Sprites, body: &Body, vars: [usize; 3], x: f32, y: f3
         (k.torso[dir * NV + vars[1]], feet - (5. + 3. * leg) * rest * s, tw, rest),
         (k.legs[(dir * 3 + frame) * NV + vars[2]], feet - 3. * leg * rest * s, lw, rest * leg),
     ];
+    // ขอบเข้ม 1 พิกเซลรอบตัว (ให้แยกจากพื้นชัด)
+    if c.a > 0.95 && crate::vfx::fr().outline {
+        let oc = crate::vfx::OUTLINE_C;
+        for (dx, dy) in [(-s, 0.), (s, 0.), (0., -s), (0., s)] {
+            for &(p, py, pw, ph) in &parts {
+                for r in [p.base, p.skin, p.hair, p.cloth, p.hi].into_iter().flatten() {
+                    let w = r.w * s * pw;
+                    draw_texture_ex(&sp.tex, cx - w / 2. + dx, py + dy, oc, DrawTextureParams { source: Some(r), dest_size: Some(vec2(w, r.h * s * ph)), flip_x: flip, ..Default::default() });
+                }
+            }
+        }
+    }
     for (p, py, pw, ph) in parts {
         for (r, col) in [(p.base, c), (p.skin, tint(c, sk)), (p.hair, tint(c, hr)), (p.cloth, tint(c, cl)), (p.hi, tint(c, hi))] {
             if let Some(r) = r {
