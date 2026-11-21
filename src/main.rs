@@ -1547,7 +1547,17 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                             prect(v, sx + a.cos() * 9. - 0.5, sy - 8. + a.sin() * 6. - 0.5, 1., 1., Color::new(1., 0.9, 1., 0.9));
                         }
                     }
+                    // ดาบในมือ (ตอนไม่ได้ฟัน) — หันขึ้นวาดหลังตัว หันทางอื่นวาดหน้าตัว
+                    let held_sword = p.weapon == 0 && p.sword > 0 && p.atk_t <= 0.;
+                    let draw_sword = |front: bool| {
+                        let left = p.dir == 3 || (p.dir == 2 && p.flip);
+                        let (ox, oy) = match p.dir { 0 => (2., -11.), 1 => (2., -13.), _ => if left { (-9., -12.) } else { (1., -12.) } };
+                        let _ = front;
+                        draw_texture_ex(&sp.tex, ((sx + ox) * v.s).round(), ((sy + oy) * v.s).round(), hx(SWC[p.sword]), DrawTextureParams { source: Some(sp.icons[ICON_SWORD]), dest_size: Some(vec2(9. * v.s, 9. * v.s)), flip_x: left, ..Default::default() });
+                    };
+                    if held_sword && p.dir == 1 { draw_sword(false); }
                     draw_skin(sp, p, (sx - 6.) * v.s, (sy - 15.) * v.s, v.s, p.dir, f, p.dir == 2 && p.flip, WHITE);
+                    if held_sword && p.dir != 1 { draw_sword(true); }
                     if p.weapon > 0 {
                         let (fx, fy) = p.facing();
                         let r = sp.icons[if p.weapon == 1 { IC_BOW } else { IC_STAFF }];
