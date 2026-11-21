@@ -76,6 +76,24 @@ fn btn(ui: &UiState, font: &Font, r: Rect, label: &str, enabled: bool, u: f32) -
 fn icon_c(sp: &Sprites, i: usize, x: f32, y: f32, sz: f32, c: Color) {
     draw_texture_ex(&sp.tex, x, y, c, DrawTextureParams { source: Some(sp.icons[i]), dest_size: Some(vec2(sz, sz)), ..Default::default() });
 }
+/// ไอคอนสิ่งปลูกสร้าง: เฟอร์นิเจอร์ใช้ภาพจริง · บ้านสำเร็จรูปวาดบ้านเล็กๆ · พื้นใช้ลายพื้น
+fn piece_icon(sp: &Sprites, p: &Piece, x: f32, y: f32, s: f32, tint: Color) {
+    let src = |r: Rect| draw_texture_ex(&sp.tex, x, y, tint, DrawTextureParams { source: Some(r), dest_size: Some(vec2(s, s)), ..Default::default() });
+    if is_furniture(p.obj) || p.obj == O_WINDOW {
+        src(sp.obj[p.obj as usize]);
+    } else if p.obj == OBJ_FLOOR_W || p.obj == OBJ_FLOOR_S {
+        src(sp.tiles[if p.obj == OBJ_FLOOR_W { T_FLOORW } else { T_FLOORS } as usize][0]);
+    } else if is_prefab(p.obj) {
+        let (bx, by, bs) = (x + s * 0.08, y + s * 0.38, s * 0.84);
+        let wall = sp.obj[if p.obj == OBJ_HOUSE_L { 11 } else { 10 }];
+        draw_texture_ex(&sp.tex, bx, by, tint, DrawTextureParams { source: Some(wall), dest_size: Some(vec2(bs, bs * 0.6)), ..Default::default() });
+        let rc = if p.obj == OBJ_HOUSE_L { Color::new(0.35, 0.42, 0.53, tint.a) } else { Color::new(0.69, 0.29, 0.2, tint.a) };
+        draw_triangle(vec2(bx - s * 0.06, by), vec2(bx + bs + s * 0.06, by), vec2(bx + bs / 2., by - s * 0.34), rc);
+        draw_rectangle(bx + bs * 0.4, by + bs * 0.25, bs * 0.2, bs * 0.35, Color::new(0.35, 0.2, 0.08, tint.a));
+    } else {
+        icon_c(sp, p.icon, x, y, s, tint);
+    }
+}
 fn visible(y: f32, h: f32, c: Rect) -> bool {
     y + h >= c.y && y <= c.y + c.h
 }
@@ -256,7 +274,7 @@ fn tab_build(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect,
     let mut y = top;
     if ui.sel_b >= PIECES.len() { ui.sel_b = g.build_sel.unwrap_or(0); }
     let pc = &PIECES[ui.sel_b];
-    let dh = detail_box(font, c, y, u, pc.name, pc.desc, &|x, yy, s| icon_c(sp, pc.icon, x, yy, s, WHITE));
+    let dh = detail_box(font, c, y, u, pc.name, pc.desc, &|x, yy, s| piece_icon(sp, pc, x, yy, s, WHITE));
     let mut pick = false;
     let mut cancel = false;
     if visible(y, dh, c) {
@@ -271,7 +289,7 @@ fn tab_build(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect,
     let hit = grid(ui, c, &mut y, PIECES.len(), 50. * u, 6. * u, cur, |k, x, yy, s| {
         let p = &PIECES[k];
         let ok = can_pay(&g.p, p.cost);
-        icon_c(sp, p.icon, x + s * 0.14, yy + s * 0.14, s * 0.72, if ok { WHITE } else { Color::new(1., 1., 1., 0.4) });
+        piece_icon(sp, p, x + s * 0.14, yy + s * 0.14, s * 0.72, if ok { WHITE } else { Color::new(1., 1., 1., 0.4) });
         if g.build_sel == Some(k) { tick(x + s * 0.55, yy + s * 0.58, s * 0.38); }
     });
     if let Some(k) = hit { ui.sel_b = k; }
@@ -1035,7 +1053,7 @@ fn tab_npc_dialog(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c:
         let mut info = vec![format!("รูปร่าง: {} · {}", body.describe(), body.look_words())];
         if n.state == ST_HOME {
             let bed_ok = g.w.placed.get(&n.bed) == Some(&33);
-            info.push(if !bed_ok { "บ้าน: ไม่มีเตียง (ความสุขลดทุกวัน)".to_string() } else if g.npc_has_house(n.bed) { "บ้าน: มีบ้านมีหลังคา (อุ่นใจ ความสุข +4/วัน)".to_string() } else { "บ้าน: นอนกลางแจ้ง — ล้อมเตียงด้วยกำแพง+ประตู (ความสุข −3/วัน)".to_string() });
+            info.push(if !bed_ok { "บ้าน: ไม่มีเตียง (ความสุขลดทุกวัน)".to_string() } else if let Some(r) = g.w.room_from(n.bed) { format!("บ้าน: มีบ้านมีหลังคา {} (ความสุข +{}/วัน{})", stars(r.comfort), if r.comfort >= 3 { 6 } else { 4 }, if r.comfort >= 3 { "" } else { " · บ้าน 3 ดาวขึ้นไป = +6" }) } else { "บ้าน: นอนกลางแจ้ง — ล้อมเตียงด้วยกำแพง+ประตู (ความสุข -3/วัน)".to_string() });
         }
         info.push(format!("ความรู้สึกต่อคุณ: {}", if n.married { "คู่สมรส" } else { opinion_label(op) }));
         info.push(format!("นิสัย: {}{}", trs.join(" · "), if known < 5 { " · (ยังรู้จักไม่หมด)" } else { "" }));

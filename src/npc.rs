@@ -277,11 +277,13 @@ impl Game {
             let eaten = self.take_food_for(bed, i);
             let fed = eaten.is_some();
             let has_water = self.water_within(bed.0, bed.1, 20);
-            let house = bed_ok && self.npc_has_house(bed);
+            let room = if bed_ok { self.w.room_from(bed) } else { None };
+            let house = room.is_some();
+            let comfy = room.map_or(0, |r| r.comfort);
             let n = &mut self.npcs[i];
             n.mood += if bed_ok { 3 } else { -25 };
             // มีบ้านมีหลังคา = อุ่นใจ +4 · นอนกลางแจ้ง −3
-            if bed_ok { if house { n.mood += 4; } else { n.mood -= 3; roofless_n += 1; } }
+            if bed_ok { if house { n.mood += 4 + if comfy >= 3 { 2 } else { 0 }; } else { n.mood -= 3; roofless_n += 1; } }
             n.mood += if fed { 5 } else { -20 };
             // น้ำดื่ม: ต้องมีแหล่งน้ำจืด/บ่อน้ำใกล้บ้าน ไม่งั้นทรมานกว่าขาดอาหาร
             if !has_water { n.mood -= 15; n.soc.grudge = (n.soc.grudge + 2).min(100); thirsty_n += 1; }

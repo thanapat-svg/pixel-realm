@@ -9,7 +9,9 @@ pub struct Piece {
     pub icon: usize,
     pub cost: &'static [(usize, i32)],
 }
-pub const PIECES: [Piece; 16] = [
+pub const PIECES: [Piece; 26] = [
+    Piece { name: "บ้านสำเร็จรูป (เล็ก)", desc: "วางทีเดียวได้ทั้งหลัง! กำแพงไม้ ประตู หน้าต่าง พื้นไม้ เตียง โคมไฟ · ประตูอยู่ช่องที่เลือก ตัวบ้านขึ้นไปด้านบน 5×5 ช่อง", obj: OBJ_HOUSE_S, icon: IC_WWALL, cost: &[(WOOD, 40), (STONE, 4)] },
+    Piece { name: "บ้านสำเร็จรูป (ใหญ่)", desc: "บ้านหินพร้อมเฟอร์นิเจอร์: เตียง โต๊ะ เก้าอี้ ชั้นหนังสือ พรม กระถางต้นไม้ โคมไฟ กล่องเก็บของ · 7×6 ช่อง", obj: OBJ_HOUSE_L, icon: IC_SWALL, cost: &[(STONE, 55), (WOOD, 45), (BERRY, 3)] },
     Piece { name: "กำแพงไม้", desc: "กั้นทางได้ ตีพังได้ (ได้ไม้คืน)", obj: 10, icon: IC_WWALL, cost: &[(WOOD, 2)] },
     Piece { name: "กำแพงหิน", desc: "แข็งแรงกว่ากำแพงไม้", obj: 11, icon: IC_SWALL, cost: &[(STONE, 3)] },
     Piece { name: "ประตู", desc: "กด Q หรือปุ่ม \"ใช้\" เพื่อเปิด-ปิด", obj: 12, icon: IC_DOOR, cost: &[(WOOD, 4)] },
@@ -26,6 +28,14 @@ pub const PIECES: [Piece; 16] = [
     Piece { name: "ปลูกต้นกล้า", desc: "ปลูกต้นไม้ (ใช้เมล็ดจากผลไม้) · 4 วันโตเป็นต้นไม้ตามไบโอม · ฤดูหนาวไม่โต", obj: T_SAPLING, icon: WOOD, cost: &[(WOOD, 1), (BERRY, 1)] },
     Piece { name: "พื้นไม้", desc: "ปูพื้นในบ้าน (ไม้ 1/ช่อง) · วางซ้ำที่เดิม = รื้อคืนไม้", obj: OBJ_FLOOR_W, icon: IC_WWALL, cost: &[(WOOD, 1)] },
     Piece { name: "พื้นหิน", desc: "ปูพื้นหิน (หิน 1/ช่อง) · วางซ้ำที่เดิม = รื้อคืนหิน", obj: OBJ_FLOOR_S, icon: IC_SWALL, cost: &[(STONE, 1)] },
+    Piece { name: "หน้าต่าง", desc: "ใช้แทนกำแพงได้ (นับเป็นผนังห้อง) · ในบ้านเห็นท้องฟ้า แดดลอดเข้ามา · +ความน่าอยู่", obj: O_WINDOW, icon: IC_WWALL, cost: &[(WOOD, 3), (STONE, 1)] },
+    Piece { name: "โต๊ะ", desc: "เฟอร์นิเจอร์ · +ความน่าอยู่", obj: O_TABLE, icon: IC_WWALL, cost: &[(WOOD, 4)] },
+    Piece { name: "เก้าอี้", desc: "เฟอร์นิเจอร์ (เดินผ่านได้) · +ความน่าอยู่", obj: O_CHAIR, icon: IC_WWALL, cost: &[(WOOD, 2)] },
+    Piece { name: "พรม", desc: "ปูพื้นสวยๆ (เดินผ่านได้ · ย้อมด้วยผลเบอร์รี่) · +ความน่าอยู่", obj: O_RUG, icon: IC_WWALL, cost: &[(WOOD, 2), (BERRY, 2)] },
+    Piece { name: "ชั้นหนังสือ", desc: "เฟอร์นิเจอร์ · +ความน่าอยู่", obj: O_SHELF, icon: IC_WWALL, cost: &[(WOOD, 6)] },
+    Piece { name: "ตู้เสื้อผ้า", desc: "เฟอร์นิเจอร์ · +ความน่าอยู่", obj: O_WARDROBE, icon: IC_WWALL, cost: &[(WOOD, 6)] },
+    Piece { name: "กระถางต้นไม้", desc: "ต้นไม้ในบ้าน · +ความน่าอยู่", obj: O_PLANT, icon: IC_WWALL, cost: &[(STONE, 2), (BERRY, 1)] },
+    Piece { name: "โคมไฟ", desc: "ไฟสว่างในบ้านตอนกลางคืน (เป็นเขตปลอดภัยเหมือนคบเพลิง) · +ความน่าอยู่", obj: O_LAMP, icon: IC_TORCH, cost: &[(WOOD, 1), (STONE, 2)] },
 ];
 
 /// สิ่งที่ Game ขอให้ UI เปิด
@@ -69,6 +79,11 @@ impl Game {
             }
             return;
         }
+        if is_prefab(pc.obj) {
+            let k = self.build_target();
+            if self.place_prefab(pc.obj, k, pc.cost) { self.save(); }
+            return;
+        }
         if pc.obj == OBJ_FLOOR_W || pc.obj == OBJ_FLOOR_S {
             let k = self.build_target();
             if !self.in_reach(k) { self.toast("ไกลเกินไป"); return; }
@@ -100,6 +115,7 @@ impl Game {
         }
         self.w.placed.insert((tx, ty), pc.obj);
         self.room_t = 0.;
+        if pc.obj == O_LAMP { self.refresh_torches(); }
         self.ev[3] += 1;
         if pc.obj == 14 {
             self.chests.insert((tx, ty), [0; NI]);
@@ -152,6 +168,7 @@ impl Game {
         };
         match o {
             12 => {
+                self.auto_doors.remove(&k);
                 self.w.placed.insert(k, 13);
                 play(&self.sfx.door);
                 self.save();
@@ -160,6 +177,7 @@ impl Game {
                 if self.player_in_tile(k.0, k.1) {
                     self.toast("ปิดไม่ได้ มีคนยืนอยู่ในประตู");
                 } else {
+                    self.auto_doors.remove(&k);
                     self.w.placed.insert(k, 12);
                     play(&self.sfx.door);
                     self.save();

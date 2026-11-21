@@ -82,8 +82,8 @@ const SOLIDT: [bool; 21] = [true, true, false, false, false, false, true, false,
 //   10 กำแพงไม้,11 กำแพงหิน,12 ประตูปิด,13 ประตูเปิด,14 กล่องเก็บของ,15 พ่อค้า,16 เต็นท์
 //   37 ปราสาท,38 กำแพงเมือง,39 บ่อน้ำ
 //   17 โต๊ะตีเหล็ก,18 คบเพลิง,19 ทางเข้าดันเจี้ยน,20 ทางออกดันเจี้ยน,21 หนามหุบ,22 หนามโผล่,23 ป้อมลูกไฟ,24 หีบสมบัติหายาก
-const OSOLID: [bool; 70] = [false, true, true, false, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, false, false, false, false, true, true, true, true, false, false, false, false, false, false, true, true, false, false, true, true, true, true, true, true, true, true, true, true, true, true, true, false, true, false, true, false, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false];
-const OHP: [i32; 70] = [0, 3, 1, 0, 3, 4, 1, 2, 3, 2, 5, 8, 4, 4, 5, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 1, 1, 1, 1, 4, 8, 0, 0, 20, 8, 6, 3, 3, 3, 4, 2, 3, 6, 1, 0, 0, 1, 3, 1, 3, 1, 8, 10, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1];
+const OSOLID: [bool; 78] = [false, true, true, false, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, false, false, false, false, true, true, true, true, false, false, false, false, false, false, true, true, false, false, true, true, true, true, true, true, true, true, true, true, true, true, true, false, true, false, true, false, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false, true, false, false, true, true, true, true, true];
+const OHP: [i32; 78] = [0, 3, 1, 0, 3, 4, 1, 2, 3, 2, 5, 8, 4, 4, 5, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 1, 1, 1, 1, 4, 8, 0, 0, 20, 8, 6, 3, 3, 3, 4, 2, 3, 6, 1, 0, 0, 1, 3, 1, 3, 1, 8, 10, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 3, 1, 1, 3, 1, 1, 5, 3];
 
 const WOOD: usize = 0;
 const STONE: usize = 1;
@@ -438,7 +438,7 @@ fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
     let fl_bat = [at.add(&art::white_of(&bat_img[0])), at.add(&art::white_of(&bat_img[1]))];
     // ---- objects
     let rp: &[(char, u32)] = &[('k', 0x3a3a40), ('L', 0x9a9aa4), ('l', 0xc8c8d0), ('D', 0x6a6a74), ('c', 0x4ef0ff), ('C', 0xb0ffff)];
-    let mut obj = vec![Rect::new(0., 0., 1., 1.); 70];
+    let mut obj = vec![Rect::new(0., 0., 1., 1.); 78];
     obj[1] = at.add(&spr(&["......gggg......", "....gGGGGGGg....", "...GGGgGGGGGG...", "..GGGGGGGgGGGG..", ".GGgGGGGGGGGGGG.", ".GGGGGGGGGGgGGG.", "GGGGGgGGGGGGGGGG", "GGGGGGGGGGGGgGGG", "GGgGGGGGGGGGGGGG", "GGGGGGGGgGGGGGGd", ".GGGGGGGGGGGGGd.", ".dGGGgGGGGGGGdd.", "..ddGGGGGGGGdd..", "...dddGGGGddd...", ".....ddTTdd.....", "......TTTT......", "......TTtT......", "......TTTT......", "......TtTT......", "......TTTT......", ".....TTTTTT.....", "....tt....tt...."],
         &[('g', 0x7cd06a), ('G', 0x3f9a3f), ('d', 0x2a6a2a), ('T', 0x7a4a24), ('t', 0x5a3418)]));
     obj[2] = at.add(&spr(&["................", "................", "................", "................", "................", "................", "......gggg......", "....gggggggg....", "...ggrgggggrg...", "..gggggggggggg..", "..ggggrggggggg..", ".gggggggggrgggg.", ".ggrgggggggggg..", "..dgggggggggd...", "...dddddddddd...", "................"], &[('g', 0x3d9440), ('r', 0xe8344a), ('d', 0x2a6a2a)]));
@@ -490,7 +490,7 @@ impl Player {
 }
 
 #[derive(Default)]
-struct Input { hb: Option<usize>, mv: Vec2, atk: bool, eat: bool, fire: bool, menu: Option<usize>, map: bool, act: bool, swap: bool, place: bool, cancel: bool, potion: bool, aim: Option<Vec2>, dash: bool, tile_tap: Option<Vec2> }
+struct Input { hb: Option<usize>, mv: Vec2, atk: bool, eat: bool, fire: bool, menu: Option<usize>, map: bool, act: bool, swap: bool, place: bool, cancel: bool, potion: bool, aim: Option<Vec2>, dash: bool, tile_tap: Option<Vec2>, place_hold: bool }
 
 // ======================= game =======================
 struct Game {
@@ -535,6 +535,8 @@ struct Game {
     rooms: Vec<Room>,
     room_of: HashMap<(i32, i32), usize>,
     room_t: f32,
+    paint_last: Option<(i32, i32)>,
+    auto_doors: HashSet<(i32, i32)>,
     an_hunted: u32,
     codex_done: u32,
     adv_done: u32,
@@ -639,7 +641,7 @@ impl Game {
             w, p: Player::new(0., 0.), en: vec![], parts: vec![], floats: vec![], toasts: vec![], time: 0., spawn: (0., 0.),
             seen: HashSet::new(), obj_dmg: HashMap::new(), shake: ((0, 0), 0.), hurt_flash: 0., darkv: 0., last_biome: -1,
             spawn_t: 0., save_t: 0., mini_t: 99., died: false, big_map: false, sfx,
-            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, rooms: vec![], room_of: HashMap::new(), room_t: 0., an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
+            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, rooms: vec![], room_of: HashMap::new(), room_t: 0., paint_last: None, auto_doors: HashSet::new(), an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
@@ -1000,6 +1002,11 @@ impl Game {
             38 => self.gain(STONE, 3, x, y),
             18 => self.gain(WOOD, 1, x, y),
             10 => self.gain(WOOD, 1, x, y),
+            O_TABLE => self.gain(WOOD, 3, x, y),
+            O_CHAIR | O_RUG => self.gain(WOOD, 1, x, y),
+            O_SHELF | O_WARDROBE => self.gain(WOOD, 4, x, y),
+            O_PLANT | O_LAMP => self.gain(STONE, 1, x, y),
+            O_WINDOW => self.gain(WOOD, 2, x, y),
             11 => self.gain(STONE, 2, x, y),
             12 | 13 => self.gain(WOOD, 2, x, y),
             14 => { self.chests.remove(&k); self.gain(WOOD, 4, x, y); self.gain(STONE, 1, x, y - 8.); }
@@ -1251,7 +1258,8 @@ impl Game {
         if inp.swap { self.swap_weapon(); }
         if inp.dash { self.try_dash(inp.mv); }
         if inp.act { self.interact(); }
-        if inp.place { self.place_piece(); }
+        if inp.place { self.place_piece(); self.paint_last = None; }
+        self.paint_tick(inp.place_hold);
         if inp.cancel && self.build_sel.is_some() { self.build_sel = None; self.toast("ยกเลิกโหมดสร้าง"); }
         if self.build_sel.is_none() { self.build_cur = None; }
         if self.build_cur.is_some() && (self.p.x - self.cur_pos.0).hypot(self.p.y - self.cur_pos.1) > 20. { self.build_cur = None; }
@@ -1281,6 +1289,7 @@ impl Game {
         if p.invul > 0. { p.invul -= dt; }
         if p.atk_t > 0. { p.atk_t -= dt; }
         if p.atk_cd > 0. { p.atk_cd -= dt; }
+        self.auto_door(mv);
         if inp.atk && self.p.atk_cd <= 0. {
             let mut aim = inp.aim.filter(|a| a.length() > 0.01);
             if aim.is_none() && self.auto_aim {
@@ -1421,13 +1430,18 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         }
     }
     draw_telegraphs(g, v);
+    draw_interior(g, v, t_now, 0);
+    let hidden = interior_hidden(g);
     // y-sort
     let mut list: Vec<(f32, Draw)> = vec![];
     let mut lights: Vec<(f32, f32, f32, bool)> = lava_l;
     for ty in ty0 - 1..=ty1 + 3 {
         for tx in tx0 - 2..=tx1 + 2 {
             let o = w.obj_at(tx, ty);
-            if o == 0 { continue; }
+            if o == 0 || hidden.contains(&(tx, ty)) { continue; }
+            if o == O_LAMP {
+                lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 3. - v.cy, pulse_r(60., t_now, tx as f32 * 1.1, 1.), true));
+            }
             if o == 9 {
                 lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 10. - v.cy, pulse_r(80., t_now, tx as f32 * 1.7 + ty as f32 * 0.9, 2.5), true));
             } else if o == 15 {
@@ -1447,7 +1461,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
             } else if o == 24 || o == 23 {
                 lights.push((tx as f32 * 16. + 8. - v.cx, ty as f32 * 16. + 8. - v.cy, 26., false));
             }
-            let flat = matches!(o, 3 | 19 | 20 | 21 | 22 | 36) || land_flat(o);
+            let flat = matches!(o, 3 | 19 | 20 | 21 | 22 | 36 | O_RUG) || land_flat(o);
             list.push((ty as f32 * 16. + if flat { 0. } else { 14. }, Draw::Obj(o, tx, ty)));
         }
     }
@@ -1626,6 +1640,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     }
     draw_proj(g, sp, v);
     for pr in &g.proj { if matches!(pr.kind, 1 | 7 | 8 | 9) { lights.push((pr.x - v.cx, pr.y - v.cy, pulse_r(26., t_now, pr.x * 0.3, 1.5), false)); } }
+    draw_interior(g, v, t_now, 1);
     draw_roofs(g, v);
     if let Some(sel) = g.build_sel {
         let (tx, ty) = g.build_target();
@@ -1640,6 +1655,33 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
             }
         }
         let po = PIECES[sel].obj;
+        if is_prefab(po) {
+            // พรีวิวทั้งหลัง: เขียว = วางได้ · แดง = มีของขวาง (ข้อความบอกเหตุผล)
+            let bad = g.prefab_blocked(po, (tx, ty)).or(if can_pay(&g.p, PIECES[sel].cost) { None } else { Some("วัสดุไม่พอ") });
+            let tint = if bad.is_none() { Color::new(0.75, 1., 0.75, 0.6) } else { Color::new(1., 0.55, 0.55, 0.55) };
+            for ((x, y), c) in g.prefab_cells(po, (tx, ty)) {
+                let (px, py) = (x as f32 * 16. - v.cx, y as f32 * 16. - v.cy);
+                match c {
+                    Cell::Wall(o) => blit(sp, v, sp.obj[o as usize], px, py, false, tint),
+                    Cell::Floor(t, f) => {
+                        blit(sp, v, sp.tiles[t as usize][0], px, py, false, tint);
+                        if f != 0 { let r = sp.obj[f as usize]; blit(sp, v, r, px + 8. - r.w / 2., py + 16. - r.h, false, tint); }
+                    }
+                }
+            }
+            let lay = prefab_layout(po);
+            let (x0, y0) = (lay.iter().map(|c| c.0 .0).min().unwrap(), lay.iter().map(|c| c.0 .1).min().unwrap());
+            let (x1, y1) = (lay.iter().map(|c| c.0 .0).max().unwrap(), lay.iter().map(|c| c.0 .1).max().unwrap());
+            let lc = if bad.is_none() { Color::new(0.3, 1., 0.3, 0.9) } else { Color::new(1., 0.3, 0.3, 0.9) };
+            draw_rectangle_lines(((tx + x0) as f32 * 16. - v.cx) * v.s, ((ty + y0) as f32 * 16. - v.cy) * v.s, (x1 - x0 + 1) as f32 * 16. * v.s, (y1 - y0 + 1) as f32 * 16. * v.s, 3., lc);
+            if let Some(why) = bad {
+                let (mx, my) = (((tx as f32) * 16. + 8. - v.cx) * v.s, ((ty + 1) as f32 * 16. + 4. - v.cy) * v.s);
+                let fs = (6. * v.s) as u16;
+                let d = measure_text(why, Some(font), fs, 1.);
+                draw_rectangle(mx - d.width / 2. - 6., my, d.width + 12., fs as f32 + 8., Color::new(0., 0., 0., 0.7));
+                draw_text_ex(why, mx - d.width / 2., my + fs as f32, TextParams { font: Some(font), font_size: fs, color: hx(0xff9a9a), ..Default::default() });
+            }
+        } else {
         let till = po == OBJ_TILL;
         let floor = po == OBJ_FLOOR_W || po == OBJ_FLOOR_S;
         let ok = if till { g.can_till(tx, ty) } else if floor { g.in_reach((tx, ty)) && !SOLIDT[g.w.tile_at(tx, ty) as usize] } else { g.can_place_at(tx, ty) && can_pay(&g.p, PIECES[sel].cost) };
@@ -1648,6 +1690,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         blit(sp, v, r, px, py + 16. - r.h, false, Color::new(1., 1., 1., 0.6));
         let lc = if ok { Color::new(0.3, 1., 0.3, 0.9) } else { Color::new(1., 0.3, 0.3, 0.9) };
         draw_rectangle_lines(px * v.s, py * v.s, 16. * v.s, 16. * v.s, 2., lc);
+        }
     }
     if let Some(f) = &g.fish {
         let (bx, by) = (f.tx as f32 * 16. + 8., f.ty as f32 * 16. + 8. + if f.bite_t > 0. { 2. } else { (t_now * 3.).sin() * 0.8 });
@@ -1813,7 +1856,8 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
         y += 16. * u;
     }
     if g.in_safe(p.x, p.y) {
-        text(font, if g.indoors() { "ในบ้าน — ปลอดภัย · อุ่น · ฝน/หิมะไม่โดน" } else { "เขตปลอดภัย (แสงคบเพลิง)" }, x, y + 26. * u, 12. * u, hx(0x88ff88));
+        let s = match g.home_comfort() { Some(c) => format!("ในบ้าน (น่าอยู่ {}) — ปลอดภัย · อุ่น · ฝนไม่โดน{}", stars(c), if c < 3 { " (เพิ่มพื้น/หน้าต่าง/เฟอร์นิเจอร์ = ดาวเพิ่ม)" } else { "" }), None => "เขตปลอดภัย (แสงคบเพลิง)".to_string() };
+        text(font, &s, x, y + 26. * u, 12. * u, hx(0x88ff88));
         y += 16. * u;
     }
     if g.w.dun.is_some() {
@@ -1972,7 +2016,7 @@ fn update_minimap(g: &Game, img: &mut Image, tex: &Texture2D) {
 }
 
 // ---------- touch controls ----------
-struct TouchUI { active: bool, joy_id: Option<u64>, joy_c: Vec2, joy_v: Vec2, atk_id: Option<u64>, aim: Vec2, flash: [f32; 9] }
+struct TouchUI { active: bool, joy_id: Option<u64>, joy_c: Vec2, joy_v: Vec2, atk_id: Option<u64>, aim: Vec2, flash: [f32; 9], place_id: Option<u64> }
 /// 0 โจมตี/เล็ง · 1 กิน · 2 กองไฟ · 3 เมนู · 4 แผนที่ · 5 สลับอาวุธ · 6 ใช้ · 7 วางสิ่งปลูกสร้าง
 /// หน่วยขนาดปุ่มทัช: อิงความสูงจอ (ปุ่มโจมตี ≈ 16 มม. บนมือถือทั่วไป) × ตัวเลือกขนาดปุ่มในตั้งค่า
 fn tunit() -> f32 {
@@ -2032,7 +2076,7 @@ fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool) {
                         5 => inp.swap = true,
                         6 => inp.act = true,
                         8 => inp.dash = true,
-                        _ => inp.place = true,
+                        _ => { inp.place = true; tu.place_id = Some(t.id); }
                     }
                 }
                 if !on_btn && build && t.position.x >= screen_width() * 0.5 { inp.tile_tap = Some(t.position); }
@@ -2057,10 +2101,12 @@ fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool) {
             TouchPhase::Ended | TouchPhase::Cancelled => {
                 if tu.joy_id == Some(t.id) { tu.joy_id = None; tu.joy_v = Vec2::ZERO; }
                 if tu.atk_id == Some(t.id) { tu.atk_id = None; tu.aim = Vec2::ZERO; }
+                if tu.place_id == Some(t.id) { tu.place_id = None; }
             }
         }
     }
     inp.mv += tu.joy_v;
+    if tu.place_id.is_some() && build { inp.place_hold = true; } else if !build { tu.place_id = None; }
     if tu.atk_id.is_some() {
         inp.atk = true;
         if tu.aim.length() > 0.5 { inp.aim = Some(tu.aim); }
@@ -2266,7 +2312,7 @@ async fn main() {
     bg.w = World::new(gen_range(1, i32::MAX));
     bg.p.invul = 0.07; // ซ่อนผู้เล่นบนหน้าเมนู
     let mut state = State::Title;
-    let mut tu = TouchUI { active: false, joy_id: None, joy_c: Vec2::ZERO, joy_v: Vec2::ZERO, atk_id: None, aim: Vec2::ZERO, flash: [0.; 9] };
+    let mut tu = TouchUI { active: false, joy_id: None, joy_c: Vec2::ZERO, joy_v: Vec2::ZERO, atk_id: None, aim: Vec2::ZERO, flash: [0.; 9], place_id: None };
     let mut ui = UiState::new();
     let mut t_now = 0f32;
     let mut mouse_armed = false;
@@ -2545,6 +2591,7 @@ async fn main() {
                     inp.map = is_key_pressed(KeyCode::M);
                     inp.act = is_key_pressed(KeyCode::Q);
                     inp.place = is_key_pressed(KeyCode::R);
+                    inp.place_hold = is_key_down(KeyCode::R);
                     inp.swap = is_key_pressed(KeyCode::Tab);
                     inp.dash = is_key_pressed(KeyCode::LeftShift) || is_key_pressed(KeyCode::K);
                     inp.potion = is_key_pressed(KeyCode::H);
@@ -2872,7 +2919,7 @@ mod tests {
         g.p.y = ty as f32 * 16. + 10.;
         g.p.dir = 2;
         g.p.flip = false;
-        g.build_sel = Some(2); // ประตู
+        g.build_sel = Some(4); // ประตู
         g.place_piece();
         let (dx, dy) = g.build_target();
         assert_eq!((dx, dy), (tx + 1, ty));
@@ -2884,7 +2931,7 @@ mod tests {
         g.interact();
         assert_eq!(g.w.obj_at(dx, dy), 12);
         // กล่อง: วางไม่ทับของเดิม
-        g.build_sel = Some(3);
+        g.build_sel = Some(5);
         g.place_piece();
         assert_eq!(g.w.obj_at(dx, dy), 12, "ห้ามวางทับ");
         g.w.placed.remove(&(dx, dy));
@@ -3383,7 +3430,7 @@ mod tests {
         assert_eq!(g.build_target(), face, "นอกระยะต้องกลับไปหน้าตัว");
         // วางกำแพงตรงช่องที่เลือก (ไม่ใช่หน้าตัว)
         g.p.inv[WOOD] = 10;
-        g.build_sel = Some(0);
+        g.build_sel = Some(2);
         g.build_cur = Some((tx + 2, ty));
         g.cur_pos = (g.p.x, g.p.y);
         g.place_piece();
@@ -4690,12 +4737,12 @@ mod tree_tests {
     fn tree_stats_tables_and_sprites_are_consistent() {
         for o in 40..=47usize { assert!(OSOLID[o] && OHP[o] > 0, "ต้นไม้ {} ต้องชนได้และตีได้", o); }
         assert!(OHP[T_OLD as usize] > OHP[T_BIRCH as usize] && OHP[T_SAPLING as usize] == 1);
-        assert_eq!(OSOLID.len(), 70);
+        assert_eq!(OSOLID.len(), 78);
         for o in 40..=47u8 { let (a, b) = wood_range(o); assert!(a >= 1 && b >= a, "{}", o); assert!(!tree_name(o).is_empty()); }
         assert!(wood_range(T_OLD).0 >= 5 && wood_range(T_SAPLING).1 == 1 && wood_range(T_SPRUCE).1 >= 4);
         // สไปรต์ทุกชิ้นกว้าง 16 พิกเซล วางเข้าแอตลาสได้ ไม่ซ้ำกัน
         let mut at = Atlas { img: Image::gen_image_color(512, 1024, BLANK), cx: 0, cy: 0, rowh: 0 };
-        let mut obj = vec![Rect::new(0., 0., 1., 1.); 70];
+        let mut obj = vec![Rect::new(0., 0., 1., 1.); 78];
         trees::build_trees(&mut at, &mut obj);
         for o in 40..=49usize { assert!(obj[o].w == 16. && obj[o].h >= 14. && obj[o].h <= 22., "{} {:?}", o, obj[o]); }
         let mut pos: Vec<(i32, i32)> = (40..=49).map(|o| (obj[o].x as i32, obj[o].y as i32)).collect();
@@ -5013,7 +5060,7 @@ mod land_tests {
     #[test]
     fn land_sprites_fit_atlas() {
         let mut at = Atlas { img: Image::gen_image_color(512, 1024, BLANK), cx: 0, cy: 0, rowh: 0 };
-        let mut obj = vec![Rect::new(0., 0., 0., 0.); 70];
+        let mut obj = vec![Rect::new(0., 0., 0., 0.); 78];
         land::build_land(&mut at, &mut obj);
         for o in 50..70usize { assert!(obj[o].w >= 1. && obj[o].h >= 1., "{}", o); }
         assert!(obj[O_GIANT as usize].w > 40. && obj[O_HUT_LOG as usize].w == 40.);
@@ -5875,5 +5922,95 @@ mod house_tests {
         assert!(g.adv_check_one(3));
         g.w.placed.remove(&(1004, 1002));
         assert!(!g.adv_check_one(3), "เตียงกลางแจ้งยังไม่นับเป็นบ้าน");
+    }
+}
+
+#[cfg(test)]
+mod house2_tests {
+    use super::*;
+    fn clear_lot(g: &mut Game, x0: i32, y0: i32, x1: i32, y1: i32) {
+        for y in y0..=y1 { for x in x0..=x1 { g.w.tmod.insert((x, y), 3); g.w.removed.insert((x, y)); } }
+    }
+    #[test]
+    fn prefab_small_house_is_a_real_room() {
+        let mut g = Game::new_world_seed(4242, Sfx::default());
+        clear_lot(&mut g, 990, 990, 1010, 1010);
+        // tmod กันปูพื้น → ล้างช่องในบ้านให้เป็นหญ้าธรรมชาติ ด้วยการลบ tmod ภายในแล้วดูว่าเป็นพื้นแข็งไหม
+        g.p.x = 1000. * 16. + 8.; g.p.y = 1002. * 16. + 12.;
+        let k = (1000, 1001);
+        assert_eq!(g.prefab_blocked(OBJ_HOUSE_S, k), Some("ทับแปลงผัก/ดินที่ขุดไว้ — หาที่อื่น"), "tmod หญ้าที่ทดสอบใส่ไว้ถือว่าดัดแปลงแล้ว");
+        for ((x, y), _) in g.prefab_cells(OBJ_HOUSE_S, k) { g.w.tmod.remove(&(x, y)); }
+        assert!(!g.prefab_cells(OBJ_HOUSE_S, k).iter().any(|((x, y), _)| SOLIDT[g.w.tile_at(*x, *y) as usize]), "ที่ทดสอบต้องเป็นพื้นดิน");
+        g.p.inv[WOOD] = 50; g.p.inv[STONE] = 10;
+        let cost = PIECES.iter().find(|p| p.obj == OBJ_HOUSE_S).unwrap().cost;
+        assert!(g.place_prefab(OBJ_HOUSE_S, k, cost));
+        assert_eq!(g.p.inv[WOOD], 10);
+        let r = g.w.room_from((1000, 999)).expect("บ้านสำเร็จรูปต้องเป็นห้องปิด");
+        assert_eq!(r.tiles.len(), 9);
+        assert!(r.has_bed);
+        assert!(r.comfort >= 3, "เตียง+พื้นเต็ม+หน้าต่าง+โคม ได้ {} ดาว", r.comfort);
+        assert_eq!(g.w.obj_at(1000, 1001), 12);
+        assert!(g.torches.iter().any(|_| true), "โคมไฟนับเป็นแสง");
+        // วางซ้ำทับไม่ได้
+        assert!(g.prefab_blocked(OBJ_HOUSE_S, k).is_some());
+    }
+    #[test]
+    fn prefab_large_house_comfort_and_player_block() {
+        let mut g = Game::new_world_seed(4242, Sfx::default());
+        let k = (1000, 1001);
+        clear_lot(&mut g, 990, 990, 1010, 1010);
+        for ((x, y), _) in g.prefab_cells(OBJ_HOUSE_L, k) { g.w.tmod.remove(&(x, y)); }
+        assert!(!g.prefab_cells(OBJ_HOUSE_L, k).iter().any(|((x, y), _)| SOLIDT[g.w.tile_at(*x, *y) as usize]), "ที่ทดสอบต้องเป็นพื้นดิน");
+        // ยืนตรงกำแพงหลังบ้าน → ห้ามวาง
+        g.p.x = 1000. * 16. + 8.; g.p.y = 996. * 16. + 12.;
+        assert!(g.prefab_blocked(OBJ_HOUSE_L, k).is_some());
+        g.p.y = 1003. * 16. + 12.;
+        assert_eq!(g.prefab_blocked(OBJ_HOUSE_L, k), None);
+        g.p.inv[WOOD] = 50; g.p.inv[STONE] = 60; g.p.inv[BERRY] = 3;
+        let cost = PIECES.iter().find(|p| p.obj == OBJ_HOUSE_L).unwrap().cost;
+        assert!(g.place_prefab(OBJ_HOUSE_L, k, cost));
+        let r = g.w.room_from((1000, 999)).unwrap();
+        assert_eq!(r.tiles.len(), 20);
+        assert!(r.stone);
+        assert_eq!(r.comfort, 5);
+        assert!(g.chests.contains_key(&(998, 1000)));
+    }
+    #[test]
+    fn hold_to_paint_walls_behind_player() {
+        let mut g = Game::new_world_seed(4242, Sfx::default());
+        clear_lot(&mut g, 990, 990, 1010, 1010);
+        g.p.inv[WOOD] = 20;
+        g.build_sel = PIECES.iter().position(|p| p.obj == 10);
+        g.p.x = 1000. * 16. + 8.; g.p.y = 1000. * 16. + 12.;
+        g.paint_tick(true);
+        for i in 1..=3 { g.p.x = (1000 + i) as f32 * 16. + 8.; g.paint_tick(true); }
+        assert_eq!((1000..1003).filter(|&x| g.w.obj_at(x, 1000) == 10).count(), 3);
+        assert_eq!(g.w.obj_at(1003, 1000), 0, "ช่องที่ยืนอยู่ไม่โดนวาง");
+        assert_eq!(g.p.inv[WOOD], 14);
+        // ปล่อยปุ่มแล้วเดิน = ไม่วาง
+        g.paint_tick(false);
+        g.p.x += 16.; g.paint_tick(false);
+        assert_eq!(g.w.obj_at(1003, 1000), 0);
+    }
+    #[test]
+    fn doors_open_and_close_automatically() {
+        let mut g = Game::new_world_seed(4242, Sfx::default());
+        clear_lot(&mut g, 990, 990, 1010, 1010);
+        g.w.placed.insert((1000, 999), 12);
+        g.p.x = 1000. * 16. + 8.; g.p.y = 1000. * 16. + 4.5;
+        g.auto_door(vec2(0., -1.));
+        assert_eq!(g.w.obj_at(1000, 999), 13, "เดินชนแล้วเปิดเอง");
+        g.auto_door(Vec2::ZERO);
+        assert_eq!(g.w.obj_at(1000, 999), 13, "ยังใกล้อยู่ ไม่ปิด");
+        g.p.y += 48.;
+        g.auto_door(Vec2::ZERO);
+        assert_eq!(g.w.obj_at(1000, 999), 12, "เดินห่างแล้วปิดเอง");
+    }
+    #[test]
+    fn furniture_tables_and_comfort() {
+        for o in O_TABLE..=O_WARDROBE { assert!(OHP[o as usize] > 0); }
+        assert!(!OSOLID[O_CHAIR as usize] && !OSOLID[O_RUG as usize] && OSOLID[O_TABLE as usize]);
+        assert!(is_wall_obj(O_WINDOW) && !is_furniture(O_WINDOW));
+        assert_eq!(stars(3), "3/5 ดาว");
     }
 }

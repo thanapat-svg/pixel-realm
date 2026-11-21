@@ -239,12 +239,15 @@ impl Game {
             return;
         }
         self.bed = Some(k);
-        let home = self.w.room_from(k).is_some();
+        let room = self.w.room_from(k);
+        let home = room.is_some();
+        let comfort = room.map_or(0, |r| r.comfort);
         let t0 = self.time;
         self.time = ((self.time / DAYLEN).floor() + 1.) * DAYLEN;
         // นอนในบ้านมีหลังคา: หิว/กระหายระหว่างหลับแค่ครึ่งเดียว + ตื่นมาสดชื่น (วิ่งเร็ว 2 นาที)
         self.sleep_needs((self.time - t0) * if home { 0.5 } else { 1. });
-        if home { self.p.buff_spd = self.p.buff_spd.max(120.); }
+        // ยิ่งบ้านน่าอยู่ ยิ่งตื่นมาสดชื่นนาน (2 นาที + 30 วิ/ดาว) · 4 ดาวขึ้นไปได้คริติคอลด้วย
+        if home { self.p.buff_spd = self.p.buff_spd.max(120. + 30. * comfort as f32); if comfort >= 4 { self.p.buff_crit = self.p.buff_crit.max(120.); } }
         self.p.hp = self.p.maxhp;
         self.en.clear();
         self.proj.clear();
@@ -262,7 +265,7 @@ impl Game {
         let day = (self.time / DAYLEN) as i32 + 1;
         let hungry = if self.survival_mode() > 0 && (self.p.thirst < 30. || self.p.hunger < 30.) { " · ตื่นมาหิว/กระหายน้ำ" } else { "" };
         if home {
-            self.toast(format!("นอนในบ้านอุ่นสบาย... เช้าวันที่ {} (เลือดเต็ม · หิวช้าลงครึ่งหนึ่ง · สดชื่น วิ่งเร็ว 2 นาที){}", day, hungry));
+            self.toast(format!("นอนในบ้านอุ่นสบาย {}... เช้าวันที่ {} (เลือดเต็ม · หิวช้าลงครึ่งหนึ่ง · สดชื่น วิ่งเร็ว {} วิ{}){}", stars(comfort), day, 120 + 30 * comfort as i32, if comfort >= 4 { " + คริติคอล" } else { "" }, hungry));
         } else {
             self.toast(format!("หลับกลางแจ้ง... เช้าวันที่ {} (เลือดเต็ม · ตั้งเตียงเป็นจุดเกิด · ล้อมกำแพงให้เป็นบ้านจะนอนดีกว่านี้){}", day, hungry));
         }

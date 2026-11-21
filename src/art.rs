@@ -315,6 +315,26 @@ fn golem(raised: bool) -> Image {
 pub fn build_extra(at: &mut Atlas, obj: &mut Vec<Rect>, icons: &mut Vec<Rect>) -> Extras {
     obj[10] = at.add(&wall_wood());
     obj[11] = at.add(&wall_stone());
+
+    // ---- เฟอร์นิเจอร์ (v13.1)
+    let fp: &[(char, u32)] = &[('k', 0x3a2410), ('T', 0x9a6a38), ('t', 0x7a4e26), ('d', 0x5a3418), ('y', 0xffd84a), ('Y', 0xfff2a0), ('w', 0xffffff), ('r', 0xb8343a), ('R', 0x8a2028), ('g', 0x5ab04a), ('G', 0x3a8a3a), ('b', 0x3a6ad8), ('o', 0xb0603a), ('O', 0x8a4428)];
+    obj[O_TABLE as usize] = at.add(&spr(&["................", "................", "................", "..kkkkkkkkkkkk..", ".kTTTTTTTTTTTTk.", ".kTttTTTTTTTTTk.", ".kTTTTTTTTttTTk.", ".kTTTTTTTTTTTTk.", ".kTTTtTTTTTTTTk.", ".kddddddddddddk.", ".kkkkkkkkkkkkkk.", "..kd........dk..", "..kd........dk..", "..kk........kk..", "................", "................"], fp));
+    obj[O_CHAIR as usize] = at.add(&spr(&["................", "................", ".....kkkkkk.....", ".....kTTTTk.....", ".....kTttTk.....", ".....kTTTTk.....", ".....kkkkkk.....", "....kTTTTTTk....", "....kTTTTTTk....", "....kddddddk....", "....kkkkkkkk....", "....kd....dk....", "....kd....dk....", "....kk....kk....", "................", "................"], fp));
+    obj[O_RUG as usize] = at.add(&spr(&["................", ".RRRRRRRRRRRRRR.", ".RyyyyyyyyyyyyR.", ".yrrrrrrrrrrrry.", ".yrRRRRRRRRRRry.", ".yrRyyyyyyyyRry.", ".yrRyrrrrrryRry.", ".yrRyrRRRRryRry.", ".yrRyrRRRRryRry.", ".yrRyrrrrrryRry.", ".yrRyyyyyyyyRry.", ".yrRRRRRRRRRRry.", ".yrrrrrrrrrrrry.", ".RyyyyyyyyyyyyR.", ".RRRRRRRRRRRRRR.", "................"], fp));
+    obj[O_SHELF as usize] = at.add(&spr(&["..kkkkkkkkkkkk..", "..kTTTTTTTTTTk..", "..kTrbgyrbgyTk..", "..kTrbgyrbgyTk..", "..kTrbgyrbgyTk..", "..kTTTTTTTTTTk..", "..kTgyrbbgryTk..", "..kTgyrbbgryTk..", "..kTgyrbbgryTk..", "..kTTTTTTTTTTk..", "..kTbrygbryyTk..", "..kTbrygbryyTk..", "..kTbrygbryyTk..", "..kTTTTTTTTTTk..", "..kkkkkkkkkkkk..", "................"], fp));
+    obj[O_PLANT as usize] = at.add(&spr(&["................", "......gG........", "....gGGgG.Gg....", "...GgGGGGgGGg...", "..gGGgGGGGGgGG..", "...GGGGgGGGGg...", "..gGgGGGGGgGGg..", "...ggGGGGGGgg...", ".....gGGGGg.....", "....kkkkkkkk....", "....kooooook....", "....kOooooOk....", ".....kooook.....", ".....kOOOOk.....", "......kkkk......", "................"], fp));
+    obj[O_LAMP as usize] = at.add(&spr(&["................", ".....yyyyyy.....", "....yYYYYYYy....", "...yYYwwwwYYy...", "...yYYYYYYYYy...", "....yyyyyyyy....", ".......kk.......", ".......kk.......", ".......kk.......", ".......kk.......", ".......kk.......", ".......kk.......", ".......kk.......", ".....kkkkkk.....", "....kddddddk....", "................"], fp));
+    obj[O_WARDROBE as usize] = at.add(&spr(&["..kkkkkkkkkkkk..", "..kTTTTTTTTTTk..", "..kTttTTkTttTk..", "..kTTTTTkTTTTk..", "..kTTTTTkTTTTk..", "..kTTTTTkTTTTk..", "..kTTTyTkTyTTk..", "..kTTTTTkTTTTk..", "..kTTTTTkTTTTk..", "..kTttTTkTttTk..", "..kTTTTTkTTTTk..", "..kTTTTTkTTTTk..", "..kddddddddddk..", "..kkkkkkkkkkkk..", "..kk........kk..", "................"], fp));
+    obj[O_WINDOW as usize] = at.add(&{
+        let mut im = wall_wood();
+        rect(&mut im, 3, 3, 10, 9, 0x4a2e14);
+        rect(&mut im, 4, 4, 8, 7, 0x9ad8ff);
+        rect(&mut im, 5, 5, 2, 2, 0xe0f6ff);
+        rect(&mut im, 7, 4, 2, 7, 0x6a4220);
+        rect(&mut im, 4, 7, 8, 1, 0x6a4220);
+        rect(&mut im, 2, 12, 12, 2, 0x7a4e26);
+        im
+    });
     obj[12] = at.add(&door(false));
     obj[13] = at.add(&door(true));
     obj[14] = at.add(&storage_box());

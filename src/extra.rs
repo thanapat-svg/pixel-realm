@@ -305,7 +305,7 @@ pub fn torch_near(ts: &[(f32, f32)], x: f32, y: f32) -> Option<(f32, f32)> {
 
 impl Game {
     pub fn refresh_torches(&mut self) {
-        self.torches = self.w.placed.iter().filter(|(_, &v)| v == 18).map(|(&(x, y), _)| (x as f32 * 16. + 8., y as f32 * 16. + 8.)).collect();
+        self.torches = self.w.placed.iter().filter(|(_, &v)| v == 18 || v == O_LAMP).map(|(&(x, y), _)| (x as f32 * 16. + 8., y as f32 * 16. + 8.)).collect();
     }
     pub fn in_safe(&self, x: f32, y: f32) -> bool {
         self.w.dun.is_none() && (torch_near(&self.torches, x, y).is_some() || self.room_of.contains_key(&(tfloor(x), tfloor(y))))
