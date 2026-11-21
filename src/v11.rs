@@ -16,6 +16,7 @@ pub fn hotbar_hit(p: Vec2) -> Option<usize> {
 impl Game {
     pub fn hotbar_use(&mut self, k: usize) {
         if k == 9 { self.swap_weapon(); return; }
+        if self.quick_gift_item(k) { return; }
         let items = hotbar_items(self);
         let Some(&it) = items.get(k) else { return };
         match it {

@@ -79,6 +79,7 @@ impl Game {
             return;
         };
         let pc = &PIECES[sel];
+        if !self.build_reach(self.build_target()) { self.toast("ไกลเกินไป — เดินเข้าไปใกล้อีกหน่อย"); return; }
         if pc.obj == OBJ_TILL {
             let k = self.build_target();
             if self.till_at(k) {
@@ -93,7 +94,7 @@ impl Game {
         }
         if pc.obj == OBJ_FLOOR_W || pc.obj == OBJ_FLOOR_S {
             let k = self.build_target();
-            if !self.in_reach(k) { self.toast("ไกลเกินไป"); return; }
+            if !self.build_reach(k) { self.toast("ไกลเกินไป"); return; }
             if self.place_floor(k, pc.obj) {
                 play(&self.sfx.door);
                 self.room_t = 0.;

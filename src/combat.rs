@@ -29,6 +29,7 @@ impl Player {
     }
     pub fn weapon_name(&self) -> String {
         match self.weapon {
+            0 if self.bare => "มือเปล่า".to_string(),
             0 => SWN[self.sword].to_string(),
             1 => "ธนู".to_string(),
             _ => format!("{} ({})", STAFF_N[self.staff as usize], ELEM_N[self.elem as usize]),
@@ -63,30 +64,32 @@ impl Game {
             self.p.dir = if a.y > 0. { 0 } else { 1 };
         }
     }
+    /// รายการของที่ถือได้ตามลำดับสลับ: มือเปล่า · ดาบ · ธนู · คทา(แต่ละธาตุ)
+    pub fn hand_options(&self) -> Vec<(u8, bool, u8)> {
+        let mut v = vec![(0u8, true, 0u8)];
+        if self.p.sword > 0 { v.push((0, false, 0)); }
+        if self.p.bow { v.push((1, false, 0)); }
+        if self.p.staff > 0 { for e in 0..3u8 { if self.p.elems & (1 << e) != 0 { v.push((2, false, e)); } } }
+        v
+    }
+    pub fn hand_cur(&self) -> (u8, bool, u8) {
+        let bare = self.p.bare || (self.p.weapon == 0 && self.p.sword == 0);
+        (self.p.weapon, bare && self.p.weapon == 0, if self.p.weapon == 2 { self.p.elem } else { 0 })
+    }
+    pub fn set_hand(&mut self, o: (u8, bool, u8)) {
+        self.p.weapon = o.0;
+        self.p.bare = o.1;
+        self.p.elem = if o.0 == 2 { o.2 } else { 0 };
+        let n = self.p.weapon_name();
+        self.toast(format!("ถือ: {}", n));
+    }
+    /// สลับของในมือ (วนรอบ รวมมือเปล่า)
     pub fn swap_weapon(&mut self) {
-        let cur = self.p.weapon;
-        if cur == 2 {
-            if let Some(e) = (self.p.elem + 1..3).find(|&e| self.p.elems & (1 << e) != 0) {
-                self.p.elem = e;
-                let n = self.p.weapon_name();
-                self.toast(format!("ถือ: {}", n));
-                return;
-            }
-            self.p.elem = 0;
-        }
-        for k in 1..=3u8 {
-            let w = (cur + k) % 3;
-            if self.p.has_weapon(w) {
-                if w == cur {
-                    self.toast("ยังไม่มีอาวุธอื่น — คราฟต์ธนูหรือคทาได้ที่เมนู (C)");
-                } else {
-                    self.p.weapon = w;
-                    let n = self.p.weapon_name();
-                    self.toast(format!("ถือ: {}", n));
-                }
-                return;
-            }
-        }
+        let opts = self.hand_options();
+        if opts.len() <= 1 { self.toast("ยังไม่มีอาวุธ — คราฟต์ดาบ ธนู หรือคทาได้ที่เมนู (C)"); return; }
+        let cur = self.hand_cur();
+        let i = opts.iter().position(|&o| o == cur).unwrap_or(0);
+        self.set_hand(opts[(i + 1) % opts.len()]);
     }
     /// ยิงโปรเจกไทล์ตามอาวุธที่ถืออยู่ (aim = ทิศเล็ง, None = ทิศที่หันหน้า)
     pub fn shoot(&mut self, aim: Option<Vec2>) {
@@ -349,7 +352,7 @@ impl Game {
         match r.eff {
             Eff::Sword(t) => {
                 self.p.sword = t;
-                self.p.weapon = 0;
+                self.p.weapon = 0; self.p.bare = false;
             }
             Eff::Pick => self.p.pick = true,
             Eff::Rod => self.p.rod = true,
@@ -364,17 +367,17 @@ impl Game {
             }
             Eff::Bow => {
                 self.p.bow = true;
-                self.p.weapon = 1;
+                self.p.weapon = 1; self.p.bare = false;
             }
             Eff::Staff(t) => {
                 self.p.staff = t;
-                self.p.weapon = 2;
+                self.p.weapon = 2; self.p.bare = false;
             }
             Eff::Arrows(n) => self.p.inv[ARROW] += n,
             Eff::Elem(e) => {
                 self.p.elems |= 1 << e;
                 self.p.elem = e;
-                self.p.weapon = 2;
+                self.p.weapon = 2; self.p.bare = false;
             }
             Eff::Armor(s, t) => self.p.armor[s] = t,
             Eff::Boat => {

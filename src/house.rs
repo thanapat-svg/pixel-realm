@@ -144,7 +144,12 @@ impl World {
     }
     /// ห้องที่ช่องนี้อยู่ (None = ไม่ได้อยู่ในห้องปิด)
     pub fn room_from(&self, start: (i32, i32)) -> Option<Room> {
-        if self.dun.is_some() || self.boundary(start.0, start.1) { return None; }
+        let mut out = HashSet::new();
+        self.room_from_ex(start, &mut out)
+    }
+    /// เหมือน room_from แต่จำช่องที่ "รู้แล้วว่าอยู่ข้างนอก" ไว้ใน outside (ค้นซ้ำในรอบเดียวกันไม่ต้องไล่ใหม่)
+    pub fn room_from_ex(&self, start: (i32, i32), outside: &mut HashSet<(i32, i32)>) -> Option<Room> {
+        if self.dun.is_some() || outside.contains(&start) || self.boundary(start.0, start.1) { return None; }
         let mut seen: HashSet<(i32, i32)> = HashSet::new();
         let mut stack = vec![start];
         let mut r = Room::default();
@@ -152,7 +157,7 @@ impl World {
         seen.insert(start);
         while let Some((x, y)) = stack.pop() {
             r.tiles.push((x, y));
-            if r.tiles.len() > ROOM_MAX { return None; }
+            if r.tiles.len() > ROOM_MAX || outside.contains(&(x, y)) { outside.extend(seen); return None; }
             let o = self.obj_at(x, y);
             if o == 33 { r.has_bed = true; }
             if o == 9 || o == 26 { r.fire = true; }
@@ -164,7 +169,7 @@ impl World {
                     continue;
                 }
                 // ทะลุออกไปน้ำ/ของธรรมชาติที่ไม่ใช่ผนัง = ห้องไม่ปิด
-                if SOLIDT[self.tile_at(n.0, n.1) as usize] { return None; }
+                if SOLIDT[self.tile_at(n.0, n.1) as usize] { outside.extend(seen); return None; }
                 seen.insert(n);
                 stack.push(n);
             }
@@ -203,11 +208,12 @@ impl Game {
                 if !self.w.placed.contains_key(&(x, y)) && matches!(self.w.obj_at(x, y), 10 | 11 | 12 | O_WINDOW) { walls.push((x, y)); }
             } }
         }
+        let mut outside: HashSet<(i32, i32)> = HashSet::new();
         for w in walls {
             for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
                 let s = (w.0 + dx, w.1 + dy);
-                if self.room_of.contains_key(&s) { continue; }
-                if let Some(mut r) = self.w.room_from(s) {
+                if self.room_of.contains_key(&s) || outside.contains(&s) { continue; }
+                if let Some(mut r) = self.w.room_from_ex(s, &mut outside) {
                     let id = self.rooms.len();
                     let key = *r.tiles.iter().min().unwrap();
                     r.alpha = old.get(&key).copied().unwrap_or(1.);
@@ -224,8 +230,12 @@ impl Game {
     /// ผู้เล่นอยู่ในบ้าน (ห้องปิดที่มีหลังคา)
     pub fn indoors(&self) -> bool { self.w.dun.is_none() && self.room_of.contains_key(&(tfloor(self.p.x), tfloor(self.p.y - 3.))) }
     pub fn house_tick(&mut self, dt: f32) {
+        // คำนวณห้องใหม่เฉพาะเมื่อมีการสร้าง/รื้อ (room_t = 0) หรือเดินไปไกลกว่า 6 ช่อง · กันพลาด: ทุก 20 วิ
+        // (เดิมทุก 1 วิ — ใกล้กำแพงเมืองกินเวลา 20–40 ms ต่อครั้ง = เกมค้างเป็นจังหวะ)
         self.room_t -= dt;
-        if self.room_t <= 0. { self.room_t = 1.; self.rooms_refresh(); }
+        let pc = (tfloor(self.p.x), tfloor(self.p.y));
+        let moved = (pc.0 - self.rs.room_c.0).abs() > 6 || (pc.1 - self.rs.room_c.1).abs() > 6;
+        if self.room_t <= 0. || moved { self.room_t = 20.; self.rs.room_c = pc; self.rooms_refresh(); }
         let me = self.room_of.get(&(tfloor(self.p.x), tfloor(self.p.y - 3.))).copied();
         for (i, r) in self.rooms.iter_mut().enumerate() {
             let target = if Some(i) == me { 0. } else { 1. };
@@ -482,7 +492,7 @@ impl Game {
             _ => {}
         }
     }
-    fn place_floor_quiet(&mut self, k: (i32, i32), obj: u8) -> bool {
+    pub fn place_floor_quiet(&mut self, k: (i32, i32), obj: u8) -> bool {
         let t = self.w.tile_at(k.0, k.1);
         let (it, want) = if obj == OBJ_FLOOR_W { (WOOD, T_FLOORW) } else { (STONE, T_FLOORS) };
         if SOLIDT[t as usize] || self.p.inv[it] < 1 || self.crops.contains_key(&k) { return false; }

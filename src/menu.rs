@@ -367,7 +367,7 @@ fn tab_gear(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
             icon_c(sp, ic, c.x + 8. * u, y + 8. * u, 28. * u, if own { WHITE } else { Color::new(1., 1., 1., 0.35) });
             text(font, &name, c.x + 46. * u, y + 20. * u, 15. * u, if own { hx(0xffcc66) } else { hx(0x777777) });
             text(font, &desc, c.x + 46. * u, y + 36. * u, 11. * u, hx(0xaaaaaa));
-            let cur = g.p.weapon == w;
+            let cur = g.p.weapon == w && !(w == 0 && g.p.bare);
             if btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 7. * u, 92. * u, 32. * u), if cur { "ถืออยู่" } else if own { "ถือ" } else { "ไม่มี" }, own && !cur, u) {
                 equip = Some(w);
             }
@@ -377,6 +377,19 @@ fn tab_gear(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
     }
     if let Some(w) = equip {
         g.p.weapon = w;
+        g.p.bare = false;
+    }
+    // มือเปล่า (ไม่ถืออะไร)
+    if g.p.sword > 0 || g.p.bow || g.p.staff > 0 {
+        if visible(y, rh, c) {
+            draw_fist(c.x + 22. * u, y + 22. * u, 11. * u);
+            text(font, "มือเปล่า", c.x + 46. * u, y + 20. * u, 15. * u, hx(0xffcc66));
+            text(font, "ต่อยดาเมจ 1 · เก็บดาบ/อาวุธไว้", c.x + 46. * u, y + 36. * u, 11. * u, hx(0xaaaaaa));
+            let cur = g.p.weapon == 0 && g.p.bare;
+            if btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 7. * u, 92. * u, 32. * u), if cur { "ถืออยู่" } else { "ถือ" }, !cur, u) { g.p.weapon = 0; g.p.bare = true; }
+            sep(c, y + rh - 2.);
+        }
+        y += rh;
     }
     if let Some(e) = elem_pick {
         g.p.elem = e as u8;

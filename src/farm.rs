@@ -53,11 +53,8 @@ impl Game {
     }
     /// ไทล์ที่จะวาง: เคอร์เซอร์ Grid Snap ถ้ามีและอยู่ในระยะ ไม่งั้นไทล์หน้าตัว
     pub fn build_target(&self) -> (i32, i32) {
-        if let Some(c) = self.build_cur {
-            if self.in_reach(c) {
-                return c;
-            }
-        }
+        // v19: เลือกช่องไหนก็ใช้ช่องนั้น (ไกลเกินระยะสร้าง → ไม่วาง ไม่แอบไปวางหน้าตัว)
+        if let Some(c) = self.build_cur { return c; }
         self.facing_tile()
     }
 

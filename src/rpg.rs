@@ -484,8 +484,10 @@ impl Game {
 pub fn draw_comp(g: &Game, sp: &Sprites, v: &View) {
     let Some(c) = &g.comp else { return };
     let (sx, sy) = ((c.x - v.cx).round(), (c.y - v.cy).round());
-    let f = ((c.anim * 8.) as usize) % 2;
-    prect(v, sx - 4., sy - 1., 8., 2., Color::new(0., 0., 0., 0.25));
+    let boat = g.rides_boat(c.x, c.y);
+    let f = if boat { 0 } else { ((c.anim * 8.) as usize) % 2 };
+    if boat { draw_boat(v, sx, sy, get_time() as f32 + 1.7, g.p.dir == 2); } else { vfx::char_shadow(v, sx, sy, 8.); }
+    let sy = if boat { sy - 3. } else { sy };
     let r = sp.ex.comp[c.kind as usize * 2 + f];
     if c.kind == 0 {
         blit(sp, v, r, sx - 6., sy - r.h + 1., c.left, WHITE);

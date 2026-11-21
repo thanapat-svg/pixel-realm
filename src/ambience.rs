@@ -232,7 +232,6 @@ impl AmbMgr {
             if t > 0.01 && !self.tried[i] {
                 self.tried[i] = true;
                 self.snd[i] = crate::assets::try_sound(&format!("amb_{}", AMB_NAMES[i])).await;
-                eprintln!("ambience: load {} -> {}", AMB_NAMES[i], self.snd[i].is_some());
             }
             // เฟดเข้า ~1.5 วิ ออก ~2.5 วิ
             let rate = if t > self.vol[i] { 0.6 } else { 0.4 };

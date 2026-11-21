@@ -394,7 +394,10 @@ pub fn draw_animal(g: &Game, sp: &Sprites, v: &View, i: usize) {
     let r = sp.animals[base + fr];
     let shadow = Color::new(0., 0., 0., 0.22);
     let _ = shadow;
-    if a.k != A_BIRD || a.h < 4. { vfx::char_shadow(v, sx, sy, r.w - 4.); }
+    let boat = a.tame && g.rides_boat(a.x, a.y);
+    if boat { draw_boat(v, sx, sy, a.anim + 3.1, g.p.dir == 2); }
+    let sy = if boat { sy - 3. } else { sy };
+    if !boat && (a.k != A_BIRD || a.h < 4.) { vfx::char_shadow(v, sx, sy, r.w - 4.); }
     vfx::blit_outline(sp, v, r, sx - (r.w / 2.).floor(), sy - r.h - a.h, r.w, r.h, a.flip, 0.8);
     let c = if a.flash > 0. { Color::new(1., 0.5, 0.5, 1.) } else { WHITE };
     blit(sp, v, r, sx - (r.w / 2.).floor(), sy - r.h - a.h, a.flip, c);

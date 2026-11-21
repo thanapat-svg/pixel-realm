@@ -259,6 +259,13 @@ pub struct RealmState {
     pub siege: Option<Siege>,
     pub cit: Vec<Citizen>,
     pub npaths: HashMap<u32, Path>,
+    pub trail: Vec<(f32, f32)>,
+    pub sleeping: HashSet<u32>,
+    pub gift_to: Option<u32>,
+    pub build_arm: Option<(i32, i32)>,
+    pub drag_last: Option<(i32, i32)>,
+    pub bed_t: f32,
+    pub room_c: (i32, i32),
     pub tick_t: f32,
     pub inited: bool,
 }

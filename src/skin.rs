@@ -208,6 +208,29 @@ pub fn draw_figure_ex(sp: &Sprites, body: &Body, vars: [usize; 3], x: f32, y: f3
     }
 }
 
+/// วาดตัวละครหมุน (ท่านอน) รอบจุดกึ่งกลางตัว
+pub fn draw_figure_rot(sp: &Sprites, body: &Body, vars: [usize; 3], x: f32, y: f32, s: f32, rot: f32, c: Color) {
+    let k = &sp.skin;
+    let (hw, hh, tw, lw, rest) = body.part_scale();
+    let feet = y + 15. * s;
+    let cx = x + 6. * s;
+    let piv = vec2(cx, y + 8. * s);
+    let (sk, hr, cl, hi) = (body.skin_col(), body.hair_col(), body.cloth_col(), body.cloth_hi());
+    let parts = [
+        (k.head[vars[0] * STYLE_N + body.style as usize], feet - (8. * rest + 7. * hh) * s, hw, hh),
+        (k.torso[vars[1]], feet - 8. * rest * s, tw, rest),
+        (k.legs[vars[2]], feet - 3. * rest * s, lw, rest),
+    ];
+    for (p, py, pw, ph) in parts {
+        for (r, col) in [(p.base, c), (p.skin, tint(c, sk)), (p.hair, tint(c, hr)), (p.cloth, tint(c, cl)), (p.hi, tint(c, hi))] {
+            if let Some(r) = r {
+                let w = r.w * s * pw;
+                draw_texture_ex(&sp.tex, cx - w / 2., py, col, DrawTextureParams { source: Some(r), dest_size: Some(vec2(w, r.h * s * ph)), rotation: rot, pivot: Some(piv), ..Default::default() });
+            }
+        }
+    }
+}
+
 /// ผู้เล่น: ใส่เกราะ/ชุดตามที่สวม
 pub fn draw_skin(sp: &Sprites, p: &Player, x: f32, y: f32, s: f32, dir: usize, frame: usize, flip: bool, c: Color) {
     draw_figure(sp, &p.body, skin_parts(p), x, y, s, dir, frame, flip, c);

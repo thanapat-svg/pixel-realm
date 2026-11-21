@@ -119,7 +119,8 @@ pub fn draw_mc_hud(g: &Game, sp: &Sprites, font: &Font) {
     let wx = hx0 - s - 6. * u;
     slot(wx, hy, s, true, false);
     let (ic, col) = match p.weapon { 1 => (IC_BOW, WHITE), 2 => (IC_STAFF, WHITE), _ => (ICON_SWORD, hx(SWC[p.sword])) };
-    if p.weapon != 0 || p.sword > 0 {
+    if p.weapon == 0 && (p.bare || p.sword == 0) { draw_fist(wx + s / 2., hy + s / 2., s * 0.3); }
+    else if p.weapon != 0 || p.sword > 0 {
         draw_texture_ex(&sp.tex, wx + s * 0.15, hy + s * 0.15, col, DrawTextureParams { source: Some(sp.icons[ic]), dest_size: Some(vec2(s * 0.7, s * 0.7)), ..Default::default() });
     }
     if p.weapon == 1 { slot_count(font, p.inv[ARROW].max(2), wx, hy, s); }

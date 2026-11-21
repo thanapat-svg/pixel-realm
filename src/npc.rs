@@ -134,10 +134,12 @@ impl Game {
     }
 
     // ---------------- ค้นหา/โต้ตอบ ----------------
-    pub fn npc_near(&self) -> Option<u32> {
-        self.npcs.iter().filter(|n| !n.child || n.state != ST_LOST).filter(|n| n.state != ST_LOST)
+    pub fn npc_near(&self) -> Option<u32> { self.npc_near_r(24.) }
+    /// ชาวบ้านที่ใกล้ที่สุดในรัศมี r พิกเซล (ไม่นับคนหลงทาง/คนที่หลับ)
+    pub fn npc_near_r(&self, r: f32) -> Option<u32> {
+        self.npcs.iter().filter(|n| n.state != ST_LOST && !self.rs.sleeping.contains(&n.id))
             .map(|n| ((n.x - self.p.x).hypot(n.y - (self.p.y - 3.)), n.id))
-            .filter(|d| d.0 < 20.).min_by(|a, b| a.0.partial_cmp(&b.0).unwrap()).map(|d| d.1)
+            .filter(|d| d.0 < r).min_by(|a, b| a.0.partial_cmp(&b.0).unwrap()).map(|d| d.1)
     }
     pub fn lost_near(&self) -> Option<(i32, i32)> {
         let (pcx, pcy) = (tfloor(self.p.x).div_euclid(CELL), tfloor(self.p.y).div_euclid(CELL));
@@ -156,7 +158,7 @@ impl Game {
         if self.lost_near().is_some() { return Some(format!("{}: ช่วยผู้หลงทาง", key)); }
         let id = self.npc_near()?;
         let n = self.npcs.iter().find(|n| n.id == id)?;
-        Some(format!("{}: คุยกับ{}", key, NPC_NAMES[n.name as usize]))
+        Some(format!("{}: {}{}", key, if n.talked { "เมนู " } else { "คุยกับ" }, NPC_NAMES[n.name as usize]))
     }
     /// กดใช้: ช่วยคนหลงทาง หรือคุย (คืน true ถ้าจัดการแล้ว)
     pub fn npc_interact(&mut self) -> bool {
@@ -181,8 +183,9 @@ impl Game {
             }
         }
         if let Some(id) = self.npc_near() {
-            self.req = Some(Req::Npc(id));
-            play(&self.sfx.click);
+            // v19: กดใช้ = คุยทันที (ครั้งแรกของวัน) · คุยแล้วกดอีก = เปิดเมนูชาวบ้าน
+            let talked = self.idx(id).map_or(true, |i| self.npcs[i].talked);
+            if !talked { self.quick_talk(id); } else { self.req = Some(Req::Npc(id)); play(&self.sfx.click); }
             return true;
         }
         false
@@ -404,6 +407,7 @@ impl Game {
         }
         if self.w.dun.is_some() { return; }
         let night = self.is_night_hr();
+        let hr_now = self.hour();
         let (px, py) = (self.p.x, self.p.y);
         let enemies: Vec<(usize, f32, f32)> = self.en.iter().enumerate().filter(|(_, e)| !e.dead).map(|(i, e)| (i, e.x, e.y)).collect();
         let mut hits: Vec<(usize, f32, f32)> = vec![];
@@ -418,6 +422,21 @@ impl Game {
             n.wt -= dt;
             let (mut tx, mut ty, mut spd) = (n.x, n.y, 0.);
             let home = (n.bed.0 as f32 * 16. + 8., n.bed.1 as f32 * 16. + 18.);
+            // v19: ดึกแล้วขึ้นนอนบนเตียงจริง (มอนเข้าใกล้ = ตื่น) · เช้าลุกมายืนข้างเตียง
+            if n.state == ST_HOME {
+                let bed_ok = self.w.placed.get(&n.bed) == Some(&33);
+                let danger = enemies.iter().any(|e| (e.1 - n.x).hypot(e.2 - n.y) < 70.);
+                if sleep_hr(hr_now) && bed_ok && !gather.contains_key(&n.id) && !danger {
+                    let lie = Game::bed_lie(n.bed);
+                    if self.rs.sleeping.contains(&n.id) || (n.x - home.0).hypot(n.y - home.1) < 10. || (n.x - lie.0).hypot(n.y - lie.1) < 12. {
+                        self.rs.sleeping.insert(n.id);
+                        n.x = lie.0; n.y = lie.1; n.moving = false;
+                        continue;
+                    }
+                } else if self.rs.sleeping.remove(&n.id) {
+                    n.x = home.0; n.y = home.1;
+                }
+            }
             match n.state {
                 ST_FOLLOW => {
                     let d = (px - n.x).hypot(py - n.y);
@@ -484,6 +503,35 @@ impl Game {
 pub fn draw_npc(g: &Game, sp: &Sprites, v: &View, i: usize, t_now: f32) {
     let n = &g.npcs[i];
     let (sx, sy) = ((n.x - v.cx).round(), (n.y - v.cy).round());
+    let body0 = g.npc_body(n);
+    // v19: นอนบนเตียง — หัวบนหมอน ห่มผ้า หายใจขึ้นลง มี z ลอย
+    if g.npc_sleeping(n) {
+        let (bx, by) = (n.bed.0 as f32 * 16. - v.cx, n.bed.1 as f32 * 16. - v.cy);
+        let s2 = v.s * 0.8;
+        skin::draw_figure_rot(sp, &body0, role_parts(n.role), (bx + 3.7) * v.s, (by - 0.9) * v.s, s2, -std::f32::consts::FRAC_PI_2, WHITE);
+        let r = sp.obj[33];
+        let br = ((t_now * 1.3 + n.id as f32).sin() * 0.5).round();
+        draw_texture_ex(&sp.tex, (bx + 7.) * v.s, (by + 2. - br.max(0.)) * v.s, WHITE, DrawTextureParams { source: Some(Rect::new(r.x + 7., r.y + 2., 8., 7.)), dest_size: Some(vec2(8. * v.s, 7. * v.s)), ..Default::default() });
+        for k in 0..2 {
+            let ph = (t_now * 0.45 + k as f32 * 0.5 + n.id as f32 * 0.37).fract();
+            let (zx, zy) = (bx + 6. + ph * 6., by - 2. - ph * 10.);
+            let a = (1. - ph) * 0.9;
+            let zc = Color::new(0.85, 0.9, 1., a);
+            // ตัว z 4x4: แถวบน · เฉียง 2 จุด · แถวล่าง
+            let (zx, zy) = (zx.round(), zy.round());
+            prect(v, zx, zy, 4., 1., zc); prect(v, zx + 2., zy + 1., 1., 1., zc); prect(v, zx + 1., zy + 2., 1., 1., zc); prect(v, zx, zy + 3., 4., 1., zc);
+        }
+        return;
+    }
+    // v19: นั่งเรือตามเรา
+    if n.state == ST_FOLLOW && g.rides_boat(n.x, n.y) {
+        // หันเรือตามทิศที่เราพาย
+        let side = g.p.dir == 2;
+        draw_boat(v, sx, sy, t_now + n.id as f32, side);
+        let d = if side { 2 } else { g.p.dir };
+        skin::draw_figure_ex(sp, &body0, role_parts(n.role), (sx - 6.) * v.s, (sy - 17.) * v.s, v.s, d, 0, if side { g.p.flip } else { n.left }, WHITE, 0.4);
+        return;
+    }
     let (f, wb) = if n.moving { vfx::walk_cycle(n.anim, 8.) } else { (0, 0.) };
     let (sit, laugh) = g.psy.get(&n.id).map_or((false, 0.), |p| (p.sitting, p.laugh));
     // หัวเราะ = ตัวสั่นขึ้นลงเร็วๆ
