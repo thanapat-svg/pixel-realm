@@ -37,7 +37,14 @@ pub async fn override_audio(s: &mut Sfx) {
     macro_rules! ov {
         ($($f:ident),* $(,)?) => { $( if let Some(x) = try_sound(concat!("sfx_", stringify!($f))).await { s.$f = Some(x); } )* };
     }
-    ov!(swing, hit, chop, rock, hurt, kill, gem, lvl, craft, eat, fire, chest, shoot, boom, buy, door, dash, crit, pickup, upgrade, roar, battk, quest, trap, fball, deny, click);
+    ov!(swing, hit, chop, rock, hurt, kill, gem, lvl, craft, eat, fire, chest, shoot, boom, buy, door, dash, crit, pickup, upgrade, roar, battk, quest, trap, fball, deny, click, thunder, splash, hammer);
+    // เสียงเดินตามพื้นผิว (step_<พื้น>_<n>) — ไม่มีไฟล์ = เดินเงียบ
+    for (i, surf) in crate::ambience::SURFACES.iter().enumerate() {
+        for n in 0..8 {
+            match try_sound(&format!("step_{}_{}", surf, n)).await { Some(x) => s.steps[i].push(x), None => break }
+        }
+    }
+    eprintln!("audio: steps {:?} thunder {} hammer {}", s.steps.iter().map(|v| v.len()).collect::<Vec<_>>(), s.thunder.is_some(), s.hammer.is_some());
 }
 
 /// ภาพที่โหลดจากไฟล์ (รอแทนสไปรต์ที่วาดด้วยโค้ด)

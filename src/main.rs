@@ -41,6 +41,8 @@ mod house;
 use house::*;
 mod psy;
 use psy::*;
+mod ambience;
+use ambience::*;
 use extra::*;
 use farm::*;
 use guide::*;
@@ -563,6 +565,11 @@ struct Game {
     paint_last: Option<(i32, i32)>,
     auto_doors: HashSet<(i32, i32)>,
     sites: Vec<Site>,
+    step_d: f32,
+    step_last: usize,
+    amb: [f32; AMB_N],
+    amb_t: f32,
+    hammer_t: f32,
     aim_last: Option<(f32, f32)>,
     aim_last_t: f32,
     site_wait_t: f32,
@@ -675,7 +682,7 @@ impl Game {
             w, p: Player::new(0., 0.), en: vec![], parts: vec![], floats: vec![], toasts: vec![], time: 0., spawn: (0., 0.),
             seen: HashSet::new(), obj_dmg: HashMap::new(), shake: ((0, 0), 0.), hurt_flash: 0., darkv: 0., last_biome: -1,
             spawn_t: 0., save_t: 0., mini_t: 99., died: false, big_map: false, sfx,
-            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, rooms: vec![], room_of: HashMap::new(), room_t: 0., paint_last: None, auto_doors: HashSet::new(), sites: vec![], aim_last: None, aim_last_t: 0., site_wait_t: 0., sit: None, sit_t: 0., psy: HashMap::new(), psy_t: 0., gather: HashMap::new(), an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
+            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, rooms: vec![], room_of: HashMap::new(), room_t: 0., paint_last: None, auto_doors: HashSet::new(), sites: vec![], step_d: 0., step_last: 0, amb: [0.; AMB_N], amb_t: 0., hammer_t: 0., aim_last: None, aim_last_t: 0., site_wait_t: 0., sit: None, sit_t: 0., psy: HashMap::new(), psy_t: 0., gather: HashMap::new(), an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
@@ -1322,6 +1329,7 @@ impl Game {
         let (mut mx, mut my) = if p.dash_t > 0. { (p.dash_dir.x * 250. * dt, p.dash_dir.y * 250. * dt) } else if p.moving { (mv.x * sp * dt, mv.y * sp * dt) } else { (0., 0.) };
         if p.kbt > 0. { p.kbt -= dt; mx += p.kbx * dt; my += p.kby * dt; }
         let boat = p.boat;
+        let (ox, oy) = (p.x, p.y);
         // ชนมุม: ดันตัวเลี่ยงให้เองเล็กน้อย (ลื่นผ่านมุมต้นไม้/กำแพงแทนการติดค้าง)
         let blocked_x = mx != 0. && collide_p(&self.w, p.x + mx, p.y, boat);
         if !blocked_x { p.x += mx; } else if my.abs() < mx.abs() * 0.5 {
@@ -1337,10 +1345,14 @@ impl Game {
                 if s != 0. { p.x += s * my.abs().min(d); break; }
             }
         }
+        let moved = (p.x - ox).hypot(p.y - oy);
         if p.moving { p.anim += dt; }
         if p.invul > 0. { p.invul -= dt; }
         if p.atk_t > 0. { p.atk_t -= dt; }
         if p.atk_cd > 0. { p.atk_cd -= dt; }
+        self.step_tick(moved);
+        self.amb_t -= dt;
+        if self.amb_t <= 0. { self.amb_t = 0.25; self.amb = self.amb_targets(); }
         self.aim_last_t -= dt;
         if self.aim_last_t <= 0. { self.aim_last = None; }
         self.auto_door(mv);
@@ -2372,6 +2384,7 @@ async fn main() {
     mini_tex.set_filter(FilterMode::Nearest);
     let mut sfx_slot: Option<Sfx> = Some(load_sfx().await);
     let mut bgm = BgmMgr::new();
+    let mut amb = AmbMgr::new();
     let mut game: Option<Game> = None;
     prefs::load();
     let mut save_sum = prefs::save_summary(DAYLEN);
@@ -2841,6 +2854,10 @@ async fn main() {
             _ => -1,
         };
         bgm.set(want).await;
+        match (&state, &game) {
+            (State::Title, _) | (_, None) => amb.stop_all(),
+            (_, Some(g)) => amb.update(g.amb, get_frame_time().min(0.1), 1.0).await,
+        }
         if prefs::show_fps() {
             text(&font, &format!("{} FPS", get_fps()), 8., sh - 8., 14. * ui_scale(), hx(0x66ff66));
         }

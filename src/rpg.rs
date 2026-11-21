@@ -652,6 +652,7 @@ impl Game {
             self.thunder -= dt;
         } else if self.rain > 0.8 && gen_range(0., 1.) < dt * 0.05 {
             self.thunder = 0.25;
+            if self.w.dun.is_none() { play_vol(&self.sfx.thunder, if self.indoors() { 0.7 } else { 1.3 }); }
             self.shake(0.8, 0.2);
         }
     }

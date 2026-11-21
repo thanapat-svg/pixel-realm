@@ -345,17 +345,13 @@ def main():
         total += os.path.getsize(p)
         print(f"bgm_{i} ({TRACKS[i][0]}): {len(st) / a.sr:.0f}s stereo {os.path.getsize(p) / 1e6:.1f} MB", flush=True)
     if not a.only:
-        B, sr = sfx_bank()
-        for k, w in B.items():
-            w = w / max(1e-9, np.abs(w).max()) * 0.85
-            # สเตอริโอ: เลื่อนช่องขวาเล็กน้อยให้กว้างขึ้น
-            d = int(0.0006 * sr)
-            R = np.concatenate([np.zeros(d), w])[: len(w)]
-            st = np.clip(np.stack([w, R], 1) * 32767, -32768, 32767).astype(np.int16)
-            p = os.path.join(a.out, f"sfx_{k}.wav")
-            write_wav(p, st, sr)
-            total += os.path.getsize(p)
-        print(f"sfx: {len(B)} ไฟล์")
+        # v15: เอฟเฟกต์/เสียงเดิน/บรรยากาศ สังเคราะห์แบบสมจริง 44.1 kHz (tools/sound_hq.py)
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import sound_hq
+        sound_hq.generate(a.out)
+        for f in os.listdir(a.out):
+            if f.startswith(("sfx_", "step_", "amb_")):
+                total += os.path.getsize(os.path.join(a.out, f))
     print(f"รวมเสียง {total / 1e6:.1f} MB")
 
 

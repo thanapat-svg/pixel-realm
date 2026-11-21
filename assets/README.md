@@ -14,6 +14,9 @@
 | `sfx_eat` `sfx_fire` `sfx_door` `sfx_dash` | กิน · วางไฟ · ประตู/วางของ · พุ่ง |
 | `sfx_shoot` `sfx_boom` `sfx_fball` `sfx_trap` | ยิง · ระเบิด · ลูกไฟ · กับดัก |
 | `sfx_roar` `sfx_battk` `sfx_deny` `sfx_click` | บอสคำราม · บอสโจมตี · ปฏิเสธ · คลิก UI |
+| `sfx_thunder` `sfx_splash` `sfx_hammer` | ฟ้าร้อง · น้ำกระเซ็น · ค้อนตอก (v15) |
+| `step_<พื้น>_<n>` | เสียงเดิน พื้น = grass dirt sand snow stone wood mud · n = 0.. (สุ่มเล่น) |
+| `amb_<ชื่อ>` | ลูปบรรยากาศ: rain rain_roof wind blizzard fire birds crickets waves cave lava swamp |
 | `bgm_0` … `bgm_N` | เพลงพื้นหลัง (วนซ้ำ) ตามไบโอม/กลางคืน/บอส — ลำดับตาม `compose(k)` ใน `src/audio.rs` |
 
 ## ภาพ `assets/sprites/`
@@ -36,3 +39,7 @@
 - `tools/gen_audio.py` สร้างเพลงสเตอริโอ 6 เพลง (bgm_0 กลางวัน · 1 ค่าย · 2 บอส · 3 กลางคืน · 4 ถ้ำ · 5 เมนู) ยาว ~2:15–2:40 + sfx 27 ไฟล์ ลง `assets/audio/` (WAV 22.05 kHz 16-bit ≈ 76 MB)
 - `tools/fetch_sprites.py` โหลดสเปรดชีต CC0 (Kenney Micro Roguelike 8x8) แล้วตัดช่องตาม `tools/sprite_map.json` ลง `assets/sprites/` (ต้นไม้ + ไอคอนดาบ/ธนู/ประตู)
 ไฟล์ที่สร้างอยู่ใน .gitignore (สร้างใหม่ทุก build) · เกมโหลดเพลงทีละเพลง (BgmMgr) · ถ้าไม่มีไฟล์ จะใช้ chiptune ในโค้ดแทน
+
+## v15: เสียงสมจริง
+`tools/sound_hq.py` สร้าง sfx 30 · step 35 · amb 11 ไฟล์ (44.1 kHz) — เรียกจาก `gen_audio.py` · ควรใช้ 44.1 kHz เสมอ
+เพราะตัวเล่นเสียง (quad-snd) แปลงอัตราสุ่มอื่นแบบ nearest-neighbor ทำให้เสียงแตก

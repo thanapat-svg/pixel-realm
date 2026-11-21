@@ -230,7 +230,7 @@ impl Game {
         let spot = fish_spot(self.w.seed, tx, ty);
         let wait = if spot { gen_range(1.2, 2.6) } else { gen_range(2.2, 5.5) };
         self.fish = Some(Fishing { tx, ty, t: 0., bite_at: wait, bite_t: 0., spot, px: self.p.x, py: self.p.y });
-        play(&self.sfx.click);
+        play_vol(&self.sfx.splash, 0.6);
         true
     }
     pub fn fish_press(&mut self) {
@@ -242,6 +242,7 @@ impl Game {
         let (x, y) = (f.tx as f32 * 16. + 8., f.ty as f32 * 16. + 4.);
         let r = gen_range(0., 1.);
         self.burst(x, y, hx(0xbfe8ff), 12, 60.);
+        play(&self.sfx.splash);
         if f.spot && r < 0.12 {
             self.gain(GEM, rnd(1, 2), x, y);
             self.toast("ตกได้อัญมณีจากก้นบ่อ!");

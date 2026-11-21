@@ -382,6 +382,9 @@ impl Game {
             let near = (c.0 - self.p.x).hypot(c.1 - self.p.y) < 8. * 16.;
             if !near { continue; }
             st.prog = (st.prog + dt).min(total);
+            // เสียงค้อนเคาะเป็นจังหวะระหว่างสร้าง
+            self.hammer_t -= dt;
+            if self.hammer_t <= 0. { self.hammer_t = gen_range(0.38, 0.6); play_vol(&self.sfx.hammer, 0.55); }
             let target = ((st.prog / total) * n as f32).floor() as usize;
             while st.done < target.min(n) {
                 let (p, step) = steps[st.done];
@@ -399,7 +402,7 @@ impl Game {
                     self.w.tmod.insert(p, t);
                 }
                 self.burst(p.0 as f32 * 16. + 8., p.1 as f32 * 16. + 8., hx(0xd8b080), 5, 45.);
-                if st.done % 2 == 0 { play(&self.sfx.chop); }
+                play_vol(&self.sfx.hammer, 0.8);
                 st.done += 1;
             }
             if st.done >= n { finished.push(si); }

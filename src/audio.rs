@@ -94,6 +94,12 @@ pub struct Sfx {
     pub fball: Option<Sound>,
     pub deny: Option<Sound>,
     pub click: Option<Sound>,
+    // v15
+    pub thunder: Option<Sound>,
+    pub splash: Option<Sound>,
+    pub hammer: Option<Sound>,
+    /// เสียงเดิน [พื้นผิว][แบบ] — หญ้า ดิน ทราย หิมะ หิน ไม้ โคลน
+    pub steps: [Vec<Sound>; 7],
 }
 
 async fn load(s: Vec<f32>) -> Option<Sound> {
@@ -132,10 +138,29 @@ pub async fn load_sfx() -> Sfx {
         fball: snd(520., 0.22, -380., 0.2, 1).await,
         deny: snd(160., 0.12, -70., 0.2, 0).await,
         click: snd(800., 0.04, 0., 0.1, 0).await,
+        thunder: snd(50., 1.2, -20., 0.5, 3).await,
+        splash: snd(900., 0.2, -500., 0.15, 3).await,
+        hammer: snd(300., 0.06, -100., 0.25, 0).await,
+        steps: Default::default(),
     };
     // วางไฟล์ assets/audio/sfx_<ชื่อ>.ogg|wav หรือ bgm_<n>.ogg|wav เพื่อแทนเสียงสังเคราะห์
     crate::assets::override_audio(&mut s).await;
     s
+}
+
+/// เล่นเสียงด้วยความดังที่กำหนด (0..1 เทียบกับระดับเอฟเฟกต์ปกติ)
+pub fn play_vol(s: &Option<Sound>, vol: f32) {
+    if !SFX_ON.load(Ordering::Relaxed) || vol <= 0.005 {
+        return;
+    }
+    if let Some(s) = s {
+        play_sound(s, PlaySoundParams { looped: false, volume: (0.6 * vol).min(1.) });
+    }
+}
+pub fn play_step(s: &Sound, vol: f32) {
+    if SFX_ON.load(Ordering::Relaxed) {
+        play_sound(s, PlaySoundParams { looped: false, volume: vol });
+    }
 }
 
 pub fn play(s: &Option<Sound>) {
