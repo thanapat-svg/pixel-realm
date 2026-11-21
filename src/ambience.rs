@@ -120,9 +120,14 @@ impl Game {
     pub fn step_tick(&mut self, moved: f32) {
         if moved <= 0.01 || self.p.boat && self.on_boat() || self.sit.is_some() { self.step_d = self.step_d.min(9.); return; }
         self.step_d += moved;
-        let stride = if self.p.dash_t > 0. { 26. } else { 18. };
+        let stride = if self.rs.riding { 28. } else if self.p.dash_t > 0. { 26. } else { 18. };
         if self.step_d < stride { return; }
         self.step_d -= stride;
+        if self.rs.riding {
+            let bank = &self.sfx.mob[3];
+            if !bank.is_empty() { play_step(&bank[gen_range(0, bank.len())], 0.5); }
+            return;
+        }
         let tile = self.w.tile_at(tfloor(self.p.x), tfloor(self.p.y - 2.));
         let mut s = surface_of(tile);
         // หน้าหนาว ทุ่งหญ้ามีหิมะปกคลุม
@@ -152,7 +157,7 @@ impl Game {
         for n in &self.npcs { list.push((0, n.x, n.y, -1, 17., 0.55, false)); }
         for e in &self.en {
             if e.dead { list.push((1, f32::NAN, 0., 0, 1., 0., false)); continue; }
-            let (m, stride, v, fly) = match e.k { EK::Slime => (M_SLIME, 20., 0.6, false), EK::Skel => (M_BONE, 15., 0.6, false), EK::Bat => (M_FLAP, 0., 0.45, true) };
+            let (m, stride, v, fly) = match e.k { EK::Slime => (M_SLIME, 20., 0.6, false), EK::Skel => (M_BONE, 15., 0.6, false), EK::Bat => (M_FLAP, 0., 0.45, true), EK::Soldier => (M_HOOF, 18., 0.5, false) };
             list.push((1, e.x, e.y, m as i32, stride, v, fly));
         }
         for a in &self.animals {

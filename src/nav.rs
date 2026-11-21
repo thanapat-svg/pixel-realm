@@ -123,7 +123,7 @@ fn pin_icon(x: f32, y: f32, r: f32, n: usize, active: bool, font: &Font) {
     text_c(font, &format!("{}", n + 1), x, y - r * 0.5, r * 0.95, hx(0x10202b));
 }
 /// ลูกศรที่ขอบแผนที่ชี้ไปเป้าที่อยู่นอกแผนที่ + ระยะ
-fn edge_arrow(mr: Rect, ctr: (i32, i32), sc: i32, t: (i32, i32), c: Color, label: &str, font: &Font, u: f32, big: bool) {
+pub fn edge_arrow(mr: Rect, ctr: (i32, i32), sc: i32, t: (i32, i32), c: Color, label: &str, font: &Font, u: f32, big: bool) {
     let (dx, dy) = ((t.0 - ctr.0) as f32, (t.1 - ctr.1) as f32);
     let m = dx.abs().max(dy.abs()).max(1.);
     let k = 54. / (m / sc as f32);

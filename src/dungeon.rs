@@ -457,7 +457,7 @@ impl World {
         if let Some(&r) = self.duns.borrow().get(&(cx, cy)) {
             return r;
         }
-        let r = self.calc_dun(cx, cy);
+        let r = self.calc_dun(cx, cy).filter(|p| !self.near_city(p.0, p.1, 4));
         self.duns.borrow_mut().insert((cx, cy), r);
         r
     }

@@ -66,7 +66,7 @@ impl Game {
             5 | 6 => 1u8,
             _ => return,
         };
-        if !self.deep_ok(ptx, pty, kind) || gen_range(0., 1.) > 0.08 {
+        if self.w.near_city(ptx, pty, 40) || !self.deep_ok(ptx, pty, kind) || gen_range(0., 1.) > 0.08 {
             return;
         }
         for _ in 0..14 {

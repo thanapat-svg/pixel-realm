@@ -7,8 +7,8 @@ pub const NPC_NAMES: [&str; 36] = ["มะลิ", "ตะวัน", "บุญ
 /// เพศตามชื่อ (true = หญิง) — ใช้กับรูปร่างใน v7c
 pub const NPC_FEM: [bool; 36] = [true, false, false, true, false, true, false, true, false, true, false, true,
     true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false];
-pub const ROLE_N: [&str; 4] = ["ชาวบ้าน", "ชาวไร่", "ทหารยาม", "พ่อค้า"];
-pub const TIER_N: [&str; 4] = ["ยังไม่มีชุมชน", "ค่าย", "หมู่บ้าน", "อาณาจักร"];
+pub const ROLE_N: [&str; 14] = ["ชาวบ้าน", "ชาวไร่", "ทหารยาม", "พ่อค้า", "ช่างไม้", "คนตัดไม้", "คนขุดแร่", "นักล่า/ชาวประมง", "พ่อครัว", "หมอ", "ทหาร", "แม่ทัพ", "ทูต", "เสมียนคลัง"];
+pub const TIER_N: [&str; 4] = ["ยังไม่มีชุมชน", "ค่าย", "หมู่บ้าน", "เมือง"];
 /// ค่า look = เมล็ดสุ่มรูปร่างหน้าตาของชาวบ้าน (0..250) — ดู body.rs
 pub const LOOKS: usize = 250;
 pub const ST_LOST: u8 = 0;
@@ -61,6 +61,7 @@ impl World {
         if hash(cx, cy, s) > 0.22 { return None; }
         let tx = cx * CELL + 6 + (hash(cx, cy, s.wrapping_add(1)) * (CELL - 12) as f64) as i32;
         let ty = cy * CELL + 6 + (hash(cx, cy, s.wrapping_add(2)) * (CELL - 12) as f64) as i32;
+        if self.near_city(tx, ty, 3) { return None; }
         for (dx, dy) in [(0, 0), (1, 0), (0, 1), (-1, 0), (0, -1), (1, 1)] {
             if !self.solid_at(tx + dx, ty + dy) && self.tile_at(tx + dx, ty + dy) >= 2 && self.obj_at(tx + dx, ty + dy) == 0 {
                 let name = (hash(cx, cy, s.wrapping_add(3)) * NPC_NAMES.len() as f64) as u8;
@@ -107,7 +108,7 @@ impl Game {
         self.chests.get_mut(&k)?[f] -= 1;
         Some(f)
     }
-    fn give_to_chest(&mut self, near: (i32, i32), item: usize, n: i32) {
+    pub fn give_to_chest(&mut self, near: (i32, i32), item: usize, n: i32) {
         let best = self.chests.keys().copied().filter(|k| (k.0 - near.0).abs() <= 16 && (k.1 - near.1).abs() <= 16).min_by_key(|k| (k.0 - near.0).abs() + (k.1 - near.1).abs());
         match best {
             Some(k) => { self.chests.get_mut(&k).unwrap()[item] += n; }
@@ -119,7 +120,10 @@ impl Game {
     fn assign_roles(&mut self) {
         let t = self.tier();
         let adults: Vec<usize> = (0..self.npcs.len()).filter(|&i| self.npcs[i].state == ST_HOME && !self.npcs[i].child).collect();
-        for i in 0..self.npcs.len() { if self.npcs[i].state == ST_HOME { self.npcs[i].role = if self.npcs[i].child { 0 } else { 1 }; } }
+        // อาชีพที่ผู้เล่นเลือกเองคงไว้ · ที่เหลือเกมจัดให้
+        let manual = self.rs.manual.clone();
+        for i in 0..self.npcs.len() { if self.npcs[i].state == ST_HOME { self.npcs[i].role = if self.npcs[i].child { 0 } else { manual.get(&self.npcs[i].id).copied().unwrap_or(1) }; } }
+        let adults: Vec<usize> = adults.into_iter().filter(|&i| !manual.contains_key(&self.npcs[i].id)).collect();
         if t <= 1 || adults.is_empty() { return; }
         let m = *adults.iter().max_by_key(|&&i| { let s = &self.npcs[i].soc.tr; (s[T_GREED] as i32 + s[T_SOCIAL] as i32, -(self.npcs[i].id as i32)) }).unwrap();
         self.npcs[m].role = 3;
@@ -376,6 +380,7 @@ impl Game {
             self.last_day += 1;
             guard += 1;
             self.npc_dawn();
+            self.realm_dawn();
             self.season_dawn();
         }
         self.last_day = day;
@@ -417,7 +422,7 @@ impl Game {
                     if d > 26. { tx = px; ty = py; spd = 70.; }
                 }
                 _ => {
-                    if n.role == 2 && n.mood >= 20 && Game::willing(n) {
+                    if matches!(n.role, 2 | R_SOLDIER | R_GENERAL) && n.mood >= 20 && Game::willing(n) {
                         // ทหารยาม: เข้าหามอนสเตอร์ใกล้บ้าน ฟันให้
                         let tgt = enemies.iter().filter(|e| (e.1 - home.0).hypot(e.2 - home.1) < 170.).min_by(|a, b| ((a.1 - n.x).hypot(a.2 - n.y)).partial_cmp(&((b.1 - n.x).hypot(b.2 - n.y))).unwrap());
                         if let Some(&(ei, ex, ey)) = tgt {
@@ -479,9 +484,9 @@ pub fn draw_npc(g: &Game, sp: &Sprites, v: &View, i: usize, t_now: f32) {
     prect(v, sx - 4. * bw, sy - 1., 8. * bw, 2., Color::new(0., 0., 0., 0.25));
     if sit {
         // นั่ง: หันข้างเข้าหากองไฟ
-        skin::draw_figure_ex(sp, &body, skin::ROLE_PARTS[(n.role as usize).min(3)], (sx - 6.) * v.s, (sy - 15. - bob) * v.s, v.s, 2, 0, n.left, WHITE, 0.4);
+        skin::draw_figure_ex(sp, &body, role_parts(n.role), (sx - 6.) * v.s, (sy - 15. - bob) * v.s, v.s, 2, 0, n.left, WHITE, 0.4);
     } else {
-        skin::draw_figure(sp, &body, skin::ROLE_PARTS[(n.role as usize).min(3)], (sx - 6.) * v.s, (sy - 15. - bob) * v.s, v.s, 0, f, n.left, WHITE);
+        skin::draw_figure(sp, &body, role_parts(n.role), (sx - 6.) * v.s, (sy - 15. - bob) * v.s, v.s, 0, f, n.left, WHITE);
     }
     if n.married {
         prect(v, sx - 2., sy - 20. * k - bob, 2., 1., hx(0xff6688));

@@ -51,6 +51,7 @@ impl World {
         }
         let tx = cx * CELL + 8 + (hash(cx, cy, s.wrapping_add(1)) * (CELL - 16) as f64) as i32;
         let ty = cy * CELL + 8 + (hash(cx, cy, s.wrapping_add(2)) * (CELL - 16) as f64) as i32;
+        if self.near_city(tx, ty, 8) { return None; }
         // พื้นที่ 7x5 ต้องเป็นพื้นดินเดินได้ทั้งหมด
         for dy in -2..=2 {
             for dx in -3..=3 {

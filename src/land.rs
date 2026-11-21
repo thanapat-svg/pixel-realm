@@ -152,6 +152,7 @@ impl World {
         for k in 0..5 {
             let tx = cx * LCELL + 7 + (hash(cx, cy, s.wrapping_add(1 + k * 2)) * (LCELL - 14) as f64) as i32;
             let ty = cy * LCELL + 7 + (hash(cx, cy, s.wrapping_add(2 + k * 2)) * (LCELL - 14) as f64) as i32;
+            if self.near_city(tx, ty, 8) { continue; }
             let t = self.tile_at(tx, ty);
             let kind = match t {
                 4 => if r2 < 0.6 { MK_GIANT } else { MK_RUINS },

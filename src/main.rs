@@ -45,6 +45,8 @@ mod ambience;
 use ambience::*;
 mod nav;
 use nav::*;
+mod realm;
+use realm::*;
 use extra::*;
 use farm::*;
 use guide::*;
@@ -88,8 +90,8 @@ const SOLIDT: [bool; 21] = [true, true, false, false, false, false, true, false,
 //   10 กำแพงไม้,11 กำแพงหิน,12 ประตูปิด,13 ประตูเปิด,14 กล่องเก็บของ,15 พ่อค้า,16 เต็นท์
 //   37 ปราสาท,38 กำแพงเมือง,39 บ่อน้ำ
 //   17 โต๊ะตีเหล็ก,18 คบเพลิง,19 ทางเข้าดันเจี้ยน,20 ทางออกดันเจี้ยน,21 หนามหุบ,22 หนามโผล่,23 ป้อมลูกไฟ,24 หีบสมบัติหายาก
-const OSOLID: [bool; 80] = [false, true, true, false, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, false, false, false, false, true, true, true, true, false, false, false, false, false, false, true, true, false, false, true, true, true, true, true, true, true, true, true, true, true, true, true, false, true, false, true, false, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false, true, false, false, true, true, true, true, true, true, false];
-const OHP: [i32; 80] = [0, 3, 1, 0, 3, 4, 1, 2, 3, 2, 5, 8, 4, 4, 5, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 1, 1, 1, 1, 4, 8, 0, 0, 20, 8, 6, 3, 3, 3, 4, 2, 3, 6, 1, 0, 0, 1, 3, 1, 3, 1, 8, 10, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 3, 1, 1, 3, 1, 1, 5, 3, 2, 1];
+const OSOLID: [bool; 84] = [false, true, true, false, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, false, false, false, false, true, true, true, true, false, false, false, false, false, false, true, true, false, false, true, true, true, true, true, true, true, true, true, true, true, true, true, false, true, false, true, false, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false, true, false, false, true, true, true, true, true, true, false, true, true, true, false];
+const OHP: [i32; 84] = [0, 3, 1, 0, 3, 4, 1, 2, 3, 2, 5, 8, 4, 4, 5, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 1, 1, 1, 1, 4, 8, 0, 0, 20, 8, 6, 3, 3, 3, 4, 2, 3, 6, 1, 0, 0, 1, 3, 1, 3, 1, 8, 10, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 3, 1, 1, 3, 1, 1, 5, 3, 2, 1, 99, 99, 99, 99];
 
 const WOOD: usize = 0;
 const STONE: usize = 1;
@@ -195,12 +197,20 @@ struct World {
     volc: RefCell<HashMap<(i32, i32), Option<(i32, i32)>>>,
     marks: RefCell<HashMap<(i32, i32), Option<(i32, i32, u8)>>>,
     camp_kinds: RefCell<HashMap<(i32, i32), u8>>,
+    /// อาณาจักร/เมืองในโลก (สร้างจาก seed ตอนสร้างโลก)
+    realm: std::rc::Rc<Realm>,
 }
 impl World {
     fn new(seed: i32) -> Self {
-        World { seed, chunks: RefCell::new(HashMap::new()), tmod: HashMap::new(), removed: HashSet::new(), placed: HashMap::new(), camps: RefCell::new(HashMap::new()), duns: RefCell::new(HashMap::new()), wps: RefCell::new(HashMap::new()), dun: None, volc: RefCell::new(HashMap::new()), marks: RefCell::new(HashMap::new()), camp_kinds: RefCell::new(HashMap::new()) }
+        let mut w = World { seed, chunks: RefCell::new(HashMap::new()), tmod: HashMap::new(), removed: HashSet::new(), placed: HashMap::new(), camps: RefCell::new(HashMap::new()), duns: RefCell::new(HashMap::new()), wps: RefCell::new(HashMap::new()), dun: None, volc: RefCell::new(HashMap::new()), marks: RefCell::new(HashMap::new()), camp_kinds: RefCell::new(HashMap::new()), realm: Default::default() };
+        w.realm = std::rc::Rc::new(Realm::build(&w));
+        // ไทล์ที่สร้างก่อนมีเมืองต้องสร้างใหม่ (ให้ผังเมืองทับ)
+        w.chunks.borrow_mut().clear();
+        w.camps.borrow_mut().clear();
+        w
     }
     fn gen_tile(&self, x: i32, y: i32) -> u8 {
+        if let Some(ci) = self.realm.city_at(x, y) { return self.realm.layout(ci, x, y).0; }
         if let Some(t) = self.volcano_tile(x, y) { return t; }
         let s = self.seed;
         let e = fbm(x as f64 / 48., y as f64 / 48., s);
@@ -239,6 +249,7 @@ impl World {
         ch[&(cx, cy)][(((y - (cy << 5)) << 5) + (x - (cx << 5))) as usize]
     }
     fn nat_obj(&self, tx: i32, ty: i32) -> u8 {
+        if let Some(ci) = self.realm.city_at(tx, ty) { return self.realm.layout(ci, tx, ty).1; }
         if let Some(o) = self.camp_obj(tx, ty) { return o; }
         if self.dun_in_cell(tx.div_euclid(DCELL), ty.div_euclid(DCELL)) == Some((tx, ty)) { return if self.is_cave_cell(tx.div_euclid(DCELL), ty.div_euclid(DCELL)) { 36 } else { 19 }; }
         if self.wp_in_cell(tx.div_euclid(WPC), ty.div_euclid(WPC)) == Some((tx, ty)) { return 25; }
@@ -467,7 +478,7 @@ fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
     let fl_bat = [at.add(&art::white_of(&bat_img[0])), at.add(&art::white_of(&bat_img[1]))];
     // ---- objects
     let rp: &[(char, u32)] = &[('k', 0x3a3a40), ('L', 0x9a9aa4), ('l', 0xc8c8d0), ('D', 0x6a6a74), ('c', 0x4ef0ff), ('C', 0xb0ffff)];
-    let mut obj = vec![Rect::new(0., 0., 1., 1.); 80];
+    let mut obj = vec![Rect::new(0., 0., 1., 1.); 84];
     obj[1] = at.add(&spr(&["......gggg......", "....gGGGGGGg....", "...GGGgGGGGGG...", "..GGGGGGGgGGGG..", ".GGgGGGGGGGGGGG.", ".GGGGGGGGGGgGGG.", "GGGGGgGGGGGGGGGG", "GGGGGGGGGGGGgGGG", "GGgGGGGGGGGGGGGG", "GGGGGGGGgGGGGGGd", ".GGGGGGGGGGGGGd.", ".dGGGgGGGGGGGdd.", "..ddGGGGGGGGdd..", "...dddGGGGddd...", ".....ddTTdd.....", "......TTTT......", "......TTtT......", "......TTTT......", "......TtTT......", "......TTTT......", ".....TTTTTT.....", "....tt....tt...."],
         &[('g', 0x7cd06a), ('G', 0x3f9a3f), ('d', 0x2a6a2a), ('T', 0x7a4a24), ('t', 0x5a3418)]));
     obj[2] = at.add(&spr(&["................", "................", "................", "................", "................", "................", "......gggg......", "....gggggggg....", "...ggrgggggrg...", "..gggggggggggg..", "..ggggrggggggg..", ".gggggggggrgggg.", ".ggrgggggggggg..", "..dgggggggggd...", "...dddddddddd...", "................"], &[('g', 0x3d9440), ('r', 0xe8344a), ('d', 0x2a6a2a)]));
@@ -503,7 +514,7 @@ fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
 
 // ======================= entities =======================
 #[derive(Clone, Copy, PartialEq)]
-enum EK { Slime, Skel, Bat }
+enum EK { Slime, Skel, Bat, Soldier }
 #[derive(Clone)]
 struct Enemy { k: EK, x: f32, y: f32, hp: f32, spd: f32, dmg: i32, xp: i32, coin: i32, vx: f32, vy: f32, kb: f32, flash: f32, wt: f32, wdx: f32, wdy: f32, anim: f32, pal: usize, dead: bool, night: bool, burn: f32, slow: f32, stun: f32, btick: f32 }
 struct Particle { x: f32, y: f32, vx: f32, vy: f32, l: f32, c: Color }
@@ -519,7 +530,7 @@ impl Player {
 }
 
 #[derive(Default)]
-struct Input { hb: Option<usize>, mv: Vec2, atk: bool, eat: bool, fire: bool, menu: Option<usize>, map: bool, act: bool, swap: bool, place: bool, cancel: bool, potion: bool, aim: Option<Vec2>, dash: bool, tile_tap: Option<Vec2>, place_hold: bool }
+struct Input { hb: Option<usize>, mv: Vec2, atk: bool, eat: bool, fire: bool, menu: Option<usize>, map: bool, act: bool, swap: bool, place: bool, cancel: bool, potion: bool, aim: Option<Vec2>, dash: bool, tile_tap: Option<Vec2>, place_hold: bool, ride: bool }
 
 // ======================= game =======================
 struct Game {
@@ -567,6 +578,7 @@ struct Game {
     paint_last: Option<(i32, i32)>,
     auto_doors: HashSet<(i32, i32)>,
     sites: Vec<Site>,
+    rs: RealmState,
     pins: Vec<(i32, i32)>,
     pin_on: Option<usize>,
     home_cd: f32,
@@ -689,7 +701,7 @@ impl Game {
             w, p: Player::new(0., 0.), en: vec![], parts: vec![], floats: vec![], toasts: vec![], time: 0., spawn: (0., 0.),
             seen: HashSet::new(), obj_dmg: HashMap::new(), shake: ((0, 0), 0.), hurt_flash: 0., darkv: 0., last_biome: -1,
             spawn_t: 0., save_t: 0., mini_t: 99., died: false, big_map: false, sfx,
-            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, rooms: vec![], room_of: HashMap::new(), room_t: 0., paint_last: None, auto_doors: HashSet::new(), sites: vec![], pins: vec![], pin_on: None, home_cd: 0., step_d: 0., step_last: 0, step_tracks: vec![], step_budget: 4., amb: [0.; AMB_N], amb_t: 0., hammer_t: 0., aim_last: None, aim_last_t: 0., site_wait_t: 0., sit: None, sit_t: 0., psy: HashMap::new(), psy_t: 0., gather: HashMap::new(), an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
+            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, rooms: vec![], room_of: HashMap::new(), room_t: 0., paint_last: None, auto_doors: HashSet::new(), sites: vec![], rs: RealmState::default(), pins: vec![], pin_on: None, home_cd: 0., step_d: 0., step_last: 0, step_tracks: vec![], step_budget: 4., amb: [0.; AMB_N], amb_t: 0., hammer_t: 0., aim_last: None, aim_last_t: 0., site_wait_t: 0., sit: None, sit_t: 0., psy: HashMap::new(), psy_t: 0., gather: HashMap::new(), an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
@@ -736,6 +748,7 @@ impl Game {
         s += &self.npc_save_str();
         s += &self.sites_save();
         s += &self.nav_save();
+        s += &self.realm_save();
         if let Some(b) = self.bed { s += &format!("bed {} {}\n", b.0, b.1); }
         s += "crops";
         for ((x, y), c) in &self.crops { s += &format!(" {},{},{},{:.1},{:.1}", x, y, c.kind, c.grown, c.wet); }
@@ -832,6 +845,7 @@ impl Game {
                 "npsy" => g.psy_load(&rest),
                 "site" => g.sites_load(&rest),
                 "pins" => g.nav_load(&rest),
+                "rk" | "rc" | "rd" | "rp" | "ro" | "rr" | "rq" => g.realm_load(tag, &rest),
                 "nreq" => g.quests_load_line(&rest),
                 "v9" => g.balance_load_line(&rest),
                 "pet" => g.pets_load_line(&rest),
@@ -977,6 +991,7 @@ impl Game {
         self.save();
     }
     fn hit_object(&mut self, tx: i32, ty: i32, dmg: i32) -> bool {
+        if self.law_on_hit(tx, ty) { return true; }
         let k = (tx, ty);
         let in_dun = self.w.dun.is_some();
         if in_dun && !matches!(self.w.obj_at(tx, ty), 4 | 5 | O_CRYSTAL) { return false; }
@@ -1081,7 +1096,7 @@ impl Game {
         true
     }
     fn kill(&mut self, e: &Enemy) {
-        let c = match e.k { EK::Slime => hx(self_slime_col(e.pal)), EK::Bat => hx(0x5a4670), EK::Skel => hx(0xe8e8d8) };
+        let c = match e.k { EK::Slime => hx(self_slime_col(e.pal)), EK::Bat => hx(0x5a4670), EK::Skel => hx(0xe8e8d8), EK::Soldier => hx(0xc8c8d0) };
         self.burst(e.x, e.y - 6., c, 14, 80.);
         self.p.xp += e.xp;
         self.p.kills += 1;
@@ -1185,7 +1200,7 @@ impl Game {
         let (x, y) = (self.p.x + a.cos() * r, self.p.y + a.sin() * r);
         let (tx, ty) = (tfloor(x), tfloor(y));
         let t = self.w.tile_at(tx, ty);
-        if SOLIDT[t as usize] || OSOLID[self.w.obj_at(tx, ty) as usize] || self.w.near_fire(tx, ty, 6).is_some() || self.w.camp_near(tx, ty, 10).is_some() { return; }
+        if SOLIDT[t as usize] || OSOLID[self.w.obj_at(tx, ty) as usize] || self.w.near_fire(tx, ty, 6).is_some() || self.w.camp_near(tx, ty, 10).is_some() || self.w.near_city(tx, ty, 6) { return; }
         let k = if night {
             let q = gen_range(0., 1.);
             if q < 0.5 { EK::Skel } else if q < 0.8 { EK::Bat } else { EK::Slime }
@@ -1197,6 +1212,8 @@ impl Game {
         self.make_enemy(k, x, y, mul, pal, elite);
     }
     fn upd_enemies(&mut self, dt: f32) {
+        let siege_c = self.rs.siege.as_ref().map(|s| s.center);
+        let mut wall_hits: Vec<(i32, i32)> = vec![];
         let mut en = std::mem::take(&mut self.en);
         for e in en.iter_mut() {
             if e.dead { continue; }
@@ -1236,7 +1253,14 @@ impl Game {
                     let fd = ax.hypot(ay).max(0.001);
                     mx = -ax / fd * e.spd;
                     my = -ay / fd * e.spd;
-                } else if d < 130. {
+                } else if e.k == EK::Soldier && siege_c.is_some() && d > 90. {
+                    // ทัพบุก: มุ่งลานกลางเมือง (ถ้าเราเข้าใกล้ค่อยหันมาสู้)
+                    let c = siege_c.unwrap();
+                    let (ax, ay) = (c.0 - e.x, c.1 - e.y);
+                    let l = ax.hypot(ay).max(0.001);
+                    mx = ax / l * e.spd;
+                    my = ay / l * e.spd;
+                } else if d < 130. || e.k == EK::Soldier {
                     mx = dx / d * e.spd;
                     my = dy / d * e.spd;
                 } else {
@@ -1260,7 +1284,7 @@ impl Game {
                     my += (e.anim * 7.).sin() * 25.;
                 }
             }
-            if e.kb <= 0. {
+            if e.kb <= 0. && e.k != EK::Soldier {
                 if let Some((tx, ty)) = torch_near(&self.torches, e.x, e.y) {
                     let (ax, ay) = (e.x - tx, e.y - ty);
                     let l = ax.hypot(ay).max(0.001);
@@ -1275,8 +1299,19 @@ impl Game {
                 e.x += mx * dt;
                 e.y += my * dt;
             } else {
+                let (ox, oy) = (e.x, e.y);
                 if !collide(&self.w, e.x + mx * dt, e.y) { e.x += mx * dt; }
                 if !collide(&self.w, e.x, e.y + my * dt) { e.y += my * dt; }
+                // ทหารติดกำแพง/ประตูของเรา → ทุบ
+                if e.k == EK::Soldier && siege_c.is_some() && (e.x - ox).abs() + (e.y - oy).abs() < 0.01 && (mx != 0. || my != 0.) {
+                    e.wt -= dt;
+                    if e.wt <= 0. {
+                        e.wt = 0.8;
+                        let l = mx.hypot(my).max(0.001);
+                        let k = (tfloor(e.x + mx / l * 10.), tfloor(e.y - 3. + my / l * 10.));
+                        if self.w.placed.get(&k).map_or(false, |&o| is_wall_obj(o) || o == 38) { wall_hits.push(k); }
+                    }
+                }
             }
             if e.k == EK::Skel && self.darkv < 0.15 {
                 e.hp -= dt * 2.;
@@ -1297,6 +1332,14 @@ impl Game {
         en.retain(|e| !e.dead);
         if self.died { en.clear(); self.died = false; }
         self.en = en;
+        for k in wall_hits {
+            let h = self.obj_dmg.get(&k).copied().unwrap_or(0) + 1;
+            self.shake = (k, 0.2);
+            self.burst(k.0 as f32 * 16. + 8., k.1 as f32 * 16. + 8., hx(0x9a9aa6), 5, 40.);
+            play_vol(&self.sfx.hit, 0.5);
+            let hp = match self.w.placed.get(&k) { Some(&38) => 14, Some(&11) => 9, _ => 6 };
+            if h >= hp { self.obj_dmg.remove(&k); self.w.placed.remove(&k); self.room_t = 0.; self.toast("ทหารศัตรูพังกำแพง!"); } else { self.obj_dmg.insert(k, h); }
+        }
     }
 
     fn update(&mut self, dt: f32, inp: &Input) {
@@ -1313,6 +1356,7 @@ impl Game {
         if inp.dash { self.try_dash(inp.mv); }
         if inp.act { self.interact(); }
         if inp.place { self.place_piece(); self.paint_last = None; }
+        if inp.ride { self.toggle_ride(); }
         self.paint_tick(inp.place_hold);
         if inp.cancel && self.build_sel.is_some() { self.build_sel = None; self.toast("ยกเลิกโหมดสร้าง"); }
         if self.build_sel.is_none() { self.build_cur = None; }
@@ -1328,7 +1372,7 @@ impl Game {
         if il > 1. { mv /= il; }
         let boating = self.on_boat();
         if boating && !self.boated { self.boated = true; }
-        let nmul = self.need_speed_mul() * if boating { 1.35 } else { self.ground_speed_mul() };
+        let nmul = self.need_speed_mul() * if boating { 1.35 } else { self.ground_speed_mul() } * self.ride_mul();
         let p = &mut self.p;
         p.moving = il > 0.15;
         if p.moving && p.atk_t <= 0. {
@@ -1366,6 +1410,7 @@ impl Game {
         if self.aim_last_t <= 0. { self.aim_last = None; }
         self.auto_door(mv);
         if inp.atk && self.p.atk_cd <= 0. {
+            self.law_on_attack(self.p.weapon == 2);
             let mut aim = inp.aim.filter(|a| a.length() > 0.01);
             if aim.is_none() && self.auto_aim {
                 // ดาบ: หาเป้าไกลขึ้นนิด (ศัตรูโดนตีกระเด็นออกไปยังหันตามได้)
@@ -1427,6 +1472,7 @@ impl Game {
         self.sites_tick(dt);
         self.world_steps_tick(dt);
         self.nav_tick(dt);
+        self.realm_tick(dt);
         self.psy_tick(dt);
         self.land_tick(dt);
         self.upd_enemies(dt);
@@ -1472,7 +1518,7 @@ fn make_view(cam_x: f32, cam_y: f32) -> View {
     View { s, vw, vh, cx: (cam_x - vw / 2.).round(), cy: (cam_y - vh / 2. - 6.).round() }
 }
 
-enum Draw { Obj(u8, i32, i32), Enemy(usize), Animal(usize), Boss(usize), Player, Loot(usize), Comp, Npc(usize), Lost(f32, f32, u8, u8) }
+enum Draw { Obj(u8, i32, i32), Enemy(usize), Animal(usize), Boss(usize), Player, Loot(usize), Comp, Npc(usize), Lost(f32, f32, u8, u8), Citizen(usize) }
 
 fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     let w = &g.w;
@@ -1569,6 +1615,9 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         if sx < -12. || sx > v.vw + 12. || sy < -20. || sy > v.vh + 12. { continue; }
         list.push((n.y, Draw::Npc(i)));
     }
+    for (i, c) in g.rs.cit.iter().enumerate() {
+        if (c.x - g.p.x).abs() < 420. && (c.y - g.p.y).abs() < 300. { list.push((c.y, Draw::Citizen(i))); }
+    }
     if g.w.dun.is_none() {
         let (pcx, pcy) = (tfloor(v.cx + v.vw / 2.).div_euclid(CELL), tfloor(v.cy + v.vh / 2.).div_euclid(CELL));
         for cy in pcy - 1..=pcy + 1 {
@@ -1593,6 +1642,15 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         match *d {
             Draw::Obj(o, tx, ty) => {
                 let (px, py) = (tx as f32 * 16. - v.cx, ty as f32 * 16. - v.cy);
+                if o == O_BANNER {
+                    // ธงสีของเจ้าของเมือง โบกพลิ้ว
+                    let col = g.w.realm.city_at(tx, ty).map_or(hx(0xcc3333), |ci| hx(g.owner_color(g.city_owner(ci))));
+                    prect(v, px + 7., py - 10., 2., 26., hx(0x5a3418));
+                    prect(v, px + 6., py - 11., 4., 2., hx(0xd8b040));
+                    let wv = (t_now * 3. + tx as f32).sin();
+                    for k in 0..6 { prect(v, px + 9. + k as f32, py - 8. + (wv * k as f32 * 0.25).round(), 1., 9. - (k / 2) as f32, col); }
+                    continue;
+                }
                 if o == 3 {
                     if season(g) == 3 && w.dun.is_none() { continue; }
                     let h = hash(tx, ty, w.seed.wrapping_add(13));
@@ -1642,6 +1700,17 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                         if e.night { prect(v, sx - 6., sy - 16., 12., 16., Color::new(0.7, 0.3, 1., 0.28)); }
                         blit(sp, v, if white { sp.ex.flash_skel } else { sp.skel }, sx - 5., sy - 15. - bob, false, c);
                     }
+                    EK::Soldier => {
+                        // ทหารอาณาจักร: คนใส่เกราะ + ผ้าคาดสีอาณาจักร
+                        prect(v, sx - 4., sy - 1., 8., 2., shadow);
+                        let body = Body::generate(1000 + (e.anim * 0.) as u32 + e.pal as u32 * 7 + (e.x as u32 % 5), false);
+                        let f = ((e.anim * 7.) as usize) % 2;
+                        let tint = if white { Color::new(2., 2., 2., 1.) } else { c };
+                        skin::draw_figure(sp, &body, skin::ROLE_PARTS[2], (sx - 6.) * v.s, (sy - 15.) * v.s, v.s, 0, f, e.vx < 0., tint);
+                        let kc = if e.pal < g.w.realm.ks.len() { hx(g.w.realm.ks[e.pal].color) } else { RED };
+                        prect(v, sx - 3., sy - 9., 6., 1., kc);
+                        prect(v, sx - 1., sy - 18., 2., 2., kc);
+                    }
                     EK::Bat => {
                         prect(v, sx - 3., sy - 1., 6., 2., Color::new(0., 0., 0., 0.2));
                         if e.night { prect(v, sx - 7., sy - 19., 14., 12., Color::new(0.7, 0.3, 1., 0.28)); }
@@ -1655,10 +1724,17 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
             Draw::Loot(i) => draw_loot(g, sp, v, i, t_now),
             Draw::Comp => draw_comp(g, sp, v),
             Draw::Npc(i) => draw_npc(g, sp, v, i, t_now),
+            Draw::Citizen(i) => draw_citizen(g, sp, v, i),
             Draw::Lost(x, y, name, look) => draw_lost(g, sp, v, x, y, name, look, t_now),
             Draw::Player => {
                 let p = &g.p;
                 let (sx, sy) = ((p.x - v.cx).round(), (p.y - v.cy).round());
+                // ขี่ม้า: วาดม้าก่อน แล้วยกตัวผู้เล่นขึ้นไปนั่งบนหลังม้า
+                if g.rs.riding {
+                    prect(v, sx - 8., sy - 1., 16., 2., Color::new(0., 0., 0., 0.25));
+                    draw_horse(v, sx, sy, t_now, p.moving, p.dir == 2 && p.flip, p.dir != 2);
+                }
+                let sy = if g.rs.riding { sy - 8. } else { sy };
                 for &(gx, gy, gd, gf, gl) in &g.ghosts {
                     blit(sp, v, sp.player[gd][1], (gx - v.cx).round() - 6., (gy - v.cy).round() - 15., gd == 2 && gf, Color::new(0.5, 0.8, 1., gl * 1.2));
                 }
@@ -2103,13 +2179,13 @@ fn update_minimap(g: &Game, img: &mut Image, tex: &Texture2D) {
 }
 
 // ---------- touch controls ----------
-struct TouchUI { active: bool, joy_id: Option<u64>, joy_c: Vec2, joy_v: Vec2, atk_id: Option<u64>, aim: Vec2, flash: [f32; 9], place_id: Option<u64>, atk_start: Vec2 }
+struct TouchUI { active: bool, joy_id: Option<u64>, joy_c: Vec2, joy_v: Vec2, atk_id: Option<u64>, aim: Vec2, flash: [f32; 10], place_id: Option<u64>, atk_start: Vec2 }
 /// 0 โจมตี/เล็ง · 1 กิน · 2 กองไฟ · 3 เมนู · 4 แผนที่ · 5 สลับอาวุธ · 6 ใช้ · 7 วางสิ่งปลูกสร้าง
 /// หน่วยขนาดปุ่มทัช: อิงความสูงจอ (ปุ่มโจมตี ≈ 16 มม. บนมือถือทั่วไป) × ตัวเลือกขนาดปุ่มในตั้งค่า
 fn tunit() -> f32 {
     (screen_height() / 450.).clamp(1., 3.2) * prefs::touch_mul()
 }
-fn touch_buttons() -> [(Vec2, f32, usize); 9] {
+fn touch_buttons() -> [(Vec2, f32, usize); 10] {
     let t = tunit();
     let (sw, sh) = (screen_width(), screen_height());
     let mm = minimap_rect(false);
@@ -2124,6 +2200,7 @@ fn touch_buttons() -> [(Vec2, f32, usize); 9] {
         (vec2(sw - 156. * t, sh - 140. * t), 32. * t, 6), // ใช้
         (vec2(sw - 80. * t, sh - 244. * t), 28. * t, 7),  // วางสิ่งปลูกสร้าง
         (vec2(sw - 170. * t, sh - 56. * t), 32. * t, 8),  // พุ่ง
+        (vec2(sw - 238. * t, sh - 194. * t), 26. * t, 9), // ขึ้น/ลงม้า (มีม้าแล้วเท่านั้น)
     ]
 }
 /// รัศมีแสงที่ "หายใจ" เข้าออกอย่างนุ่มนวล (ph = เฟสของแหล่งแสง) + ประกายเล็กน้อยสำหรับไฟ
@@ -2133,7 +2210,7 @@ fn pulse_r(base: f32, t: f32, ph: f32, flick: f32) -> f32 {
 fn tile_of(v: &View, p: Vec2) -> (i32, i32) {
     (((p.x / v.s + v.cx) / 16.).floor() as i32, ((p.y / v.s + v.cy) / 16.).floor() as i32)
 }
-fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool) {
+fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool, horse: bool) {
     let ts = touches();
     if !ts.is_empty() { tu.active = true; }
     let btns = touch_buttons();
@@ -2148,6 +2225,7 @@ fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool) {
                 let mut best: Option<(f32, usize)> = None;
                 for (c, r, id) in btns {
                     if id == 7 && !build { continue; }
+                    if id == 9 && !horse { continue; }
                     let q = t.position.distance(c) / r;
                     if q < 1.3 && best.map_or(true, |(bq, _)| q < bq) { best = Some((q, id)); }
                 }
@@ -2163,6 +2241,7 @@ fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool) {
                         5 => if build { inp.cancel = true; } else { inp.swap = true; },
                         6 => inp.act = true,
                         8 => inp.dash = true,
+                        9 => inp.ride = true,
                         _ => { inp.place = true; tu.place_id = Some(t.id); }
                     }
                 }
@@ -2200,7 +2279,7 @@ fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool) {
         if tu.aim.length() > 0.5 { inp.aim = Some(tu.aim); }
     }
 }
-fn draw_touch(tu: &TouchUI, sp: &Sprites, font: &Font, build: bool, weapon: u8, dash_cd: f32, use_lab: Option<&str>) {
+fn draw_touch(tu: &TouchUI, sp: &Sprites, font: &Font, build: bool, weapon: u8, dash_cd: f32, use_lab: Option<&str>, horse: (bool, bool)) {
     if !tu.active { return; }
     let u = tunit();
     const TA: f32 = 0.62;
@@ -2222,6 +2301,7 @@ fn draw_touch(tu: &TouchUI, sp: &Sprites, font: &Font, build: bool, weapon: u8, 
     }
     for (c, r, id) in touch_buttons() {
         if id == 7 && !build { continue; }
+        if id == 9 && !horse.0 { continue; }
         let held = (id == 0 && tu.atk_id.is_some()) || tu.flash[id] > 0.;
         let base = if id == 0 { Color::new(0.85, 0.25, 0.15, 0.38) } else if id == 7 { Color::new(0.1, 0.55, 0.25, 0.4) } else { Color::new(0.05, 0.05, 0.1, 0.42) };
         draw_circle(c.x, c.y, r, base);
@@ -2241,6 +2321,7 @@ fn draw_touch(tu: &TouchUI, sp: &Sprites, font: &Font, build: bool, weapon: u8, 
             2 => { ic(FIRE, c.x - r * 0.5, c.y - r * 0.6, r); lab("ไฟ"); }
             3 => tc("เมนู", c.x, c.y + 5. * u, 14. * u, WHITE),
             4 => tc("แผนที่", c.x, c.y + 5. * u, 13. * u, WHITE),
+            9 => tc(if horse.1 { "ลงม้า" } else { "ม้า" }, c.x, c.y + 5. * u, 13. * u, hx(0xffd8a0)),
             5 if build => {
                 // โหมดสร้าง: ปุ่มสลับกลายเป็น "เลิกสร้าง" สีแดง
                 draw_circle(c.x, c.y, r, Color::new(0.8, 0.15, 0.15, 0.55));
@@ -2407,7 +2488,7 @@ async fn main() {
     bg.w = World::new(gen_range(1, i32::MAX));
     bg.p.invul = 0.07; // ซ่อนผู้เล่นบนหน้าเมนู
     let mut state = State::Title;
-    let mut tu = TouchUI { active: false, joy_id: None, joy_c: Vec2::ZERO, joy_v: Vec2::ZERO, atk_id: None, aim: Vec2::ZERO, flash: [0.; 9], place_id: None, atk_start: Vec2::ZERO };
+    let mut tu = TouchUI { active: false, joy_id: None, joy_c: Vec2::ZERO, joy_v: Vec2::ZERO, atk_id: None, aim: Vec2::ZERO, flash: [0.; 10], place_id: None, atk_start: Vec2::ZERO };
     let mut ui = UiState::new();
     let mut t_now = 0f32;
     let mut mouse_armed = false;
@@ -2688,16 +2769,17 @@ async fn main() {
                     inp.place = is_key_pressed(KeyCode::R);
                     inp.place_hold = is_key_down(KeyCode::R);
                     inp.swap = is_key_pressed(KeyCode::Tab);
+                    inp.ride = is_key_pressed(KeyCode::G);
                     inp.dash = is_key_pressed(KeyCode::LeftShift) || is_key_pressed(KeyCode::K);
                     inp.potion = is_key_pressed(KeyCode::H);
                     for (k, kc) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4, KeyCode::Key5, KeyCode::Key6, KeyCode::Key7, KeyCode::Key8, KeyCode::Key9].iter().enumerate() { if is_key_pressed(*kc) { inp.hb = Some(k); } }
                     inp.cancel = is_key_pressed(KeyCode::T) || (is_key_pressed(KeyCode::Escape) && g.build_sel.is_some());
-                    inp.menu = if is_key_pressed(KeyCode::C) { Some(0) } else if is_key_pressed(KeyCode::B) { Some(1) } else if is_key_pressed(KeyCode::I) { Some(2) } else if is_key_pressed(KeyCode::P) { Some(6) } else if is_key_pressed(KeyCode::O) { Some(7) } else { None };
+                    inp.menu = if is_key_pressed(KeyCode::C) { Some(0) } else if is_key_pressed(KeyCode::B) { Some(1) } else if is_key_pressed(KeyCode::I) { Some(2) } else if is_key_pressed(KeyCode::P) { Some(6) } else if is_key_pressed(KeyCode::O) { Some(7) } else if is_key_pressed(KeyCode::L) && g.rs.inited { Some(11) } else { None };
                     #[cfg(debug_assertions)]
                     debug_keys(g);
                     #[cfg(debug_assertions)]
                     if is_key_pressed(KeyCode::F11) { tu.active = !tu.active; }
-                    handle_touch(&mut tu, &mut inp, g.build_sel.is_some());
+                    handle_touch(&mut tu, &mut inp, g.build_sel.is_some(), g.rs.horse);
                     // เมาส์ซ้าย = โจมตี/ยิงไปทางเมาส์ (เริ่มทำงานหลังปล่อยปุ่มครั้งแรก กันคลิกจากเมนูหลุดมา)
                     let mp: Vec2 = mouse_position().into();
                     if !is_mouse_button_down(MouseButton::Left) { mouse_armed = true; }
@@ -2750,6 +2832,7 @@ async fn main() {
                             Req::Cook => { ui.cook = true; ui.open(8); }
                             Req::Adv => { ui.adv = true; ui.open(9); }
                             Req::Npc(id) => { ui.npc = Some(id); ui.open(10); }
+                            Req::City(ci, kind) => { ui.city = Some((ci, kind)); ui.open(12); }
                         }
                         state = State::Menu;
                     } else if let Some(t) = inp.menu {
@@ -2780,6 +2863,7 @@ async fn main() {
                 v.cy += so.1.round();
                 render_world(g, &sp, &v, t_now, &font);
                 draw_nav_world(g, &v, &font, t_now);
+                draw_siege_hud(g, &font, ui_scale());
                 draw_hud(g, &sp, &font, tu.active);
                 // บอสอยู่ใกล้ = แถบเลือดบอสใช้พื้นที่ด้านบนแทนบทเรียน/เป้าหมาย
                 if !g.bosses.iter().any(|b| (b.x - g.p.x).hypot(b.y - g.p.y) < 420.) {
@@ -2822,6 +2906,7 @@ async fn main() {
                         draw_circle_lines(mx, my, rr, 2., if spn { hx(0xffffff) } else { hx(0x6ae8ff) });
                         if spn { text_c(&font, "เริ่ม", mx, my + rr * 0.35, rr * 0.85, hx(0xffffff)); } else { text_c(&font, "W", mx, my + rr * 0.5, rr * 1.4, hx(0x6ae8ff)); }
                     }
+                    draw_realm_map(g, &font, mr, map_ctr, map_sc, g.big_map, u);
                     draw_nav_map(g, &font, mr, map_ctr, map_sc, g.big_map, u);
                 }
                 if g.big_map {
@@ -2832,7 +2917,7 @@ async fn main() {
                     text_c(&font, "แตะที่ว่าง = ปักหมุด+นำทาง · แตะหมุด = นำทาง · แตะซ้ำ = ลบ · แตะนอกแผนที่ = ปิด", mr.x + mr.w / 2., mr.y + mr.h - 7. * u, lf, hx(0x90f4ff));
                 }
                 if in_play {
-                    draw_touch(&tu, &sp, &font, g.build_sel.is_some(), g.p.weapon, g.p.dash_cd, g.use_label().as_deref());
+                    draw_touch(&tu, &sp, &font, g.build_sel.is_some(), g.p.weapon, g.p.dash_cd, g.use_label().as_deref(), (g.rs.horse, g.rs.riding));
                     if !tu.active && g.p.weapon > 0 {
                         let (mx, my) = mouse_position();
                         let c = Color::new(1., 1., 0.6, 0.9);
@@ -3711,7 +3796,7 @@ mod prefs_tests {
         // ปุ่มหลักต้องไม่ซ้อนกันที่ขนาดจอมือถือทั่วไป (ใช้ค่ากลางของ screen ใน test ไม่ได้ จึงตรวจเรขาคณิตด้วย t=2.4)
         let t = 2.4f32;
         let (sw, sh) = (2400f32, 1080f32);
-        let b = [(sw - 80. * t, sh - 84. * t, 50. * t), (sw - 238. * t, sh - 54. * t, 28. * t), (sw - 238. * t, sh - 124. * t, 28. * t), (sw - 80. * t, sh - 184. * t, 28. * t), (sw - 156. * t, sh - 140. * t, 32. * t), (sw - 170. * t, sh - 56. * t, 32. * t)];
+        let b = [(sw - 80. * t, sh - 84. * t, 50. * t), (sw - 238. * t, sh - 54. * t, 28. * t), (sw - 238. * t, sh - 124. * t, 28. * t), (sw - 80. * t, sh - 184. * t, 28. * t), (sw - 156. * t, sh - 140. * t, 32. * t), (sw - 170. * t, sh - 56. * t, 32. * t), (sw - 238. * t, sh - 194. * t, 26. * t)];
         for i in 0..b.len() { for j in i + 1..b.len() {
             let d = ((b[i].0 - b[j].0).powi(2) + (b[i].1 - b[j].1).powi(2)).sqrt();
             assert!(d > b[i].2 + b[j].2, "ปุ่ม {} ซ้อน {}", i, j);
@@ -4845,12 +4930,12 @@ mod tree_tests {
     fn tree_stats_tables_and_sprites_are_consistent() {
         for o in 40..=47usize { assert!(OSOLID[o] && OHP[o] > 0, "ต้นไม้ {} ต้องชนได้และตีได้", o); }
         assert!(OHP[T_OLD as usize] > OHP[T_BIRCH as usize] && OHP[T_SAPLING as usize] == 1);
-        assert_eq!(OSOLID.len(), 80);
+        assert_eq!(OSOLID.len(), 84);
         for o in 40..=47u8 { let (a, b) = wood_range(o); assert!(a >= 1 && b >= a, "{}", o); assert!(!tree_name(o).is_empty()); }
         assert!(wood_range(T_OLD).0 >= 5 && wood_range(T_SAPLING).1 == 1 && wood_range(T_SPRUCE).1 >= 4);
         // สไปรต์ทุกชิ้นกว้าง 16 พิกเซล วางเข้าแอตลาสได้ ไม่ซ้ำกัน
         let mut at = Atlas { img: Image::gen_image_color(512, 1024, BLANK), cx: 0, cy: 0, rowh: 0 };
-        let mut obj = vec![Rect::new(0., 0., 1., 1.); 80];
+        let mut obj = vec![Rect::new(0., 0., 1., 1.); 84];
         trees::build_trees(&mut at, &mut obj);
         for o in 40..=49usize { assert!(obj[o].w == 16. && obj[o].h >= 14. && obj[o].h <= 22., "{} {:?}", o, obj[o]); }
         let mut pos: Vec<(i32, i32)> = (40..=49).map(|o| (obj[o].x as i32, obj[o].y as i32)).collect();
@@ -4986,7 +5071,7 @@ mod land_tests {
     #[test]
     fn new_biomes_appear_in_world() {
         let g = Game::new_world_seed(777, Sfx::default());
-        let mut cnt = [0; 19];
+        let mut cnt = [0; 21];
         for y in (-500..500).step_by(3) { for x in (-500..500).step_by(3) { cnt[g.w.tile_at(x, y) as usize] += 1; } }
         assert!(cnt[T_SWAMP as usize] > 50, "หนองน้ำ {:?}", cnt);
         assert!(cnt[T_SAVANNA as usize] > 50, "สะวันนา {:?}", cnt);
@@ -5168,7 +5253,7 @@ mod land_tests {
     #[test]
     fn land_sprites_fit_atlas() {
         let mut at = Atlas { img: Image::gen_image_color(512, 1024, BLANK), cx: 0, cy: 0, rowh: 0 };
-        let mut obj = vec![Rect::new(0., 0., 0., 0.); 80];
+        let mut obj = vec![Rect::new(0., 0., 0., 0.); 84];
         land::build_land(&mut at, &mut obj);
         for o in 50..70usize { assert!(obj[o].w >= 1. && obj[o].h >= 1., "{}", o); }
         assert!(obj[O_GIANT as usize].w > 40. && obj[O_HUT_LOG as usize].w == 40.);
@@ -6405,5 +6490,240 @@ mod nav_tests {
         // หมุดเต็ม 8 แล้วแทนอันเก่า
         for k in 0..10 { g.map_tap(vec2(20. + k as f32 * 40., 400.), mr, ctr, 4, 11.); }
         assert_eq!(g.pins.len(), PIN_MAX);
+    }
+}
+
+#[cfg(test)]
+mod realm_tests {
+    use super::*;
+    fn villager(id: u32, bed: (i32, i32)) -> npc::Npc {
+        npc::Npc { id, name: (id % 12) as u8, look: 0, x: bed.0 as f32 * 16. + 8., y: bed.1 as f32 * 16. + 18., state: npc::ST_HOME, hearts: 3, mood: 70, married: false, child: false, role: 0, bed, anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false, soc: Soc::generate(id, (id % 12) as u8) }
+    }
+    fn game() -> Game {
+        let mut g = Game::new_world_seed(4242, Sfx::default());
+        g.realm_tick(0.01);
+        g
+    }
+    /// ชุมชนเล็กๆ ที่จุดเกิด (เตียง+กล่อง)
+    fn town(g: &mut Game, n: u32) {
+        let (sx, sy) = (tfloor(g.spawn.0), tfloor(g.spawn.1));
+        for i in 0..n {
+            let b = (sx + 2 + i as i32 * 2, sy + 3);
+            g.w.placed.insert(b, 33);
+            g.npcs.push(villager(i + 1, b));
+        }
+        g.w.placed.insert((sx - 2, sy + 3), 14);
+        g.chests.insert((sx - 2, sy + 3), [0; NI]);
+        g.bed = Some((sx + 2, sy + 3));
+    }
+    #[test]
+    fn kingdoms_and_cities_exist_with_playable_layout() {
+        let g = game();
+        let r = &g.w.realm;
+        assert_eq!(r.ks.len(), 4);
+        assert!(r.cities.len() >= 10, "เมือง {}", r.cities.len());
+        for (ci, c) in r.cities.iter().enumerate() {
+            assert!((c.pos.0.pow(2) + c.pos.1.pow(2)) as f32 > 140f32.powi(2), "เมืองไม่ทับจุดเกิด");
+            assert_eq!(r.city_at(c.pos.0, c.pos.1), Some(ci));
+            // ประตูทั้ง 4 ทิศและถนนเดินได้
+            for (dx, dy) in [(0, c.r), (0, -c.r), (c.r, 0), (-c.r, 0), (0, 2), (2, 0)] { assert!(!g.w.solid_at(c.pos.0 + dx, c.pos.1 + dy), "เมือง {} ช่อง {:?}", c.name, (dx, dy)); }
+            assert_eq!(g.w.obj_at(c.pos.0 + 1, c.pos.1 - c.r), 0);
+            assert_eq!(g.w.obj_at(c.pos.0 + 3, c.pos.1 - c.r), 38, "กำแพงเมือง");
+            assert_eq!(g.w.obj_at(c.pos.0, c.pos.1 - 4), 37, "ปราสาท/ศาลากลาง");
+            assert_eq!(g.w.obj_at(c.pos.0 + 3, c.pos.1 + 2), O_STALL);
+            assert_eq!(g.w.obj_at(c.pos.0 + 4, c.pos.1 + 4), O_COACH);
+            // มีบ้านอย่างน้อย 1 หลังที่เป็นห้องจริง
+            let mut rooms = 0;
+            for y in c.pos.1 - c.r..c.pos.1 + c.r { for x in c.pos.0 - c.r..c.pos.0 + c.r { if g.w.obj_at(x, y) == 12 && g.w.room_from((x, y + 1)).is_some() || g.w.obj_at(x, y) == 12 && g.w.room_from((x, y - 1)).is_some() { rooms += 1; } } }
+            assert!(rooms >= 1, "เมือง {} ไม่มีบ้าน", c.name);
+        }
+        // ไม่มีแคมป์ทับเมือง
+        for cy in -12..12 { for cx in -12..12 { if let Some(p) = g.w.camp_in_cell(cx, cy) { assert!(!g.w.near_city(p.0, p.1, 5)); } } }
+        assert!(g.rs.disc.len() >= 4, "เมืองหลวงรู้จักตั้งแต่แรก");
+        let names: std::collections::HashSet<_> = r.cities.iter().map(|c| c.name).collect();
+        assert_eq!(names.len(), r.cities.len(), "ชื่อเมืองไม่ซ้ำ");
+    }
+    #[test]
+    fn market_prices_follow_specialty_and_supply() {
+        let mut g = game();
+        let ci = 0;
+        let c = g.w.realm.cities[ci].clone();
+        let gi_cheap = GOODS.iter().position(|x| x.0 == c.cheap[0]).unwrap();
+        let gi_want = GOODS.iter().position(|x| x.0 == c.want[0]).unwrap();
+        let base = |gi: usize| GOODS[gi].1;
+        assert!(g.price(ci, gi_cheap, true) as f32 <= base(gi_cheap) as f32 * 0.8 + 1.);
+        assert!(g.price(ci, gi_want, false) as f32 / base(gi_want) as f32 > g.price(ci, gi_cheap, false) as f32 / base(gi_cheap) as f32, "ของที่เมืองต้องการขายได้ราคาดีกว่า");
+        g.p.inv[c.want[0]] = 20;
+        let p0 = g.price(ci, gi_want, false);
+        g.trade(ci, gi_want, false, 10);
+        assert_eq!(g.p.inv[c.want[0]], 10);
+        assert!(g.price(ci, gi_want, false) < p0, "ขายเยอะราคาตก");
+        g.p.inv[COIN] = 0;
+        g.trade(ci, gi_cheap, true, 1);
+        assert_eq!(g.p.inv[c.cheap[0]], if c.cheap[0] == c.want[0] { 10 } else { 0 }, "ไม่มีเงินซื้อไม่ได้");
+    }
+    #[test]
+    fn city_laws_fines_and_indestructible_property() {
+        let mut g = game();
+        let ci = (0..g.w.realm.cities.len()).find(|&ci| g.law_on(ci, L_WEAPON)).expect("มีเมืองห้ามอาวุธ");
+        let c = g.w.realm.cities[ci].clone();
+        let k = g.city_owner(ci) as usize;
+        g.p.x = c.pos.0 as f32 * 16. + 8.; g.p.y = (c.pos.1 + 2) as f32 * 16. + 12.;
+        g.p.inv[COIN] = 50;
+        let rep0 = g.rs.ks[k].rep;
+        g.law_on_attack(false);
+        assert!(g.p.inv[COIN] < 50 && g.rs.ks[k].rep < rep0, "โดนปรับ");
+        g.rs.crime_t = 0.;
+        // ทุบกำแพงเมืองไม่พัง
+        let wall = (c.pos.0 + 3, c.pos.1 - c.r);
+        assert!(g.hit_object(wall.0, wall.1, 5));
+        assert_eq!(g.w.obj_at(wall.0, wall.1), 38);
+        // สร้างของในเมืองคนอื่นไม่ได้
+        assert!(!g.can_place_at(c.pos.0 + 8, c.pos.1 + 1));
+    }
+    #[test]
+    fn diplomacy_conditions_and_trade_pact_income() {
+        let mut g = game();
+        town(&mut g, 4);
+        let k = 0;
+        g.diplo_trade(k);
+        assert_eq!(g.rs.ks[k].stance, 0, "ชื่อเสียงไม่พอ");
+        g.rs.ks[k].rep = 20;
+        g.diplo_trade(k);
+        assert_eq!(g.rs.ks[k].stance, 1);
+        g.diplo_ally(k);
+        assert_eq!(g.rs.ks[k].stance, 1, "พันธมิตรต้องมีคน 5+ และชื่อเสียงสูง");
+        // ขายของส่วนเกินในกล่อง
+        let ck = *g.chests.keys().next().unwrap();
+        g.chests.get_mut(&ck).unwrap()[WOOD] = 30;
+        let pool = g.tax_pool;
+        g.realm_dawn();
+        assert!(g.tax_pool > pool && g.chests[&ck][WOOD] < 30, "สัญญาการค้าขายของให้");
+        // ของขวัญ
+        g.p.inv[COIN] = 100;
+        let r0 = g.rs.ks[k].rep;
+        g.diplo_gift(k);
+        assert!(g.rs.ks[k].rep > r0);
+        g.diplo_gift(k);
+        assert_eq!(g.p.inv[COIN], 50, "วันละครั้ง");
+    }
+    #[test]
+    fn war_sends_army_and_battle_resolves_when_away() {
+        let mut g = game();
+        town(&mut g, 6);
+        if peaceful() { return; }
+        g.diplo_war(1);
+        assert_eq!(g.rs.ks[1].stance, 3);
+        g.time += DAYLEN;
+        g.realm_dawn();
+        assert!(g.rs.ks[1].army.is_some(), "ยกทัพ");
+        // เดินทัพจนถึง (ผู้เล่นอยู่ไกล → คิดผลเอง)
+        g.p.x += 100. * 16.;
+        let mut arrived = false;
+        for _ in 0..(DAYLEN as i32 * 12) { g.realm_tick(1.); if g.rs.ks[1].army.is_none() { arrived = true; break; } }
+        assert!(arrived, "ทัพมาถึง");
+        assert!(g.rs.siege_wins == 1 || g.rs.ks[1].stance == 4, "ชนะหรือกลายเป็นเมืองขึ้น");
+        assert!(!g.news.is_empty());
+    }
+    #[test]
+    fn real_siege_spawns_soldiers_and_can_be_won() {
+        let mut g = game();
+        town(&mut g, 4);
+        if peaceful() { return; }
+        let tc = g.town_center().unwrap();
+        g.p.x = tc.0 as f32 * 16.; g.p.y = tc.1 as f32 * 16.;
+        g.rs.ks[2].army = Some(Army { x: tc.0 as f32 + 23., y: tc.1 as f32, n: 6, k: 2, vs: None });
+        g.realm_tick(0.01);
+        assert!(g.rs.siege.is_some(), "ผู้เล่นอยู่ = ศึกจริง");
+        for _ in 0..200 { g.realm_tick(0.1); }
+        let n = g.en.iter().filter(|e| e.k == EK::Soldier).count();
+        assert!(n > 0, "ทหารศัตรูเกิด");
+        // ฆ่าให้หมด
+        for _ in 0..400 { for e in g.en.iter_mut() { if e.k == EK::Soldier { e.dead = true; } } g.en.retain(|e| !e.dead); g.realm_tick(0.1); if g.rs.siege.is_none() { break; } }
+        assert!(g.rs.siege.is_none());
+        assert_eq!(g.rs.siege_wins, 1);
+    }
+    #[test]
+    fn ultimatum_pay_or_war_and_vassal_tribute() {
+        let mut g = game();
+        town(&mut g, 4);
+        g.rs.ks[0].ult = Some((day_of(&g) + 3, 40));
+        g.p.inv[COIN] = 10; g.tax_pool = 0;
+        g.pay_ultimatum(0, true);
+        assert!(g.rs.ks[0].ult.is_some(), "เงินไม่พอ คำขาดยังอยู่");
+        g.p.inv[COIN] = 100;
+        g.pay_ultimatum(0, true);
+        assert_eq!(g.p.inv[COIN], 60);
+        g.answer_vassal(1, true);
+        assert_eq!(g.rs.ks[1].stance, 4);
+        g.tax_pool = 200;
+        g.time += 5. * DAYLEN;
+        g.realm_dawn();
+        assert!(g.tax_pool < 200, "ส่งบรรณาการ");
+    }
+    #[test]
+    fn founding_requires_conditions() {
+        let mut g = game();
+        town(&mut g, 3);
+        g.found_kingdom();
+        assert!(!g.rs.founded);
+        assert!(g.found_reqs().iter().any(|r| !r.1));
+        assert_eq!(g.my_name(), "ชุมชนของคุณ");
+    }
+    #[test]
+    fn migrants_arrive_and_nobles_need_comfy_home() {
+        let mut g = game();
+        town(&mut g, 2);
+        let (sx, sy) = (tfloor(g.spawn.0), tfloor(g.spawn.1));
+        for i in 0..4 { g.w.placed.insert((sx + 20 + i * 2, sy), 33); }
+        let p0 = g.pop();
+        for d in 0..40 { g.time = (d + 1) as f32 * DAYLEN; g.realm_dawn(); }
+        assert!(g.pop() > p0 || !g.rs.petitions.is_empty(), "มีคนอยากย้ายมา");
+        g.rs.petitions.push(Petition { rank: 2, perk: P_TREASURY, salary: 5, name: 1, look: 0, city: 0, day: 0 });
+        let n = g.rs.petitions.len();
+        g.accept_petition(n - 1, true);
+        assert_eq!(g.rs.petitions.len(), n, "ไม่มีบ้าน 3 ดาว — คำขอยังค้าง");
+    }
+    #[test]
+    fn jobs_produce_and_roles_have_conditions() {
+        let mut g = game();
+        town(&mut g, 3);
+        g.rs.manual.insert(1, R_LUMBER);
+        g.assign_roles_pub();
+        assert_eq!(g.npcs[0].role, R_LUMBER);
+        let ck = *g.chests.keys().next().unwrap();
+        g.realm_dawn();
+        assert!(g.chests[&ck][WOOD] >= 5, "คนตัดไม้ส่งไม้");
+        let mut coward = g.npcs[1].clone();
+        coward.soc.tr[T_BRAVE] = 10;
+        assert!(role_ok(&coward, R_SOLDIER, &g.rs).is_err());
+        assert!(role_ok(&coward, R_GENERAL, &g.rs).is_err());
+        assert!(role_ok(&coward, R_LUMBER, &g.rs).is_ok());
+    }
+    #[test]
+    fn realm_state_saves_and_loads() {
+        let mut g = game();
+        g.rs.ks[1].rep = 33; g.rs.ks[1].stance = 1; g.rs.ks[2].war[3] = true;
+        g.rs.owner[1] = PLAYER_OWN; g.rs.horse = true; g.rs.visited.insert(3);
+        g.rs.manual.insert(7, R_MINER);
+        let s = g.save_string();
+        let h = Game::load_str(&s, Sfx::default()).ok().expect("load");
+        assert_eq!((h.rs.ks[1].rep, h.rs.ks[1].stance, h.rs.ks[2].war[3]), (33, 1, true));
+        assert_eq!(h.rs.owner[1], PLAYER_OWN);
+        assert!(h.rs.horse && h.rs.visited.contains(&3));
+        assert_eq!(h.rs.manual.get(&7), Some(&R_MINER));
+    }
+    #[test]
+    fn horse_and_coach() {
+        let mut g = game();
+        g.p.inv[COIN] = 500;
+        g.buy_horse();
+        assert!(g.rs.horse && g.rs.riding);
+        assert!(g.ride_mul() > 1.5);
+        g.rs.visited.insert(0); g.rs.visited.insert(1);
+        let t0 = g.time;
+        g.coach_go(0, 1);
+        assert!(g.time > t0);
+        assert_eq!(g.player_city(), Some(1));
     }
 }

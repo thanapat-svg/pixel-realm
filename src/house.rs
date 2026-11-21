@@ -196,7 +196,13 @@ impl Game {
         self.room_of.clear();
         if self.w.dun.is_some() { return; }
         let (px, py) = (tfloor(self.p.x), tfloor(self.p.y));
-        let walls: Vec<(i32, i32)> = self.w.placed.iter().filter(|(k, &o)| is_wall_obj(o) && (k.0 - px).abs() <= 24 && (k.1 - py).abs() <= 18).map(|(k, _)| *k).collect();
+        let mut walls: Vec<(i32, i32)> = self.w.placed.iter().filter(|(k, &o)| is_wall_obj(o) && (k.0 - px).abs() <= 24 && (k.1 - py).abs() <= 18).map(|(k, _)| *k).collect();
+        // บ้านในเมือง (ผังเมือง) ก็มีหลังคา
+        if self.w.realm.cities.iter().any(|c| (c.pos.0 - px).abs() <= c.r + 24 && (c.pos.1 - py).abs() <= c.r + 18) {
+            for y in py - 18..=py + 18 { for x in px - 24..=px + 24 {
+                if !self.w.placed.contains_key(&(x, y)) && matches!(self.w.obj_at(x, y), 10 | 11 | 12 | O_WINDOW) { walls.push((x, y)); }
+            } }
+        }
         for w in walls {
             for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
                 let s = (w.0 + dx, w.1 + dy);
@@ -346,6 +352,7 @@ impl Game {
             if self.w.tmod.contains_key(&(x, y)) && t != T_FLOORW && t != T_FLOORS { return Some("ทับแปลงผัก/ดินที่ขุดไว้ — หาที่อื่น"); }
             if self.crops.contains_key(&(x, y)) { return Some("ทับแปลงผัก — หาที่อื่น"); }
             if self.site_reserved((x, y)) { return Some("ทับที่ที่กำลังก่อสร้างอยู่"); }
+            if self.w.realm.city_at(x, y).map_or(false, |ci| self.city_owner(ci) != PLAYER_OWN) { return Some("สร้างในเมืองของอาณาจักรอื่นไม่ได้"); }
             let o = self.w.obj_at(x, y);
             if !(o == 0 || ((o == 2 || o == 3 || o == O_DRYGRASS) && !self.w.placed.contains_key(&(x, y)))) { return Some("มีต้นไม้/หิน/ของวางอยู่ในพื้นที่ — ตีออกก่อน หรือหาที่โล่ง"); }
             let solid_cell = match c { Cell::Wall(_) => true, Cell::Floor(_, f) | Cell::Ground(f) => f != 0 && OSOLID[f as usize] };
@@ -380,11 +387,15 @@ impl Game {
             let total = prefab_time(st.kind);
             let c = self.site_center(st);
             let near = (c.0 - self.p.x).hypot(c.1 - self.p.y) < 8. * 16.;
-            if !near { continue; }
-            st.prog = (st.prog + dt).min(total);
+            // ช่างไม้ในเมืองช่วยสร้าง (สร้างต่อได้แม้เราไม่อยู่) · ขุนนางสถาปนิกเร่งงาน
+            let builders = self.role_count(R_BUILDER) as f32;
+            let arch = if self.perk_on(P_ARCH) { 1.5 } else { 1. };
+            if !near && builders <= 0. { continue; }
+            let rate = (if near { 1. + 0.4 * builders } else { 0.35 * builders }) * arch;
+            st.prog = (st.prog + dt * rate).min(total);
             // เสียงค้อนเคาะเป็นจังหวะระหว่างสร้าง
             self.hammer_t -= dt;
-            if self.hammer_t <= 0. { self.hammer_t = gen_range(0.38, 0.6); play_vol(&self.sfx.hammer, 0.55); }
+            if near && self.hammer_t <= 0. { self.hammer_t = gen_range(0.38, 0.6); play_vol(&self.sfx.hammer, 0.55); }
             let target = ((st.prog / total) * n as f32).floor() as usize;
             while st.done < target.min(n) {
                 let (p, step) = steps[st.done];
@@ -568,7 +579,7 @@ impl Game {
         if mv.length() > 0.3 {
             let (px, py) = (self.p.x + mv.x.signum() * if mv.x.abs() > 0.3 { 10. } else { 0. }, if mv.y < -0.3 { self.p.y - 10. } else if mv.y > 0.3 { self.p.y + 6. } else { self.p.y - 2. });
             let k = (tfloor(px), tfloor(py));
-            if self.w.placed.get(&k) == Some(&12) {
+            if self.w.obj_at(k.0, k.1) == 12 {
                 self.w.placed.insert(k, 13);
                 self.auto_doors.insert(k);
                 self.room_t = self.room_t.min(0.2);

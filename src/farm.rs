@@ -238,7 +238,14 @@ impl Game {
             self.toast("ยังไม่ง่วง — นอนได้ตั้งแต่ 18:00 ถึง 05:00 น.");
             return;
         }
-        self.bed = Some(k);
+        // เตียงในเมืองคนอื่น = โรงเตี๊ยม (จ่ายค่าห้อง ไม่ตั้งเป็นบ้าน)
+        let inn = !self.w.placed.contains_key(&k) && self.w.realm.city_at(k.0, k.1).is_some();
+        if inn {
+            if self.p.inv[COIN] < 5 { self.toast("ค่าห้องโรงเตี๊ยม 5 เหรียญ"); return; }
+            self.p.inv[COIN] -= 5;
+        } else {
+            self.bed = Some(k);
+        }
         let room = self.w.room_from(k);
         let home = room.is_some();
         let comfort = room.map_or(0, |r| r.comfort);

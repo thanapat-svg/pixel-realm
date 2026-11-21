@@ -223,6 +223,7 @@ impl Game {
             EK::Slime => (3., 24., 1., 3., 1.),
             EK::Skel => (6., 34., 2., 7., 3.),
             EK::Bat => (2., 46., 1., 4., 1.),
+            EK::Soldier => (10., 36., 2., 8., 4.),
         };
         let (hm, dm, sm, xm) = if night { (1.6, 1.3, 1.12, 1.5) } else { (1., 1., 1., 1.) };
         self.en.push(Enemy {

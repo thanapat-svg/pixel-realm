@@ -51,6 +51,8 @@ pub enum Req {
     Cook,
     Adv,
     Npc(u32),
+    /// เมือง: (ดัชนีเมือง, 0 ตลาด 1 ปราสาท 2 คอกม้า 3 รถม้า)
+    City(usize, u8),
 }
 
 impl Game {
@@ -65,6 +67,7 @@ impl Game {
     pub fn can_place_at(&self, tx: i32, ty: i32) -> bool {
         let o = self.w.obj_at(tx, ty);
         !SOLIDT[self.w.tile_at(tx, ty) as usize] && (o == 0 || o == 3) && !self.player_in_tile(tx, ty) && !self.site_reserved((tx, ty))
+            && self.w.realm.city_at(tx, ty).map_or(true, |ci| self.city_owner(ci) == PLAYER_OWN)
     }
     pub fn place_piece(&mut self) {
         if self.w.dun.is_some() {
@@ -137,11 +140,12 @@ impl Game {
         for ty in pty - 2..=pty + 2 {
             for tx in ptx - 2..=ptx + 2 {
                 let o = self.w.obj_at(tx, ty);
-                if !matches!(o, 12 | 13 | 14 | 15 | 17 | 19 | 20 | 24 | 25 | 26 | 33 | 34 | 36 | 39 | 41 | 42 | O_ALTAR | O_GIANT | O_CHAIR | O_LOG) {
+                if !matches!(o, 12 | 13 | 14 | 15 | 17 | 19 | 20 | 24 | 25 | 26 | 33 | 34 | 36 | 37 | 39 | 41 | 42 | O_ALTAR | O_GIANT | O_CHAIR | O_LOG | O_STALL | O_STABLE | O_COACH) {
                     continue;
                 }
                 if (o == 41 || o == 42) && !self.fruit_ready((tx, ty)) { continue; }
                 if is_seat(o) && self.sit == Some((tx, ty)) { continue; }
+                if o == 37 && self.w.realm.city_at(tx, ty).is_none() { continue; }
                 let d = (tx as f32 * 16. + 8. - self.p.x).hypot(ty as f32 * 16. + 8. - (self.p.y - 3.));
                 if d < 28. && best.map_or(true, |b| d < b.0) {
                     best = Some((d, (tx, ty), o));
@@ -161,6 +165,10 @@ impl Game {
         if self.npc_interact() {
             return;
         }
+        if let Some(i) = self.citizen_near() {
+            self.citizen_talk(i);
+            return;
+        }
         if self.try_farm() {
             return;
         }
@@ -171,7 +179,11 @@ impl Game {
             }
             return;
         };
+        let city = self.w.realm.city_at(k.0, k.1);
         match o {
+            O_STALL | O_STABLE | O_COACH | 37 if city.is_some() => {
+                self.req = Some(Req::City(city.unwrap(), match o { O_STALL => 0, 37 => 1, O_STABLE => 2, _ => 3 }));
+            }
             O_CHAIR | O_LOG => self.sit_on(k),
             12 => {
                 self.auto_doors.remove(&k);
@@ -248,6 +260,10 @@ pub fn interact_hint(o: u8, touch: bool) -> String {
     match o {
         12 => format!("{}: เปิดประตู", key),
         O_CHAIR | O_LOG => format!("{}: นั่ง (นั่งกินอิ่มขึ้น · ใกล้กองไฟคุยกับชาวบ้านได้)", key),
+        O_STALL => format!("{}: ตลาด (ซื้อ/ขาย)", key),
+        O_STABLE => format!("{}: คอกม้า", key),
+        O_COACH => format!("{}: ท่ารถม้า (เดินทางไปเมืองอื่น)", key),
+        37 => format!("{}: เข้าเฝ้าผู้ปกครอง (การทูต)", key),
         13 => format!("{}: ปิดประตู", key),
         14 => format!("{}: เปิดกล่องเก็บของ", key),
         17 => format!("{}: ใช้ทั่งตีบวก", key),

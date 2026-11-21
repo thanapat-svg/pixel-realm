@@ -14,7 +14,7 @@ impl World {
         if let Some(&r) = self.wps.borrow().get(&(cx, cy)) {
             return r;
         }
-        let r = self.calc_wp(cx, cy);
+        let r = self.calc_wp(cx, cy).filter(|p| !self.near_city(p.0, p.1, 3));
         self.wps.borrow_mut().insert((cx, cy), r);
         r
     }

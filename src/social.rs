@@ -88,7 +88,7 @@ impl Game {
     pub fn news_add(&mut self, s: String) {
         let day = day_of(self);
         self.news.push((day, s));
-        if self.news.len() > 16 { self.news.remove(0); }
+        if self.news.len() > 40 { self.news.remove(0); }
     }
     fn roll(&self, a: u32, b: u32, salt: i32) -> f64 {
         hash((day_of(self) as i32).wrapping_mul(131).wrapping_add(a as i32), b as i32, 5000 + salt)

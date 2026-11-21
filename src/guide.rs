@@ -74,10 +74,10 @@ impl Game {
     pub fn use_label(&self) -> Option<String> {
         if let Some(f) = &self.fish { return Some(if f.bite_t > 0. { "ดึง!" } else { "รอ..." }.to_string()); }
         if self.lost_near().is_some() { return Some("ช่วย".to_string()); }
-        if self.npc_near().is_some() { return Some("คุย".to_string()); }
+        if self.npc_near().is_some() || self.citizen_near().is_some() { return Some("คุย".to_string()); }
         if let Some((_, o)) = self.interact_target() {
             return Some(match o {
-                O_CHAIR | O_LOG => "นั่ง", 12 => "เปิด", 13 => "ปิด", 14 => "กล่อง", 17 => "ตีบวก", 25 => "วาร์ป", 26 => "ทำอาหาร",
+                O_CHAIR | O_LOG => "นั่ง", O_STALL => "ตลาด", O_STABLE => "คอกม้า", O_COACH => "รถม้า", 37 => "เจรจา", 12 => "เปิด", 13 => "ปิด", 14 => "กล่อง", 17 => "ตีบวก", 25 => "วาร์ป", 26 => "ทำอาหาร",
                 19 | 36 => "เข้า", 20 => "ออก", 33 => "นอน", 39 => "ดื่ม", 41 => "เก็บผล", 42 => "ดื่มมะพร้าว", 34 => "โต๊ะ", 24 => "เปิดหีบ", O_ALTAR => "ขอพร", O_GIANT => "เก็บของ", _ => "คุย",
             }.to_string());
         }

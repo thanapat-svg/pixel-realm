@@ -13,6 +13,8 @@ pub struct UiState {
     pub cook: bool,
     pub adv: bool,
     pub npc: Option<u32>,
+    /// เมืองที่กำลังใช้บริการ (ดัชนี, 0 ตลาด 1 ปราสาท 2 คอกม้า 3 รถม้า)
+    pub city: Option<(usize, u8)>,
     pub gift_open: bool,
     pub greet: usize,
     /// ช่องที่เลือกในตาราง (คราฟต์/สร้าง/กระเป๋า)
@@ -28,7 +30,7 @@ pub struct UiState {
 }
 impl UiState {
     pub fn new() -> Self {
-        UiState { tab: 0, scroll: 0., max_scroll: 0., chest: None, shop: false, forge: false, cook: false, adv: false, npc: None, gift_open: false, greet: 0, sel_r: usize::MAX, sel_b: usize::MAX, sel_i: usize::MAX, press: None, last: Vec2::ZERO, drag: 0., click: None, clip: Rect::new(0., 0., 1., 1.), close: false }
+        UiState { tab: 0, scroll: 0., max_scroll: 0., chest: None, shop: false, forge: false, cook: false, adv: false, npc: None, city: None, gift_open: false, greet: 0, sel_r: usize::MAX, sel_b: usize::MAX, sel_i: usize::MAX, press: None, last: Vec2::ZERO, drag: 0., click: None, clip: Rect::new(0., 0., 1., 1.), close: false }
     }
     pub fn open(&mut self, tab: usize) {
         self.tab = tab;
@@ -43,6 +45,7 @@ impl UiState {
         self.cook = false;
         self.adv = false;
         self.npc = None;
+        self.city = None;
         self.close = false;
     }
 }
@@ -864,13 +867,15 @@ pub fn draw_menu(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState) -> b
     if !g.npcs.is_empty() || ui.npc.is_some() {
         tabs.push((10, "ชุมชน"));
     }
+    if let Some((ci, _)) = ui.city { let _ = ci; tabs.push((12, "เมือง")); }
+    if g.rs.inited { tabs.push((11, "อาณาจักร")); }
     tabs.push((7, "ตั้งค่า"));
     if !tabs.iter().any(|t| t.0 == ui.tab) {
         ui.tab = 0;
     }
     ui.clip = Rect::new(0., 0., sw, sh);
     let tw = (w - 16. * u) / tabs.len() as f32;
-    let tfs = if tabs.len() > 5 { 12. } else { 15. };
+    let tfs = if tabs.len() > 7 { 10.5 } else if tabs.len() > 5 { 12. } else { 15. };
     for (i, &(id, name)) in tabs.iter().enumerate() {
         let r = Rect::new(x + 8. * u + i as f32 * tw, y + 10. * u, tw - 4. * u, tabs_h);
         let on = ui.tab == id;
@@ -901,6 +906,8 @@ pub fn draw_menu(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState) -> b
         6 => tab_stats(g, sp, font, ui, c, u),
         7 => tab_settings(g, sp, font, ui, c, u),
         10 => tab_town(g, sp, font, ui, c, u),
+        11 => tab_realm(g, sp, font, ui, c, u),
+        12 => tab_city(g, sp, font, ui, c, u),
         _ => tab_shop(g, sp, font, ui, c, u),
     };
     set_clip(None);
@@ -1045,6 +1052,36 @@ fn tab_npc_dialog(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c:
         bar(c.x + 190. * u, y + 20. * u, 160. * u, 9. * u, n.mood as f32 / 100., mood_col(n.mood));
     }
     y += 40. * u;
+    // อาชีพ: เลือกเองได้ (มีเงื่อนไขตามนิสัย)
+    if n.state == ST_HOME && !n.child {
+        let manual = g.rs.manual.contains_key(&n.id);
+        let desc = format!("อาชีพ: {}{} — {}", ROLE_N[n.role as usize], if manual { " (เลือกเอง)" } else { " (เกมจัดให้)" }, ROLE_DESC[(n.role as usize).min(13)]);
+        let ws = wrap_th(font, &desc, 11. * u, c.w - 150. * u);
+        let hh = (ws.len() as f32 * 14. * u + 12. * u).max(44. * u);
+        if visible(y, hh, c) {
+            for (k, w) in ws.iter().enumerate() { text(font, w, c.x + 8. * u, y + 16. * u + k as f32 * 14. * u, 11. * u, hx(0x9fe0ff)); }
+            if btn(ui, font, Rect::new(c.x + c.w - 136. * u, y + 4. * u, 128. * u, 18. * u), "เปลี่ยนอาชีพ", true, u) {
+                // วนไปอาชีพถัดไปที่ทำได้
+                let mut r = n.role;
+                let mut msg = String::new();
+                for _ in 0..14 {
+                    r = (r + 1) % 14;
+                    if r == 0 || r == 3 { continue; }
+                    match role_ok(&n, r, &g.rs) { Ok(()) => { msg.clear(); break; } Err(e) => { if msg.is_empty() { msg = format!("{}: {}", ROLE_N[r as usize], e); } } }
+                }
+                if r == 2 && g.npcs.iter().filter(|m| m.role == R_GENERAL).count() > 0 && false { }
+                if r == R_GENERAL && g.npcs.iter().any(|m| m.role == R_GENERAL && m.id != n.id) { g.toast("มีแม่ทัพแล้ว 1 คน (มีได้คนเดียว)"); r = R_SOLDIER; }
+                g.rs.manual.insert(n.id, r);
+                if let Some(i) = g.idx(n.id) { g.npcs[i].role = r; }
+                if !msg.is_empty() { g.toast(format!("ข้ามบางอาชีพ — {}", msg)); }
+            }
+            if manual && btn(ui, font, Rect::new(c.x + c.w - 136. * u, y + 24. * u, 128. * u, 18. * u), "ให้เกมเลือกให้", true, u) {
+                g.rs.manual.remove(&n.id);
+                g.assign_roles_pub();
+            }
+        }
+        y += hh;
+    }
     // นิสัย/ของโปรด: ยิ่งสนิทยิ่งรู้จักมากขึ้น (เหมือนรู้จักคนจริงๆ)
     {
         let known = (n.hearts as usize / 2 + 1).min(5);
@@ -1177,4 +1214,231 @@ fn tab_npc_dialog(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c:
         _ => {}
     }
     y - top
+}
+
+
+// ======================= แท็บ "อาณาจักร" / "เมือง" (v17) =======================
+fn para(font: &Font, c: Rect, y: &mut f32, s: &str, col: Color, u: f32) {
+    let ws = wrap_th(font, s, 11. * u, c.w - 20. * u);
+    let hh = ws.len() as f32 * 14. * u + 6. * u;
+    if visible(*y, hh, c) { for (k, w) in ws.iter().enumerate() { text(font, w, c.x + 8. * u, *y + 13. * u + k as f32 * 14. * u, 11. * u, col); } }
+    *y += hh;
+}
+fn stance_word(s: u8) -> &'static str { ["เป็นกลาง", "คู่ค้า", "พันธมิตร", "สงคราม!", "เราเป็นเมืองขึ้น"][s.min(4) as usize] }
+/// ปุ่มเรียงแถว คืนดัชนีที่กด
+fn btn_row(ui: &UiState, font: &Font, c: Rect, y: f32, labels: &[(&str, bool)], u: f32) -> Option<usize> {
+    let n = labels.len().max(1) as f32;
+    let w = (c.w - 16. * u) / n;
+    let mut hit = None;
+    for (i, (l, en)) in labels.iter().enumerate() {
+        if btn(ui, font, Rect::new(c.x + 8. * u + i as f32 * w, y, w - 4. * u, 26. * u), l, *en, u) { hit = Some(i); }
+    }
+    hit
+}
+fn kingdom_actions(g: &mut Game, ui: &UiState, font: &Font, c: Rect, y: &mut f32, k: usize, u: f32) {
+    let st = g.rs.ks[k].stance;
+    if !g.rs.ks[k].alive { return; }
+    if !g.can_diplo(k) {
+        let cap = g.w.realm.cities[g.w.realm.ks[k].cap].name;
+        para(font, c, y, &format!("เจรจาได้ที่ปราสาทเมือง{} (กลางเมือง) หรือตั้งชาวบ้านช่างพูดเป็น \"ทูต\" เพื่อเจรจาจากที่นี่", cap), hx(0x8890a8), u);
+        return;
+    }
+    if visible(*y, 30. * u, c) {
+        let labels = [
+            ("ของขวัญ 50", true),
+            (if st == 1 { "เลิกค้าขาย" } else { "สัญญาการค้า" }, st != 3 && st != 4),
+            (if st == 2 { "ถอนพันธมิตร" } else { "ขอเป็นพันธมิตร" }, st != 3 && st != 4),
+            (if st == 3 { "ขอสงบศึก" } else if st == 4 { "ประกาศเอกราช" } else { "ประกาศสงคราม" }, true),
+        ];
+        match btn_row(ui, font, c, *y, &labels, u) {
+            Some(0) => g.diplo_gift(k),
+            Some(1) => g.diplo_trade(k),
+            Some(2) => g.diplo_ally(k),
+            Some(3) => if st == 3 { g.diplo_peace(k) } else if st == 4 { g.independence(k) } else { g.diplo_war(k) },
+            _ => {}
+        }
+    }
+    *y += 32. * u;
+}
+fn kingdom_card(g: &mut Game, ui: &UiState, font: &Font, c: Rect, y: &mut f32, k: usize, u: f32) {
+    let kd = g.w.realm.ks[k].clone();
+    let st = g.rs.ks[k].clone();
+    let col = hx(kd.color);
+    if visible(*y, 24. * u, c) {
+        draw_rectangle(c.x, *y + 2. * u, 6. * u, 20. * u, col);
+        text(font, &format!("{} — {}{}", kd.name, kd.title, kd.ruler), c.x + 12. * u, *y + 18. * u, 14. * u, col);
+    }
+    *y += 26. * u;
+    if !st.alive { para(font, c, y, "ล่มสลายแล้ว", hx(0x888888), u); return; }
+    let cap = &g.w.realm.cities[kd.cap];
+    let owned: Vec<&str> = (0..g.w.realm.cities.len()).filter(|&ci| g.city_owner(ci) == k as u8).map(|ci| g.w.realm.cities[ci].name).collect();
+    let wars: Vec<String> = (0..KN).filter(|&j| st.war[j]).map(|j| g.kname(j)).collect();
+    let allies: Vec<String> = (0..KN).filter(|&j| st.ally[j]).map(|j| g.kname(j)).collect();
+    let laws: Vec<&str> = kd.laws.iter().map(|&l| LAW_N[l as usize]).collect();
+    para(font, c, y, &format!("นิสัย: {} · เมืองหลวง {} ({} ช่อง ทาง{}) · เมือง: {}", TRAIT_N[kd.trait_ as usize], cap.name, g.dist_to(cap.pos), g.dir_word(cap.pos), owned.join(", ")), hx(0xc9d1e6), u);
+    para(font, c, y, &format!("กำลังทหาร {} · ความมั่งคั่ง {} · กฎ: {}", st.strength as i32, st.wealth as i32, laws.join(" / ")), hx(0xb0b8cc), u);
+    para(font, c, y, &format!("กับเรา: {} · ชื่อเสียงของเรา {}{}{}", stance_word(st.stance), st.rep, if wars.is_empty() { String::new() } else { format!(" · รบกับ {}", wars.join(", ")) }, if allies.is_empty() { String::new() } else { format!(" · พันธมิตร {}", allies.join(", ")) }), if st.stance == 3 { hx(0xff8080) } else { hx(0xffe0a0) }, u);
+    if let Some(a) = &st.army { para(font, c, y, &format!("ทัพ {} นาย กำลังเดินทัพ ห่างเมืองเรา ~{} ช่อง", a.n, g.town_center().map_or(0, |t| ((a.x - t.0 as f32).hypot(a.y - t.1 as f32)) as i32)), hx(0xff6060), u); }
+    kingdom_actions(g, ui, font, c, y, k, u);
+    sep(c, *y);
+    *y += 6. * u;
+}
+
+fn tab_realm(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32 {
+    let top = c.y - ui.scroll;
+    let mut y = top;
+    // ---- เมืองเรา
+    header(font, c, y, &format!("{} · ชื่อเสียง {} · ป้องกัน {}", g.my_name(), g.fame(), g.defense() as i32), u);
+    y += 28. * u;
+    let over = (0..KN).find(|&k| g.rs.ks.get(k).map_or(false, |s| s.stance == 4));
+    let claim = g.town_center().and_then(|t| g.claim_of(t));
+    para(font, c, &mut y, &format!("ประชากร {} · คลังภาษี {} เหรียญ · ชนะศึก {} ครั้ง · {}{}", g.pop(), g.tax_pool, g.rs.siege_wins,
+        match over { Some(k) => format!("เป็นเมืองขึ้นของ{} (ส่งบรรณาการทุก 5 วัน)", g.kname(k)), None => "อิสระ".to_string() },
+        match claim { Some(k) => format!(" · อยู่ในเขตแดน{}", g.kname(k)), None => String::new() }), hx(0xc9d1e6), u);
+    if g.tax_pool > 0 && visible(y, 30. * u, c) && btn(ui, font, Rect::new(c.x + 8. * u, y, 160. * u, 26. * u), "เก็บภาษีเข้ากระเป๋า", true, u) { g.collect_tax(); }
+    if g.tax_pool > 0 { y += 32. * u; }
+    if g.pop() >= 4 || g.rs.founded {
+        header(font, c, y, "กฎหมายเมืองเรา", u);
+        y += 28. * u;
+        let l = g.rs.laws;
+        let tax = if l & ML_LOWTAX != 0 { "ภาษีต่ำ" } else if l & ML_HIGHTAX != 0 { "ภาษีสูง" } else { "ภาษีปกติ" };
+        let rows: [(String, &str); 5] = [
+            (tax.to_string(), "ต่ำ: รายได้ -40% ชาวบ้าน +2 สุข/วัน ผู้อพยพมาง่าย · สูง: รายได้ +50% สุข -3/วัน คนมาน้อย"),
+            (format!("เกณฑ์ทหาร: {}", if l & ML_MILITIA != 0 { "เปิด" } else { "ปิด" }), "ป้องกัน +1.2 ต่อประชากร แต่สุข -1/วัน"),
+            (format!("เปิดพรมแดน: {}", if l & ML_OPEN != 0 { "เปิด" } else { "ปิด" }), "ผู้อพยพ ×1.6 (สายลับก็มาง่ายขึ้น)"),
+            (format!("เคอร์ฟิว: {}", if l & ML_CURFEW != 0 { "เปิด" } else { "ปิด" }), "สุข -1/วัน"),
+            (format!("ห้ามอาวุธในเมือง: {}", if l & ML_NOWEAPON != 0 { "เปิด" } else { "ปิด" }), "ชาวบ้านรู้สึกปลอดภัย สุข +1/วัน"),
+        ];
+        for (i, (lab, desc)) in rows.iter().enumerate() {
+            if visible(y, 30. * u, c) {
+                text(font, desc, c.x + 150. * u, y + 17. * u, 10. * u, hx(0x9aa2b8));
+                if btn(ui, font, Rect::new(c.x + 8. * u, y + 2. * u, 136. * u, 24. * u), lab, true, u) {
+                    g.rs.laws = match i {
+                        0 => { let t = if l & ML_LOWTAX != 0 { 0 } else if l & ML_HIGHTAX != 0 { ML_LOWTAX } else { ML_HIGHTAX }; (l & !(ML_LOWTAX | ML_HIGHTAX)) | t }
+                        1 => l ^ ML_MILITIA, 2 => l ^ ML_OPEN, 3 => l ^ ML_CURFEW, _ => l ^ ML_NOWEAPON,
+                    };
+                }
+            }
+            y += 30. * u;
+        }
+    }
+    if !g.rs.founded {
+        header(font, c, y, "สถาปนาอาณาจักรของเราเอง", u);
+        y += 28. * u;
+        let reqs = g.found_reqs();
+        for (t, ok) in &reqs { para(font, c, &mut y, &format!("{} {}", if *ok { "[ผ่าน]" } else { "[ยัง]" }, t), if *ok { hx(0x88ee88) } else { hx(0xee9988) }, u); }
+        let all = reqs.iter().all(|r| r.1);
+        if visible(y, 32. * u, c) && btn(ui, font, Rect::new(c.x + 8. * u, y, 200. * u, 28. * u), "สถาปนาอาณาจักร", all, u) { g.found_kingdom(); }
+        y += 34. * u;
+    }
+    // ---- เรื่องด่วน
+    let mut urgent = false;
+    for k in 0..g.rs.ks.len() {
+        let st = g.rs.ks[k].clone();
+        if let Some((dl, amt)) = st.ult {
+            if !urgent { header(font, c, y, "เรื่องด่วน", u); y += 28. * u; urgent = true; }
+            para(font, c, &mut y, &format!("คำขาดจาก{}: จ่าย {} เหรียญภายในวันที่ {} ไม่งั้นยกทัพมา (กำลังเขา ~{} · ป้องกันเรา {})", g.kname(k), amt, dl + 1, (st.strength * 0.25) as i32, g.defense() as i32), hx(0xff9090), u);
+            if visible(y, 30. * u, c) { match btn_row(ui, font, c, y, &[("จ่าย", true), ("ปฏิเสธ (สงคราม)", true)], u) { Some(0) => g.pay_ultimatum(k, true), Some(1) => g.pay_ultimatum(k, false), _ => {} } }
+            y += 32. * u;
+        }
+        if st.vas_ask {
+            if !urgent { header(font, c, y, "เรื่องด่วน", u); y += 28. * u; urgent = true; }
+            para(font, c, &mut y, &format!("{}ให้เรายอมเป็นเมืองขึ้น (ส่งบรรณาการทุก 5 วัน แลกกับการคุ้มครอง) — ปฏิเสธอาจโดนบุก", g.kname(k)), hx(0xffc080), u);
+            if visible(y, 30. * u, c) { match btn_row(ui, font, c, y, &[("ยอมเป็นเมืองขึ้น", true), ("ปฏิเสธ", true)], u) { Some(0) => g.answer_vassal(k, true), Some(1) => g.answer_vassal(k, false), _ => {} } }
+            y += 32. * u;
+        }
+        if let Some((dl, e)) = st.help {
+            if !urgent { header(font, c, y, "เรื่องด่วน", u); y += 28. * u; urgent = true; }
+            para(font, c, &mut y, &format!("พันธมิตร{}ขอความช่วยเหลือในสงครามกับ{} ภายในวันที่ {} — ไม่ช่วย = ความสัมพันธ์ตก/พันธมิตรแตกหัก", g.kname(k), g.kname(e), dl + 1), hx(0xffd080), u);
+            if visible(y, 30. * u, c) && btn_row(ui, font, c, y, &[("ส่งทุนสงคราม 60 เหรียญ", true)], u).is_some() { g.send_help(k); }
+            y += 32. * u;
+        }
+    }
+    let pets = g.rs.petitions.clone();
+    for (i, p) in pets.iter().enumerate() {
+        if !urgent { header(font, c, y, "เรื่องด่วน", u); y += 28. * u; urgent = true; }
+        para(font, c, &mut y, &format!("{} {} จากเมือง{} ขอย้ายมา · ความสามารถ: {} · ขอเงินเดือน {} เหรียญ/วัน + บ้าน 3 ดาวขึ้นไป", RANK_N[p.rank as usize], NPC_NAMES[p.name as usize], g.w.realm.cities[p.city].name, PERK_N[p.perk as usize], p.salary), hx(0xe0d0ff), u);
+        if visible(y, 30. * u, c) { match btn_row(ui, font, c, y, &[("รับเข้าเมือง", true), ("ปฏิเสธ", true)], u) { Some(0) => { g.accept_petition(i, true); break; } Some(1) => { g.accept_petition(i, false); break; } _ => {} } }
+        y += 32. * u;
+    }
+    // ---- อาณาจักรทั้งหมด
+    header(font, c, y, "อาณาจักรในโลก", u);
+    y += 28. * u;
+    for k in 0..g.rs.ks.len() { kingdom_card(g, ui, font, c, &mut y, k, u); }
+    // ---- ข่าว
+    if !g.news.is_empty() {
+        header(font, c, y, "ข่าวสาร", u);
+        y += 28. * u;
+        let news: Vec<(i32, String)> = g.news.iter().rev().take(14).cloned().collect();
+        for (d, t) in news { para(font, c, &mut y, &format!("วันที่ {}: {}", d + 1, t), hx(0xc9d1e6), u); }
+    }
+    y - top + 10. * u
+}
+
+fn tab_city(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32 {
+    let Some((ci, kind)) = ui.city else { return 0. };
+    let top = c.y - ui.scroll;
+    let mut y = top;
+    let city = g.w.realm.cities[ci].clone();
+    let o = g.city_owner(ci);
+    header(font, c, y, &format!("{}{} — {}", if city.cap { "เมืองหลวง" } else { "เมือง" }, city.name, g.owner_name(o)), u);
+    y += 28. * u;
+    match kind {
+        0 => {
+            para(font, c, &mut y, &format!("ของถูกที่นี่: {}, {} · เมืองนี้ต้องการ: {}, {}{}", INAME[city.cheap[0]], INAME[city.cheap[1]], INAME[city.want[0]], INAME[city.want[1]], if g.law_on(ci, L_TAX) { " · มีภาษีการค้า +15%" } else { "" }), hx(0xc9d1e6), u);
+            para(font, c, &mut y, &format!("เหรียญ {} · ขายเยอะราคาจะตก ซื้อเยอะราคาจะขึ้น (ค่อยๆ กลับปกติทุกเช้า)", g.p.inv[COIN]), hx(0xffe080), u);
+            for gi in 0..GOODS.len() {
+                let item = GOODS[gi].0;
+                let (bp, spp) = (g.price(ci, gi, true), g.price(ci, gi, false));
+                if visible(y, 30. * u, c) {
+                    icon_c(sp, item, c.x + 8. * u, y + 3. * u, 22. * u, WHITE);
+                    text(font, &format!("{} (มี {})", INAME[item], g.p.inv[item]), c.x + 36. * u, y + 13. * u, 11. * u, WHITE);
+                    text(font, &format!("ซื้อ {} · ขาย {}", bp, spp), c.x + 36. * u, y + 26. * u, 10. * u, if city.cheap.contains(&item) { hx(0x88ee88) } else if city.want.contains(&item) { hx(0xffc060) } else { hx(0xaab0c0) });
+                    let bw = 64. * u;
+                    let bx = c.x + c.w - 3. * bw - 12. * u;
+                    if btn(ui, font, Rect::new(bx, y + 2. * u, bw - 4. * u, 26. * u), "ซื้อ", g.p.inv[COIN] >= bp, u) { g.trade(ci, gi, true, 1); }
+                    if btn(ui, font, Rect::new(bx + bw, y + 2. * u, bw - 4. * u, 26. * u), "ขาย", g.p.inv[item] > 0, u) { g.trade(ci, gi, false, 1); }
+                    if btn(ui, font, Rect::new(bx + 2. * bw, y + 2. * u, bw - 4. * u, 26. * u), "ขาย 10", g.p.inv[item] >= 10, u) { g.trade(ci, gi, false, 10); }
+                }
+                y += 32. * u;
+            }
+        }
+        1 => {
+            if o == PLAYER_OWN { para(font, c, &mut y, "ศาลาว่าการของเมืองเรา — เมืองนี้ส่งรายได้ 15 เหรียญ/วันเข้าคลัง", hx(0xc9d1e6), u); }
+            else {
+                let k = o as usize;
+                let kd = g.w.realm.ks[k].clone();
+                let rep = g.rs.ks[k].rep;
+                let greet = if g.rs.ks[k].stance == 3 { "เจ้ากล้าดีอย่างไรถึงมาที่นี่ในยามสงคราม!" } else if rep >= 50 { "ยินดีต้อนรับ สหายของเรา" } else if rep >= 10 { "ว่ามาเถิด นักเดินทาง" } else if rep <= -30 { "เราไม่ไว้ใจเจ้า... พูดมาเร็วๆ" } else { "มีธุระอันใด" };
+                para(font, c, &mut y, &format!("{}{}: \"{}\"", kd.title, kd.ruler, greet), hx(0xffe0a0), u);
+                kingdom_card(g, ui, font, c, &mut y, k, u);
+            }
+        }
+        2 => {
+            para(font, c, &mut y, "คอกม้า: ม้าพาวิ่งเร็วขึ้น 70% บนพื้นนอกอาคาร (ลงอัตโนมัติเมื่อเข้าบ้าน/ดันเจี้ยน/ขึ้นเรือ) · ขึ้น/ลง: ปุ่ม \"ม้า\" หรือ H", hx(0xc9d1e6), u);
+            if visible(y, 32. * u, c) {
+                if g.rs.horse { text(font, "คุณมีม้าแล้ว", c.x + 8. * u, y + 18. * u, 13. * u, hx(0x88ee88)); }
+                else if btn(ui, font, Rect::new(c.x + 8. * u, y, 200. * u, 28. * u), "ซื้อม้า 120 เหรียญ", g.p.inv[COIN] >= 120, u) { g.buy_horse(); }
+            }
+            y += 34. * u;
+        }
+        _ => {
+            para(font, c, &mut y, "รถม้าโดยสาร: ไปได้เฉพาะเมืองที่เคยไปแล้ว · ค่าโดยสารตามระยะทาง · เวลาในเกมผ่านไประหว่างเดินทาง", hx(0xc9d1e6), u);
+            let mut dest: Vec<usize> = g.rs.visited.iter().copied().filter(|&d| d != ci).collect();
+            dest.sort();
+            if dest.is_empty() { para(font, c, &mut y, "ยังไม่เคยไปเมืองอื่น — เดินทางไปเองก่อนสักครั้ง", hx(0xee9988), u); }
+            let mut go = None;
+            for d in dest {
+                let (cost, hours) = g.coach_cost(ci, d);
+                let dc = &g.w.realm.cities[d];
+                if visible(y, 30. * u, c) {
+                    text(font, &format!("{} ({}) · {} เหรียญ · {:.0} ชม.", dc.name, g.owner_name(g.city_owner(d)), cost, hours.max(1.)), c.x + 8. * u, y + 18. * u, 12. * u, WHITE);
+                    if btn(ui, font, Rect::new(c.x + c.w - 112. * u, y + 2. * u, 104. * u, 26. * u), "เดินทาง", g.p.inv[COIN] >= cost, u) { go = Some(d); }
+                }
+                y += 32. * u;
+            }
+            if let Some(d) = go { g.coach_go(ci, d); ui.close = true; }
+        }
+    }
+    y - top + 10. * u
 }
