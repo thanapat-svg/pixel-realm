@@ -269,9 +269,32 @@ impl World {
 fn tfloor(v: f32) -> i32 {
     (v / 16.).floor() as i32
 }
+/// กล่องชนของวัตถุในช่อง (พิกเซลในช่อง x0,y0,x1,y1) — ต้นไม้ชนแค่ลำต้น พุ่มไม้/หินเล็กกว่าช่อง
+/// จึงแทรกผ่านช่องว่างระหว่างต้นไม้ได้เหมือนที่ตาเห็น · สิ่งก่อสร้าง/กำแพงยังเต็มช่อง (ห้องต้องปิดสนิท)
+pub fn obj_box(o: u8) -> (f32, f32, f32, f32) {
+    if o == 47 { return (6., 10., 10., 16.); } // ต้นกล้า
+    if trees::is_tree(o) { return (5., 8., 11., 16.); } // ลำต้น
+    match o {
+        2 => (3., 7., 13., 16.),          // พุ่มไม้
+        4 | 5 => (2., 5., 14., 16.),      // ก้อนหิน/แร่
+        7 => (4., 6., 12., 16.),          // กระบองเพชร
+        _ => (0., 0., 16., 16.),
+    }
+}
 fn collide(w: &World, x: f32, y: f32) -> bool {
-    let (l, r, t, b) = (tfloor(x - 4.), tfloor(x + 4.), tfloor(y - 4.), tfloor(y));
-    w.solid_at(l, t) || w.solid_at(r, t) || w.solid_at(l, b) || w.solid_at(r, b)
+    let (x0, x1, y0, y1) = (x - 4., x + 4., y - 4., y);
+    let (l, r, t, b) = (tfloor(x0), tfloor(x1), tfloor(y0), tfloor(y1));
+    for ty in t..=b {
+        for tx in l..=r {
+            if SOLIDT[w.tile_at(tx, ty) as usize] { return true; }
+            let o = w.obj_at(tx, ty);
+            if o == 0 || !OSOLID[o as usize] { continue; }
+            let (a, c, bb, d) = obj_box(o);
+            let (ox0, oy0) = (tx as f32 * 16., ty as f32 * 16.);
+            if x1 > ox0 + a && x0 < ox0 + bb && y1 > oy0 + c && y0 < oy0 + d { return true; }
+        }
+    }
+    false
 }
 
 // ======================= sprites / atlas =======================
@@ -540,6 +563,8 @@ struct Game {
     paint_last: Option<(i32, i32)>,
     auto_doors: HashSet<(i32, i32)>,
     sites: Vec<Site>,
+    aim_last: Option<(f32, f32)>,
+    aim_last_t: f32,
     site_wait_t: f32,
     sit: Option<(i32, i32)>,
     sit_t: f32,
@@ -650,7 +675,7 @@ impl Game {
             w, p: Player::new(0., 0.), en: vec![], parts: vec![], floats: vec![], toasts: vec![], time: 0., spawn: (0., 0.),
             seen: HashSet::new(), obj_dmg: HashMap::new(), shake: ((0, 0), 0.), hurt_flash: 0., darkv: 0., last_biome: -1,
             spawn_t: 0., save_t: 0., mini_t: 99., died: false, big_map: false, sfx,
-            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, rooms: vec![], room_of: HashMap::new(), room_t: 0., paint_last: None, auto_doors: HashSet::new(), sites: vec![], site_wait_t: 0., sit: None, sit_t: 0., psy: HashMap::new(), psy_t: 0., gather: HashMap::new(), an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
+            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, rooms: vec![], room_of: HashMap::new(), room_t: 0., paint_last: None, auto_doors: HashSet::new(), sites: vec![], aim_last: None, aim_last_t: 0., site_wait_t: 0., sit: None, sit_t: 0., psy: HashMap::new(), psy_t: 0., gather: HashMap::new(), an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
@@ -1297,19 +1322,35 @@ impl Game {
         let (mut mx, mut my) = if p.dash_t > 0. { (p.dash_dir.x * 250. * dt, p.dash_dir.y * 250. * dt) } else if p.moving { (mv.x * sp * dt, mv.y * sp * dt) } else { (0., 0.) };
         if p.kbt > 0. { p.kbt -= dt; mx += p.kbx * dt; my += p.kby * dt; }
         let boat = p.boat;
-        if !collide_p(&self.w, p.x + mx, p.y, boat) { p.x += mx; }
-        if !collide_p(&self.w, p.x, p.y + my, boat) { p.y += my; }
+        // ชนมุม: ดันตัวเลี่ยงให้เองเล็กน้อย (ลื่นผ่านมุมต้นไม้/กำแพงแทนการติดค้าง)
+        let blocked_x = mx != 0. && collide_p(&self.w, p.x + mx, p.y, boat);
+        if !blocked_x { p.x += mx; } else if my.abs() < mx.abs() * 0.5 {
+            for d in [1., 2., 3., 4., 5., 6.] {
+                let s = if !collide_p(&self.w, p.x + mx, p.y - d, boat) && !collide_p(&self.w, p.x, p.y - d, boat) { -1. } else if !collide_p(&self.w, p.x + mx, p.y + d, boat) && !collide_p(&self.w, p.x, p.y + d, boat) { 1. } else { 0. };
+                if s != 0. { p.y += s * mx.abs().min(d); break; }
+            }
+        }
+        let blocked_y = my != 0. && collide_p(&self.w, p.x, p.y + my, boat);
+        if !blocked_y { p.y += my; } else if mx.abs() < my.abs() * 0.5 {
+            for d in [1., 2., 3., 4., 5., 6.] {
+                let s = if !collide_p(&self.w, p.x - d, p.y + my, boat) && !collide_p(&self.w, p.x - d, p.y, boat) { -1. } else if !collide_p(&self.w, p.x + d, p.y + my, boat) && !collide_p(&self.w, p.x + d, p.y, boat) { 1. } else { 0. };
+                if s != 0. { p.x += s * my.abs().min(d); break; }
+            }
+        }
         if p.moving { p.anim += dt; }
         if p.invul > 0. { p.invul -= dt; }
         if p.atk_t > 0. { p.atk_t -= dt; }
         if p.atk_cd > 0. { p.atk_cd -= dt; }
+        self.aim_last_t -= dt;
+        if self.aim_last_t <= 0. { self.aim_last = None; }
         self.auto_door(mv);
         if inp.atk && self.p.atk_cd <= 0. {
             let mut aim = inp.aim.filter(|a| a.length() > 0.01);
             if aim.is_none() && self.auto_aim {
-                aim = self.auto_target(if self.p.weapon == 0 { 30. } else { 180. });
+                // ดาบ: หาเป้าไกลขึ้นนิด (ศัตรูโดนตีกระเด็นออกไปยังหันตามได้)
+                aim = self.auto_target(if self.p.weapon == 0 { 40. } else { 180. });
             }
-            if let Some(a) = aim { self.face(a); }
+            if let Some(a) = aim { self.face(a); self.aim_last = Some((self.p.x + a.x, self.p.y - 6. + a.y)); self.aim_last_t = 1.5; }
             if self.p.weapon == 0 { self.do_attack(); } else { self.shoot(aim); }
         }
         // ออร่าอาวุธตามระดับตีบวก
@@ -2039,7 +2080,7 @@ fn update_minimap(g: &Game, img: &mut Image, tex: &Texture2D) {
 }
 
 // ---------- touch controls ----------
-struct TouchUI { active: bool, joy_id: Option<u64>, joy_c: Vec2, joy_v: Vec2, atk_id: Option<u64>, aim: Vec2, flash: [f32; 9], place_id: Option<u64> }
+struct TouchUI { active: bool, joy_id: Option<u64>, joy_c: Vec2, joy_v: Vec2, atk_id: Option<u64>, aim: Vec2, flash: [f32; 9], place_id: Option<u64>, atk_start: Vec2 }
 /// 0 โจมตี/เล็ง · 1 กิน · 2 กองไฟ · 3 เมนู · 4 แผนที่ · 5 สลับอาวุธ · 6 ใช้ · 7 วางสิ่งปลูกสร้าง
 /// หน่วยขนาดปุ่มทัช: อิงความสูงจอ (ปุ่มโจมตี ≈ 16 มม. บนมือถือทั่วไป) × ตัวเลือกขนาดปุ่มในตั้งค่า
 fn tunit() -> f32 {
@@ -2091,7 +2132,7 @@ fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool) {
                     on_btn = true;
                     tu.flash[id] = 0.16;
                     match id {
-                        0 => { tu.atk_id = Some(t.id); tu.aim = Vec2::ZERO; }
+                        0 => { tu.atk_id = Some(t.id); tu.aim = Vec2::ZERO; tu.atk_start = t.position; }
                         1 => inp.eat = true,
                         2 => inp.fire = true,
                         3 => inp.menu = Some(0),
@@ -2116,9 +2157,10 @@ fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool) {
                     tu.joy_v = if d.length() > m { d.normalize() } else { d / m };
                 }
                 if tu.atk_id == Some(t.id) {
-                    // ลากนิ้วออกจากปุ่มโจมตี = เล็งทิศ (ธนู/คทา)
-                    let d = t.position - btns[0].0;
-                    tu.aim = if d.length() > 16. * u { d.normalize() } else { Vec2::ZERO };
+                    // ลากนิ้วออกจากจุดที่แตะ "ชัดๆ" เท่านั้นถึงจะเล็งเอง — นิ้วขยับเล็กน้อยบนปุ่มไม่นับ
+                    // (เดิมวัดจากกลางปุ่ม แตะไม่ตรงกลางก็กลายเป็นเล็งทิศมั่ว ตัวละครหันหนีศัตรู)
+                    let d = t.position - tu.atk_start;
+                    tu.aim = if d.length() > 40. * u { d.normalize() } else { Vec2::ZERO };
                 }
             }
             TouchPhase::Ended | TouchPhase::Cancelled => {
@@ -2341,7 +2383,7 @@ async fn main() {
     bg.w = World::new(gen_range(1, i32::MAX));
     bg.p.invul = 0.07; // ซ่อนผู้เล่นบนหน้าเมนู
     let mut state = State::Title;
-    let mut tu = TouchUI { active: false, joy_id: None, joy_c: Vec2::ZERO, joy_v: Vec2::ZERO, atk_id: None, aim: Vec2::ZERO, flash: [0.; 9], place_id: None };
+    let mut tu = TouchUI { active: false, joy_id: None, joy_c: Vec2::ZERO, joy_v: Vec2::ZERO, atk_id: None, aim: Vec2::ZERO, flash: [0.; 9], place_id: None, atk_start: Vec2::ZERO };
     let mut ui = UiState::new();
     let mut t_now = 0f32;
     let mut mouse_armed = false;
@@ -6183,5 +6225,56 @@ mod psy_tests {
         let r: Vec<&str> = s.split_whitespace().skip(1).collect();
         h.sites_load(&r);
         assert_eq!(h.sites[0].kind, OBJ_HUT);
+    }
+}
+
+#[cfg(test)]
+mod move_tests {
+    use super::*;
+    fn open_lot() -> Game {
+        let mut g = Game::new_world_seed(4242, Sfx::default());
+        for y in 990..1010 { for x in 990..1010 { g.w.tmod.insert((x, y), 3); g.w.removed.insert((x, y)); } }
+        g
+    }
+    #[test]
+    fn can_slip_between_two_trees_one_gap_apart() {
+        let mut g = open_lot();
+        // ต้นไม้ 2 ต้นติดกันซ้าย-ขวา มีช่องว่างระหว่างลำต้นประมาณ 10 พิกเซล
+        g.w.placed.insert((1000, 1000), 1);
+        g.w.placed.insert((1001, 1000), 1);
+        // เดินขึ้นผ่านรอยต่อระหว่างสองต้น
+        let x = 1001. * 16.;
+        assert!(!collide(&g.w, x, 1000. * 16. + 12.), "ช่องว่างระหว่างลำต้นต้องเดินผ่านได้");
+        // แต่ชนลำต้นตรงๆ ยังชน
+        assert!(collide(&g.w, 1000. * 16. + 8., 1000. * 16. + 12.));
+        // ใบไม้ด้านบนของต้นไม่ชน (เดินลอดได้)
+        assert!(!collide(&g.w, 1000. * 16. + 8., 1000. * 16. + 6.));
+        // กำแพงยังเต็มช่อง
+        g.w.placed.insert((1003, 1000), 10);
+        assert!(collide(&g.w, 1003. * 16. + 1., 1000. * 16. + 6.));
+    }
+    #[test]
+    fn corner_nudge_slides_past_tree_trunk() {
+        let mut g = open_lot();
+        g.w.placed.insert((1001, 1000), 1);
+        // ยืนซ้ายของต้น ระดับเดียวกับขอบลำต้นนิดเดียว แล้วเดินขวา
+        g.p.x = 1000. * 16. + 8.; g.p.y = 1000. * 16. + 9.;
+        let y0 = g.p.y;
+        let mut inp = Input::default();
+        inp.mv = vec2(1., 0.);
+        for _ in 0..60 { g.update(1. / 60., &inp); }
+        assert!(g.p.x > 1001. * 16. + 4. || (g.p.y - y0).abs() > 0.5, "ต้องลื่นผ่านมุมหรืออย่างน้อยถูกดันเลี่ยง x={} y={}", g.p.x, g.p.y);
+    }
+    #[test]
+    fn auto_aim_prefers_enemy_in_front_and_recent_target() {
+        let mut g = open_lot();
+        g.p.x = 1000. * 16.; g.p.y = 1000. * 16.;
+        g.p.dir = 2; g.p.flip = false; // หันขวา
+        g.en.clear();
+        g.make_enemy(EK::Slime, g.p.x + 26., g.p.y + 5., 1., 0, false);
+        g.make_enemy(EK::Slime, g.p.x - 22., g.p.y + 5., 1., 0, false);
+        assert_eq!(g.en.len(), 2);
+        let a = g.auto_target(40.).unwrap();
+        assert!(a.x > 0., "ศัตรูข้างหน้าได้แต้มต่อ แม้อีกตัวด้านหลังจะใกล้กว่านิดหน่อย");
     }
 }

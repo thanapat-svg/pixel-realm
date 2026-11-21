@@ -183,34 +183,35 @@ impl Game {
         }
     }
     /// หามอนสเตอร์/บอสที่ใกล้ที่สุดในระยะ (คืนทิศทางจากผู้เล่น)
+    /// เล็งอัตโนมัติ: เลือกเป้าที่ใกล้ที่สุด แต่ให้แต้มต่อกับเป้าที่อยู่ข้างหน้า/เป้าเดิมที่เพิ่งตี
+    /// กันตัวละครหันกลับไปมาระหว่างศัตรู 2 ตัว หรือหันหนีตัวที่กำลังสู้อยู่
     pub fn auto_target(&self, range: f32) -> Option<Vec2> {
         let (px, py) = (self.p.x, self.p.y - 6.);
-        let mut best = range;
+        let (fx, fy) = self.p.facing();
+        let last = self.aim_last;
+        let score = |dx: f32, dy: f32, r: f32| -> Option<f32> {
+            let d = dx.hypot(dy) - r;
+            if d > range { return None; }
+            let l = dx.hypot(dy).max(0.01);
+            let mut s = d.max(0.);
+            if (dx * fx + dy * fy) / l > 0.3 { s *= 0.7; }
+            if let Some((lx, ly)) = last { if (px + dx - lx).hypot(py + dy - ly) < 22. { s *= 0.55; } }
+            Some(s)
+        };
+        let mut best = f32::MAX;
         let mut res = None;
-        for e in &self.en {
-            if e.dead {
-                continue;
-            }
+        let mut consider = |dx: f32, dy: f32, r: f32| {
+            if let Some(s) = score(dx, dy, r) { if s < best { best = s; res = Some(vec2(dx, dy)); } }
+        };
+        for e in self.en.iter().filter(|e| !e.dead) {
             let ey = e.y - if e.k == EK::Bat { 14. } else { 5. };
-            let d = (e.x - px).hypot(ey - py);
-            if d < best {
-                best = d;
-                res = Some(vec2(e.x - px, ey - py));
-            }
+            consider(e.x - px, ey - py, 0.);
         }
         for a in self.animals.iter().filter(|a| matches!(a.st, AS::Chase | AS::Charge) && predator(a.k)) {
-            let d = (a.x - px).hypot(a.y - 5. - py);
-            if d < best {
-                best = d;
-                res = Some(vec2(a.x - px, a.y - 5. - py));
-            }
+            consider(a.x - px, a.y - 5. - py, 0.);
         }
-        for b in &self.bosses {
-            let d = (b.x - px).hypot(b.y - 12. - py) - BOSS_R;
-            if !b.dead && d < best {
-                best = d;
-                res = Some(vec2(b.x - px, b.y - 12. - py));
-            }
+        for b in self.bosses.iter().filter(|b| !b.dead) {
+            consider(b.x - px, b.y - 12. - py, BOSS_R);
         }
         res
     }
