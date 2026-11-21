@@ -30,12 +30,16 @@ pub fn frame_target() -> Option<f64> {
     match fps_mode() { 0 => Some(1. / 30.), 1 => Some(1. / 60.), _ => None }
 }
 
-fn path() -> String { format!("{}.cfg", crate::save_path()) }
+fn path() -> String { format!("{}.cfg", crate::save_base()) }
+/// ช่องเซฟที่เลือก 0..2
+pub static SLOT: AtomicU8 = AtomicU8::new(0);
+pub fn slot() -> u8 { SLOT.load(Relaxed).min(2) }
+pub fn set_slot(s: u8) { SLOT.store(s.min(2), Relaxed); save(); }
 
 pub fn save() {
     let s = format!(
-        "fps {}\nweather {}\nlight {}\ntouch {}\nshowfps {}\nshake {}\nsurvival {}\ndiff {}\n",
-        fps_mode(), weather_fx() as u8, light_q(), TOUCH_SZ.load(Relaxed), show_fps() as u8, shake() as u8, survival(), DIFF.load(Relaxed)
+        "fps {}\nweather {}\nlight {}\ntouch {}\nshowfps {}\nshake {}\nsurvival {}\ndiff {}\nslot {}\n",
+        fps_mode(), weather_fx() as u8, light_q(), TOUCH_SZ.load(Relaxed), show_fps() as u8, shake() as u8, survival(), DIFF.load(Relaxed), SLOT.load(Relaxed)
     );
     let _ = std::fs::write(path(), s);
 }
@@ -54,6 +58,7 @@ pub fn load() {
             "shake" => SHAKE.store(v > 0, Relaxed),
             "survival" => SURVIVAL.store(v.min(2), Relaxed),
             "diff" => DIFF.store(v.min(3), Relaxed),
+            "slot" => SLOT.store(v.min(2), Relaxed),
             _ => {}
         }
     }

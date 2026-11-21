@@ -122,7 +122,7 @@ impl Game {
         }
     }
     pub fn balance_save_str(&self) -> String {
-        format!("v9 {} {} {} {} {} {} {} {}\n{}", self.p.hides, self.p.coat as u8, self.tips_seen, self.an_hunted, self.codex_done, self.adv_done, self.boated as u8, self.p.boat as u8, self.pets_save_str())
+        format!("v9 {} {} {} {} {} {} {} {} {}\n{}", self.p.hides, self.p.coat as u8, self.tips_seen, self.an_hunted, self.codex_done, self.adv_done, self.boated as u8, self.p.boat as u8, self.final_won as u8, self.pets_save_str())
     }
     pub fn balance_load_line(&mut self, rest: &[&str]) {
         let f = |i: usize| rest.get(i).and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
@@ -134,5 +134,6 @@ impl Game {
         self.adv_done = f(5);
         self.boated = f(6) != 0;
         self.p.boat = f(7) != 0;
+        self.final_won = f(8) != 0;
     }
 }

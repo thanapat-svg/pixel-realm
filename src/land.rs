@@ -276,6 +276,7 @@ impl Game {
     }
     /// ศาลหิน: วันละครั้ง ฟื้นเลือดเต็ม หายป่วย หายเพลียครึ่งหนึ่ง
     pub fn shrine_pray(&mut self, k: (i32, i32)) -> bool {
+        if self.try_summon_final(k) { return true; }
         let day = day_of(self);
         if self.blessed.get(&k) == Some(&day) { self.toast("ศาลหินเงียบงัน — กลับมาขอพรใหม่พรุ่งนี้"); return false; }
         self.blessed.insert(k, day);

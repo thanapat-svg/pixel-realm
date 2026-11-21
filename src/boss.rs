@@ -4,8 +4,8 @@
 use super::*;
 
 pub const BOSS_R: f32 = 15.;
-pub const BNAME: [&str; 2] = ["ราชาสไลม์", "โกเลมหินยักษ์"];
-pub const BHP: [f32; 2] = [70., 110.];
+pub const BNAME: [&str; 3] = ["ราชาสไลม์", "โกเลมหินยักษ์", "ราชันย์เงา"];
+pub const BHP: [f32; 3] = [70., 110., 900.];
 const DIR8: [(i32, i32); 8] = [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)];
 
 #[derive(Clone)]
@@ -123,7 +123,7 @@ impl Game {
         }
         let (dx, dy) = (self.p.x - b.x, self.p.y - b.y);
         let d = dx.hypot(dy).max(0.001);
-        if d > 1100. {
+        if d > if b.kind == FINAL_KIND { 3000. } else { 1100. } {
             b.dead = true;
             self.boss_cd = 90.;
             return;
@@ -254,6 +254,18 @@ impl Game {
                 }
                 self.burst(b.x, b.y - 2., hx(0x9a9aa6), 24, 110.);
                 play(&self.sfx.boom);
+                // ราชันย์เงา: เรียกโครงกระดูก + วงกระสุนเงาชั้นที่สอง
+                if b.kind == FINAL_KIND {
+                    for k in 0..(if b.ph2 { 3 } else { 2 }) {
+                        let a = k as f32 * 2.1 + b.anim;
+                        let (mx, my) = (b.x + a.cos() * 30., b.y + a.sin() * 20.);
+                        if self.walkable(mx, my) { self.make_enemy(EK::Skel, mx, my, 1.2, 0, false); }
+                    }
+                    for i in 0..16 {
+                        let a = (i as f32 + 0.5) / 16. * std::f32::consts::TAU;
+                        self.proj.push(Proj { x: b.x, y: b.y - 6., vx: a.cos() * 60., vy: a.sin() * 60., kind: 2, dmg: 3, life: 2.2, mine: false, dead: false });
+                    }
+                }
             }
             _ => {
                 b.dash = 0.55;
@@ -275,7 +287,18 @@ impl Game {
 
     pub fn boss_die(&mut self, b: &Boss) {
         let (x, y) = (b.x, b.y - 12.);
-        let col = if b.kind == 0 { hx(0x6cd06c) } else { hx(0x9a9aa6) };
+        let col = match b.kind { 0 => hx(0x6cd06c), FINAL_KIND => hx(0x8a4ae8), _ => hx(0x9a9aa6) };
+        if b.kind == FINAL_KIND {
+            self.burst(x, y, col, 80, 200.);
+            self.p.xp += 200;
+            self.p.kills += 1;
+            self.check_lv();
+            self.boss_cd = 240.;
+            self.shake(5., 1.);
+            self.final_defeated(x, y);
+            play(&self.sfx.lvl);
+            return;
+        }
         self.burst(x, y, col, 44, 150.);
         self.burst(x, y, hx(0xffd84a), 20, 110.);
         if b.kind == 0 {
@@ -345,6 +368,17 @@ pub fn draw_boss(g: &Game, sp: &Sprites, v: &View, i: usize) {
         let raised = b.atk == 1 || b.atk == 2;
         let jx = if b.atk == 2 { ((b.anim * 40.).sin() * 1.).round() } else { 0. };
         let bob = if b.atk == 0 { ((b.anim * 4.) as i32 % 2) as f32 } else { 0. };
+        if b.kind == FINAL_KIND {
+            // โกเลมใหญ่ขึ้น 1.6 เท่า ย้อมสีม่วงเงา + ออร่ามืดรอบตัว
+            let r = sp.ex.golem[raised as usize];
+            let (w, h) = (r.w * 1.6, r.h * 1.6);
+            let pulse = 0.25 + (b.anim * 3.).sin().abs() * 0.15;
+            prect(v, sx - 20., sy - 3., 40., 6., Color::new(0., 0., 0., 0.4));
+            for k in 0..3 { let rr = 22. + k as f32 * 6.; draw_circle(sx * v.s - v.cx * 0., (sy - h / 2.) * v.s, rr * v.s, Color::new(0.35, 0.1, 0.6, pulse / (k as f32 + 1.5))); }
+            let tint = if b.flash > 0. { Color::new(1., 0.6, 0.9, 1.) } else if b.ph2 { Color::new(0.75, 0.35, 0.95, 1.) } else { Color::new(0.55, 0.35, 0.85, 1.) };
+            blit_sz(sp, v, r, (sx - w / 2. + jx).floor(), sy - h - bob, w, h, tint);
+            return;
+        }
         prect(v, sx - 13., sy - 2., 26., 4., Color::new(0., 0., 0., 0.3));
         blit(sp, v, sp.ex.golem[raised as usize], sx - 16. + jx, sy - 34. - bob, false, c);
     }
@@ -360,8 +394,8 @@ pub fn draw_boss_bar(g: &Game, font: &Font) {
     };
     let u = ui_scale();
     let sw = screen_width();
-    let (w, h) = ((sw * 0.5).min(420. * u), 18. * u);
-    let (x, y) = (sw / 2. - w / 2., 12. * u);
+    let (w, h) = ((sw * 0.4).min(380. * u), 18. * u);
+    let (x, y) = (sw / 2. - w / 2., 16. * u);
     text_c(font, BNAME[b.kind as usize], sw / 2., y + 4. * u, 17. * u, hx(0xffcc66));
     let y = y + 10. * u;
     draw_rectangle(x, y, w, h, hx(0x2a0e0e));

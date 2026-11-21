@@ -35,6 +35,8 @@ mod quests;
 mod balance;
 mod mcui;
 mod v11;
+mod saves;
+mod finale;
 use extra::*;
 use farm::*;
 use guide::*;
@@ -59,6 +61,8 @@ use quests::*;
 use balance::*;
 use mcui::*;
 use v11::*;
+use saves::*;
+use finale::*;
 
 // ======================= ค่าคงที่ =======================
 const DAYLEN: f32 = 240.0;
@@ -528,6 +532,8 @@ struct Game {
     codex_done: u32,
     adv_done: u32,
     boated: bool,
+    final_won: bool,
+    ending: f32,
     camp_t: f32,
     build_sel: Option<usize>,
     req: Option<Req>,
@@ -600,7 +606,13 @@ fn find_spawn(w: &World) -> (i32, i32) {
     (0, 0)
 }
 
+/// เซฟของช่องที่เลือกอยู่ (ทดสอบ: PIXEL_REALM_SAVE ใช้ไฟล์นั้นตรงๆ)
 fn save_path() -> String {
+    if std::env::var("PIXEL_REALM_SAVE").is_ok() { return save_base(); }
+    slot_path(prefs::slot())
+}
+/// เซฟช่อง 1 (ตำแหน่งเดิม) — ไฟล์ตั้งค่า .cfg ผูกกับไฟล์นี้เสมอ
+fn save_base() -> String {
     if let Ok(p) = std::env::var("PIXEL_REALM_SAVE") {
         return p;
     }
@@ -620,7 +632,7 @@ impl Game {
             w, p: Player::new(0., 0.), en: vec![], parts: vec![], floats: vec![], toasts: vec![], time: 0., spawn: (0., 0.),
             seen: HashSet::new(), obj_dmg: HashMap::new(), shake: ((0, 0), 0.), hurt_flash: 0., darkv: 0., last_biome: -1,
             spawn_t: 0., save_t: 0., mini_t: 99., died: false, big_map: false, sfx,
-            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, camp_t: 0.,
+            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
@@ -706,7 +718,7 @@ impl Game {
         s
     }
     fn save(&self) {
-        let _ = std::fs::write(save_path(), self.save_string());
+        let _ = write_atomic(&save_path(), &self.save_string());
     }
     fn load(sfx: Sfx) -> Result<Game, Sfx> {
         let Ok(txt) = std::fs::read_to_string(save_path()) else { return Err(sfx) };
@@ -1220,6 +1232,7 @@ impl Game {
     }
 
     fn update(&mut self, dt: f32, inp: &Input) {
+        if self.ending_tick(dt, inp) { return; }
         self.time += dt;
         let hr = ((self.time / DAYLEN * 24.) + 6.) % 24.;
         self.darkv = (((hr - 12.).abs() - 5.) / 2.).clamp(0., 1.) * 0.82;
@@ -2183,6 +2196,7 @@ fn debug_keys(g: &mut Game) {
     }
     if is_key_pressed(KeyCode::F3) { let (x, y) = (g.p.x + 90., g.p.y); g.spawn_boss(0, x, y); }
     if is_key_pressed(KeyCode::F4) { let (x, y) = (g.p.x + 90., g.p.y); g.spawn_boss(1, x, y); }
+    if is_key_pressed(KeyCode::F11) { let (x, y) = (g.p.x + 90., g.p.y); g.spawn_boss_hp(FINAL_KIND, x, y, FINAL_HP); }
     if is_key_pressed(KeyCode::F5) { g.time = DAYLEN * 0.7; }
     if is_key_pressed(KeyCode::F7) {
         g.p.inv[SHARD] += 30; g.p.sp += 6; g.p.elems = 7; g.p.rod = true; if g.p.staff == 0 { g.p.staff = 1; } for i in [MEAT, SHROOM, HERB] { g.p.inv[i] += 10; } g.p.inv[COIN] += 500;
@@ -2233,6 +2247,7 @@ async fn main() {
     let mut game: Option<Game> = None;
     prefs::load();
     let mut save_sum = prefs::save_summary(DAYLEN);
+    let mut bak_msg = String::new();
     let mut tview = 0u8;
     let mut new_body = Body::default();
     let mut rep_t = 0f32;
@@ -2283,8 +2298,21 @@ async fn main() {
                         text_c(&font, "PIXEL REALM", sw / 2. + 3. * u, ly + 3. * u, 58. * u, Color::new(0., 0., 0., 0.7));
                         text_c(&font, "PIXEL REALM", sw / 2., ly, 58. * u, hx(0xffcc66));
                         text_c(&font, "สำรวจ · สร้างฐาน · ล่าบอส · ตั้งรกราก", sw / 2., ly + 30. * u, 15. * u, hx(0xdddddd));
-                        let n = 5.;
+                        let n = 6.;
                         let mut y = (sh * 0.30).max(ly + 50. * u).min(sh - n * (bh + gap) - 26. * u);
+                        // ช่องเซฟ 3 ช่อง (แยกโลกกันเล่นหลายคนในเครื่องเดียว)
+                        let sbw = (bw - 2. * gap) / 3.;
+                        for sl in 0..SLOTS {
+                            let cur = prefs::slot() == sl;
+                            let has = std::fs::metadata(slot_path(sl)).is_ok();
+                            let r = Rect::new(bx + sl as f32 * (sbw + gap), y, sbw, bh * 0.8);
+                            if cur { draw_rectangle(r.x - 3., r.y - 3., r.w + 6., r.h + 6., hx(0xffffff)); }
+                            if button(&font, r, &format!("ช่อง {}{}", sl + 1, if has { "" } else { " (ว่าง)" }), true, u) && !cur {
+                                prefs::set_slot(sl);
+                                save_sum = prefs::save_summary(DAYLEN);
+                            }
+                        }
+                        y += bh * 0.8 + gap;
                         let sum = save_sum;
                         let lab = match sum { Some((d, l)) => format!("เล่นต่อ  ·  วันที่ {} · Lv {}", d, l), None => "เล่นต่อ".to_string() };
                         if button(&font, Rect::new(bx, y, bw, bh), &lab, sum.is_some(), u) || (sum.is_some() && is_key_pressed(KeyCode::Enter)) { start = Some(false); }
@@ -2295,10 +2323,40 @@ async fn main() {
                         y += bh + gap;
                         if button(&font, Rect::new(bx, y, bw, bh), "ตั้งค่า", true, u) { tview = 1; }
                         y += bh + gap;
-                        if button(&font, Rect::new(bx, y, bw, bh), "วิธีเล่น", true, u) { tview = 2; }
+                        let hw = (bw - gap) / 2.;
+                        if button(&font, Rect::new(bx, y, hw, bh), "วิธีเล่น", true, u) { tview = 2; }
+                        if button(&font, Rect::new(bx + hw + gap, y, hw, bh), "สำรองเซฟ", true, u) { tview = 5; bak_msg.clear(); }
                         y += bh + gap;
                         if button(&font, Rect::new(bx, y, bw, bh), "ออกจากเกม", true, u) { std::process::exit(0); }
-                        text_c(&font, "v7 · เกมวาดด้วยโค้ดทั้งหมด", sw / 2., sh - 10. * u, 11. * u, hx(0x999999));
+                        text_c(&font, "v12 · เกมวาดด้วยโค้ดทั้งหมด", sw / 2., sh - 10. * u, 11. * u, hx(0x999999));
+                    }
+                    5 => {
+                        let (w, h) = ((460. * u).min(sw * 0.97), (360. * u).min(sh * 0.97));
+                        let (x, y) = (sw / 2. - w / 2., sh / 2. - h / 2.);
+                        panel(x, y, w, h);
+                        let sl = prefs::slot();
+                        let sp_ = save_path();
+                        text_c(&font, &format!("สำรองเซฟ — ช่อง {}", sl + 1), sw / 2., y + 34. * u, 22. * u, hx(0xffcc66));
+                        text_c(&font, &format!("เซฟสำรองอัตโนมัติ {} ชุด (สร้างทุกครั้งที่เริ่มเล่น)", backup_count(&sp_)), sw / 2., y + 58. * u, 12. * u, hx(0xaaaaaa));
+                        let bw2 = w - 60. * u;
+                        let mut ry = y + 74. * u;
+                        if button(&font, Rect::new(x + 30. * u, ry, bw2, 40. * u), "กู้คืนเซฟสำรองล่าสุด", backup_count(&sp_) > 0, u) {
+                            bak_msg = match restore_backup(&sp_) { Ok(()) => "กู้คืนแล้ว".to_string(), Err(e) => e };
+                            save_sum = prefs::save_summary(DAYLEN);
+                        }
+                        ry += 48. * u;
+                        if button(&font, Rect::new(x + 30. * u, ry, bw2, 40. * u), "ส่งออกเซฟเป็นไฟล์", save_sum.is_some(), u) {
+                            bak_msg = match export_save(&sp_, sl, &stamp_now()) { Ok(p) => format!("บันทึกแล้ว: {}", p), Err(e) => e };
+                        }
+                        ry += 48. * u;
+                        if button(&font, Rect::new(x + 30. * u, ry, bw2, 40. * u), "นำเข้าไฟล์เซฟล่าสุด (ทับช่องนี้)", true, u) {
+                            bak_msg = match import_latest(&sp_) { Ok(f) => format!("นำเข้าแล้ว: {}", f), Err(e) => e };
+                            save_sum = prefs::save_summary(DAYLEN);
+                        }
+                        ry += 52. * u;
+                        let note = if bak_msg.is_empty() { format!("ไฟล์ส่งออกอยู่ที่ {}", export_dir()) } else { bak_msg.clone() };
+                        for (k, l) in menu::wrap_th(&font, &note, 12. * u, w - 40. * u).iter().take(3).enumerate() { text_c(&font, l, sw / 2., ry + k as f32 * 15. * u, 12. * u, hx(0x9ad0ff)); }
+                        if button(&font, Rect::new(sw / 2. - 70. * u, y + h - 50. * u, 140. * u, 38. * u), "กลับ", true, u) || is_key_pressed(KeyCode::Escape) { tview = 0; }
                     }
                     1 => {
                         let (w, h) = ((420. * u).min(sw * 0.97), (350. * u).min(sh * 0.97));
@@ -2433,6 +2491,8 @@ async fn main() {
                 }
                 if let Some(fresh) = start {
                     let sfx = sfx_slot.take().unwrap_or_default();
+                    // เซฟสำรองอัตโนมัติก่อนเริ่มเล่นทุกครั้ง (กู้คืนได้ถ้ากดเกมใหม่ทับโดยไม่ตั้งใจ)
+                    rotate_backups(&save_path());
                     let mut g = if fresh { Game::new_world(sfx) } else {
                         match Game::load(sfx) { Ok(g) => g, Err(sfx) => Game::new_world(sfx) }
                     };
@@ -2550,8 +2610,12 @@ async fn main() {
                 v.cy += so.1.round();
                 render_world(g, &sp, &v, t_now, &font);
                 draw_hud(g, &sp, &font, tu.active);
-                draw_tut(g, &font, &v0, ui_scale());
-                draw_adv(g, &font, ui_scale());
+                // บอสอยู่ใกล้ = แถบเลือดบอสใช้พื้นที่ด้านบนแทนบทเรียน/เป้าหมาย
+                if !g.bosses.iter().any(|b| (b.x - g.p.x).hypot(b.y - g.p.y) < 420.) {
+                    draw_tut(g, &font, &v0, ui_scale());
+                    draw_adv(g, &font, ui_scale());
+                }
+                draw_ending(g, &font);
                 let mr = minimap_rect(g.big_map);
                 draw_rectangle(mr.x - 2., mr.y - 2., mr.w + 4., mr.h + 4., BLACK);
                 draw_texture_ex(&mini_tex, mr.x, mr.y, WHITE, DrawTextureParams { dest_size: Some(vec2(mr.w, mr.h)), ..Default::default() });
@@ -5574,5 +5638,73 @@ mod v11_tests {
         g.w.placed.remove(&(tx, ty));
         g.w.removed.insert((tx, ty));
         assert_eq!(tool_in_hand(&g), 0);
+    }
+}
+
+#[cfg(test)]
+mod v12_tests {
+    use super::*;
+
+    #[test]
+    fn slots_backups_export_import() {
+        let dir = std::env::temp_dir().join(format!("pr_saves_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let p = dir.join("s.txt").to_string_lossy().to_string();
+        assert!(slot_path(1).ends_with("_2.txt") && slot_path(2).ends_with("_3.txt"));
+        write_atomic(&p, "time 100\np 1 2\n").unwrap();
+        assert!(!std::path::Path::new(&format!("{}.tmp", p)).exists());
+        rotate_backups(&p);
+        write_atomic(&p, "time 999\n").unwrap();
+        rotate_backups(&p);
+        assert_eq!(backup_count(&p), 2);
+        write_atomic(&p, "พัง").unwrap();
+        restore_backup(&p).unwrap();
+        assert!(std::fs::read_to_string(&p).unwrap().contains("time 999"), "กู้คืนเซฟสำรองล่าสุด");
+        let ex = dir.join("ex");
+        std::env::set_var("PIXEL_REALM_EXPORT", &ex);
+        let out = export_save(&p, 0, "20261121-1300").unwrap();
+        assert!(out.contains("pixel_realm_slot1_20261121-1300.txt"));
+        write_atomic(&p, "time 5\n").unwrap();
+        import_latest(&p).unwrap();
+        assert!(std::fs::read_to_string(&p).unwrap().contains("time 999"), "นำเข้าไฟล์ส่งออก");
+        std::fs::write(ex.join("pixel_realm_bad.txt"), "hello").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let _ = std::fs::OpenOptions::new().append(true).open(ex.join("pixel_realm_bad.txt"));
+        assert!(stamp_now().len() == 13);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn final_boss_needs_preparation_and_ends_the_game() {
+        let mut g = Game::new_world_seed(777, Sfx::default());
+        g.time = DAYLEN * 0.6; // กลางคืน
+        g.darkv = 0.8;
+        assert!(!g.final_ready().0);
+        assert!(!g.try_summon_final((10, 10)), "ยังไม่พร้อม = ขอพรตามปกติ");
+        g.darkv = 0.;
+        assert!(!g.try_summon_final((10, 10)), "กลางวันไม่อัญเชิญ");
+        for k in 0..3 { g.dun_clear.insert((k, k)); }
+        for &(it, n) in FINAL_COST.iter() { g.p.inv[it] = n; }
+        g.darkv = 0.8;
+        assert!(g.try_summon_final((10, 10)));
+        assert!(g.bosses.iter().any(|b| b.kind == FINAL_KIND && b.hp >= 300.));
+        assert!(FINAL_COST.iter().all(|&(it, _)| g.p.inv[it] == 0), "ใช้วัตถุดิบแล้ว");
+        let b = g.bosses.iter().find(|b| b.kind == FINAL_KIND).unwrap().clone();
+        g.boss_die(&b);
+        assert!(g.final_won && g.ending > 0.);
+        g.adv_check();
+        assert!(g.adv_done & (1 << 15) != 0, "เป้าหมายบอสสุดท้าย");
+        // ฉากจบหยุดเกม แล้วกดปิดได้หลัง 3 วินาที
+        let t0 = g.time;
+        let tap = Input { atk: true, ..Default::default() };
+        g.update(0.5, &tap);
+        assert!(g.ending > 0. && g.time == t0, "เกมหยุดระหว่างฉากจบ");
+        for _ in 0..8 { g.update(0.5, &Input::default()); }
+        g.update(0.1, &tap);
+        assert_eq!(g.ending, 0.);
+        let s = g.balance_save_str();
+        let mut h = Game::new_world_seed(777, Sfx::default());
+        h.balance_load_line(&s.lines().next().unwrap().split_whitespace().skip(1).collect::<Vec<_>>());
+        assert!(h.final_won);
     }
 }
