@@ -268,6 +268,7 @@ impl Game {
         let mut fed_n = 0;
         let mut hungry_n = 0;
         let mut thirsty_n = 0;
+        let mut roofless_n = 0;
         let ids: Vec<u32> = self.npcs.iter().filter(|n| n.state == ST_HOME).map(|n| n.id).collect();
         for id in &ids {
             let Some(i) = self.idx(*id) else { continue };
@@ -276,8 +277,11 @@ impl Game {
             let eaten = self.take_food_for(bed, i);
             let fed = eaten.is_some();
             let has_water = self.water_within(bed.0, bed.1, 20);
+            let house = bed_ok && self.npc_has_house(bed);
             let n = &mut self.npcs[i];
             n.mood += if bed_ok { 3 } else { -25 };
+            // มีบ้านมีหลังคา = อุ่นใจ +4 · นอนกลางแจ้ง −3
+            if bed_ok { if house { n.mood += 4; } else { n.mood -= 3; roofless_n += 1; } }
             n.mood += if fed { 5 } else { -20 };
             // น้ำดื่ม: ต้องมีแหล่งน้ำจืด/บ่อน้ำใกล้บ้าน ไม่งั้นทรมานกว่าขาดอาหาร
             if !has_water { n.mood -= 15; n.soc.grudge = (n.soc.grudge + 2).min(100); thirsty_n += 1; }
@@ -296,6 +300,7 @@ impl Game {
             if fed { fed_n += 1 } else { hungry_n += 1 }
         }
         for n in self.npcs.iter_mut().filter(|n| n.state != ST_HOME) { n.talked = false; n.gifted = false; }
+        if roofless_n > 0 { self.news_add(format!("ชาวบ้าน {} คนนอนกลางแจ้ง — ล้อมเตียงด้วยกำแพง+ประตูให้เป็นบ้าน เขาจะมีความสุขขึ้น", roofless_n)); }
         if thirsty_n > 0 { self.news_add(format!("ชาวบ้าน {} คนไม่มีน้ำดื่มใกล้บ้าน — สร้างบ่อน้ำหรือย้ายเตียงไปใกล้แหล่งน้ำ", thirsty_n)); }
         // ย้ายออกเมื่อความสุข 0
         let leaving: Vec<u32> = self.npcs.iter().filter(|n| n.state == ST_HOME && n.mood <= 0).map(|n| n.id).collect();
@@ -431,8 +436,12 @@ impl Game {
                 let d = (tx - n.x).hypot(ty - n.y).max(0.01);
                 let (vx, vy) = ((tx - n.x) / d * spd * dt, (ty - n.y) / d * spd * dt);
                 let (nx, ny) = (n.x + vx, n.y + vy);
-                if !self.w.solid_at(tfloor(nx), tfloor(n.y - 3.)) { n.x = nx; n.moving = true; }
-                if !self.w.solid_at(tfloor(n.x), tfloor(ny - 3.)) { n.y = ny; n.moving = true; }
+                // ชาวบ้านเดินผ่านประตูได้เอง (ไม่ต้องเปิดค้างไว้)
+                let blk = |x: f32, y: f32| { let (a, b) = (tfloor(x), tfloor(y - 3.)); self.w.obj_at(a, b) != 12 && self.w.solid_at(a, b) };
+                if !blk(nx, n.y) { n.x = nx; n.moving = true; }
+                if !blk(n.x, ny) { n.y = ny; n.moving = true; }
+                // กลางคืนติดกำแพงกลับบ้านไม่ได้ → เดินอ้อมเข้าบ้านไปเอง (วาร์ปไปที่เตียง)
+                if night && !n.moving && n.state == ST_HOME && (n.x - home.0).hypot(n.y - home.1) > 10. && n.wt < -2. { n.x = home.0; n.y = home.1; n.wt = 0.; }
                 if vx.abs() > 0.01 { n.left = vx < 0.; }
             }
         }

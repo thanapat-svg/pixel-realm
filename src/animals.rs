@@ -90,7 +90,7 @@ impl Game {
         let (x, y) = (self.p.x + a.cos() * r, self.p.y + a.sin() * r);
         let (tx, ty) = (tfloor(x), tfloor(y));
         let t = self.w.tile_at(tx, ty);
-        if collide(&self.w, x, y) || self.w.camp_near(tx, ty, 8).is_some() { return; }
+        if collide(&self.w, x, y) || self.w.camp_near(tx, ty, 8).is_some() || self.room_of.contains_key(&(tx, ty)) { return; }
         let Some(k) = self.animal_for(t, night, gen_range(0., 1.)) else { return };
         if predator(k) && (peaceful() || self.in_grace() || self.in_safe(x, y) || self.w.near_fire(tx, ty, 8).is_some()) { return; }
         // เหยื่อมาเป็นฝูงเล็ก · นกเป็นฝูง · หมาป่ามาเป็นคู่/ฝูง

@@ -37,6 +37,8 @@ mod mcui;
 mod v11;
 mod saves;
 mod finale;
+mod house;
+use house::*;
 use extra::*;
 use farm::*;
 use guide::*;
@@ -66,16 +68,16 @@ use finale::*;
 
 // ======================= ค่าคงที่ =======================
 const DAYLEN: f32 = 240.0;
-const TN: [&str; 19] = [
+const TN: [&str; 21] = [
     "ทะเลลึก", "แหล่งน้ำ", "ชายหาด", "ทุ่งหญ้า", "ป่าทึบ", "เขตหินผา", "ภูเขา", "ดินแดนหิมะ", "ทะเลทราย", "ดันเจี้ยน", "กำแพงดันเจี้ยน", "ดินไถ", "ดินเปียก", "พื้นถ้ำ", "ผนังถ้ำ",
-    "หนองน้ำ", "สะวันนา", "เถ้าภูเขาไฟ", "ลาวา",
+    "หนองน้ำ", "สะวันนา", "เถ้าภูเขาไฟ", "ลาวา", "พื้นไม้", "พื้นหิน",
 ];
-const TCOL: [u32; 19] = [
+const TCOL: [u32; 21] = [
     0x1d4f91, 0x2f7fd0, 0xe6d29a, 0x5fae4a, 0x3f8a3a, 0x8a8a8a, 0x5c5450, 0xeef4f8, 0xe8b86a, 0x3a3a4c, 0x14141e, 0x7a5230, 0x52341e, 0x3a343c, 0x1a1618,
-    0x4f6136, 0xc4b25c, 0x4a4446, 0xe0500e,
+    0x4f6136, 0xc4b25c, 0x4a4446, 0xe0500e, 0xb07a44, 0x8e8a84,
 ];
 // tiles: 0 deep,1 water,2 sand,3 grass,4 forest,5 stone,6 mountain,7 snow,8 desert
-const SOLIDT: [bool; 19] = [true, true, false, false, false, false, true, false, false, false, true, false, false, false, true, false, false, false, true];
+const SOLIDT: [bool; 21] = [true, true, false, false, false, false, true, false, false, false, true, false, false, false, true, false, false, false, true, false, false];
 // objects: 1 tree,2 bush,3 flower,4 rock,5 ore,6 chest,7 cactus,8 pine,9 campfire,
 //   10 กำแพงไม้,11 กำแพงหิน,12 ประตูปิด,13 ประตูเปิด,14 กล่องเก็บของ,15 พ่อค้า,16 เต็นท์
 //   37 ปราสาท,38 กำแพงเมือง,39 บ่อน้ำ
@@ -389,6 +391,8 @@ fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
         Box::new(savanna_tex),
         Box::new(ash_tex),
         Box::new(lava_tex),
+        Box::new(|i| house::floor_tex(false, i)),
+        Box::new(|i| house::floor_tex(true, i)),
     ];
     for d in &defs {
         tiles.push((0..4).map(|i| at.add(&d(i))).collect::<Vec<_>>());
@@ -528,6 +532,9 @@ struct Game {
     nreqs: Vec<NReq>,
     tips: Vec<(String, f32)>,
     tips_seen: u32,
+    rooms: Vec<Room>,
+    room_of: HashMap<(i32, i32), usize>,
+    room_t: f32,
     an_hunted: u32,
     codex_done: u32,
     adv_done: u32,
@@ -632,7 +639,7 @@ impl Game {
             w, p: Player::new(0., 0.), en: vec![], parts: vec![], floats: vec![], toasts: vec![], time: 0., spawn: (0., 0.),
             seen: HashSet::new(), obj_dmg: HashMap::new(), shake: ((0, 0), 0.), hurt_flash: 0., darkv: 0., last_biome: -1,
             spawn_t: 0., save_t: 0., mini_t: 99., died: false, big_map: false, sfx,
-            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
+            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, rooms: vec![], room_of: HashMap::new(), room_t: 0., an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
@@ -1331,6 +1338,7 @@ impl Game {
         if self.boss_cd > 0. { self.boss_cd -= dt; }
         self.camp_t -= dt;
         if self.camp_t <= 0. { self.camp_t = 1.; self.discover_camps(); self.discover_marks(); self.tips_check(); }
+        self.house_tick(dt);
         self.land_tick(dt);
         self.upd_enemies(dt);
         self.upd_drops(dt);
@@ -1618,6 +1626,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     }
     draw_proj(g, sp, v);
     for pr in &g.proj { if matches!(pr.kind, 1 | 7 | 8 | 9) { lights.push((pr.x - v.cx, pr.y - v.cy, pulse_r(26., t_now, pr.x * 0.3, 1.5), false)); } }
+    draw_roofs(g, v);
     if let Some(sel) = g.build_sel {
         let (tx, ty) = g.build_target();
         // กริดช่วยวางให้ตรงช่อง (เฉพาะช่องที่อยู่ในระยะ)
@@ -1630,10 +1639,12 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                 }
             }
         }
-        let till = PIECES[sel].obj == OBJ_TILL;
-        let ok = if till { g.can_till(tx, ty) } else { g.can_place_at(tx, ty) && can_pay(&g.p, PIECES[sel].cost) };
+        let po = PIECES[sel].obj;
+        let till = po == OBJ_TILL;
+        let floor = po == OBJ_FLOOR_W || po == OBJ_FLOOR_S;
+        let ok = if till { g.can_till(tx, ty) } else if floor { g.in_reach((tx, ty)) && !SOLIDT[g.w.tile_at(tx, ty) as usize] } else { g.can_place_at(tx, ty) && can_pay(&g.p, PIECES[sel].cost) };
         let (px, py) = (tx as f32 * 16. - v.cx, ty as f32 * 16. - v.cy);
-        let r = if till { sp.tiles[T_SOIL as usize][0] } else { sp.obj[PIECES[sel].obj as usize] };
+        let r = if till { sp.tiles[T_SOIL as usize][0] } else if floor { sp.tiles[if po == OBJ_FLOOR_W { T_FLOORW } else { T_FLOORS } as usize][0] } else { sp.obj[po as usize] };
         blit(sp, v, r, px, py + 16. - r.h, false, Color::new(1., 1., 1., 0.6));
         let lc = if ok { Color::new(0.3, 1., 0.3, 0.9) } else { Color::new(1., 0.3, 0.3, 0.9) };
         draw_rectangle_lines(px * v.s, py * v.s, 16. * v.s, 16. * v.s, 2., lc);
@@ -1653,7 +1664,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         c.a = (p.l * 2.).min(1.);
         prect(v, (p.x - v.cx).round(), (p.y - v.cy).round(), 1., 1., c);
     }
-    if prefs::weather_fx() { draw_weather(g, v, t_now); }
+    if prefs::weather_fx() && !g.indoors() { draw_weather(g, v, t_now); }
     // night lighting (เซลล์ 4px ให้ดูเป็นพิกเซล)
     if g.darkv > 0.02 {
         // คทาเวทมนตร์: แสงรอบตัวกว้างกว่าและเต้นตามจังหวะ มีสีตามธาตุ
@@ -1774,7 +1785,7 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
     let hr = ((g.time / DAYLEN * 24.) + 6.) % 24.;
     let day = (g.time / DAYLEN) as i32 + 1;
     let night = !(6. ..18.).contains(&hr);
-    text(font, &format!("{} {} วันที่ {} · {:02}:{:02} · {}", SEASON_N[season(g) as usize], if night { "คืน" } else { "วัน" }, day, hr as i32, ((hr.fract()) * 60.) as i32, TN[g.w.tile_at(tfloor(p.x), tfloor(p.y)) as usize]), x, y + 13. * u, 13. * u, if night { hx(0xaabbff) } else { hx(0xffee99) });
+    text(font, &format!("{} {} วันที่ {} · {:02}:{:02} · {}", SEASON_N[season(g) as usize], if night { "คืน" } else { "วัน" }, day, hr as i32, ((hr.fract()) * 60.) as i32, if g.indoors() { format!("ในบ้าน ({})", TN[g.w.biome_at(tfloor(p.x), tfloor(p.y)) as usize]) } else { TN[g.w.biome_at(tfloor(p.x), tfloor(p.y)) as usize].to_string() }), x, y + 13. * u, 13. * u, if night { hx(0xaabbff) } else { hx(0xffee99) });
     y += 20. * u;
     if let Some(st) = g.need_status() { text(font, st, x, y + 10. * u, 12. * u, hx(0xffbb77)); y += 16. * u; }
     if p.hides > 0 || p.coat {
@@ -1802,7 +1813,7 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
         y += 16. * u;
     }
     if g.in_safe(p.x, p.y) {
-        text(font, "เขตปลอดภัย (แสงคบเพลิง)", x, y + 26. * u, 12. * u, hx(0x88ff88));
+        text(font, if g.indoors() { "ในบ้าน — ปลอดภัย · อุ่น · ฝน/หิมะไม่โดน" } else { "เขตปลอดภัย (แสงคบเพลิง)" }, x, y + 26. * u, 12. * u, hx(0x88ff88));
         y += 16. * u;
     }
     if g.w.dun.is_some() {
@@ -3726,13 +3737,13 @@ mod npc_tests {
         chest_with_food(&mut g, bed, 5);
         g.npcs[0].mood = 60;
         g.npc_dawn();
-        assert_eq!(g.npcs[0].mood, 68, "มีเตียง(+3) + อิ่ม(+5)");
+        assert_eq!(g.npcs[0].mood, 65, "มีเตียง(+3) + อิ่ม(+5) − นอนกลางแจ้ง(3)");
         assert_eq!(g.chests[&(bed.0 + 1, bed.1)][CORN], 4, "กินอาหารจากหีบ 1 ชิ้น");
         // อาหารหมด → ความสุขลด
         g.chests.clear();
         g.npcs[0].mood = 60;
         g.npc_dawn();
-        assert_eq!(g.npcs[0].mood, 43, "เตียง +3, หิว -20");
+        assert_eq!(g.npcs[0].mood, 40, "เตียง +3, หิว -20, กลางแจ้ง -3");
         // เตียงหาย + หิว → ลดหนัก
         g.w.placed.remove(&bed);
         g.npcs[0].mood = 60;
@@ -4340,15 +4351,15 @@ mod needs_tests {
         g.npc_dawn();
         assert_eq!(g.chests[&(901, 900)][CORN], 2, "กินของโปรดก่อน");
         assert_eq!(g.chests[&(901, 900)][BERRY], 3);
-        // 50 + 3(เตียง) + 5(อิ่ม) + 4(ของโปรด)
-        assert_eq!(g.npcs[0].mood, 62);
+        // 50 + 3(เตียง) + 5(อิ่ม) + 4(ของโปรด) − 3(นอนกลางแจ้ง)
+        assert_eq!(g.npcs[0].mood, 59);
         // เหลือแต่ของที่เกลียด → ยอมกินแต่ไม่สบอารมณ์
         g.chests.get_mut(&(901, 900)).unwrap().iter_mut().for_each(|v| *v = 0);
         g.chests.get_mut(&(901, 900)).unwrap()[BERRY] = 2;
         g.npcs[0].mood = 50;
         g.npc_dawn();
         assert_eq!(g.chests[&(901, 900)][BERRY], 1);
-        assert_eq!(g.npcs[0].mood, 50 + 3 + 5 - 4);
+        assert_eq!(g.npcs[0].mood, 50 + 3 + 5 - 4 - 3);
     }
 
     #[test]
@@ -5765,5 +5776,104 @@ mod body2_tests {
         let t = s.save_str();
         let f: Vec<f32> = t.split_whitespace().skip(1).map(|v| v.parse().unwrap()).collect();
         assert_eq!(Body::load(&f), s);
+    }
+}
+
+#[cfg(test)]
+mod house_tests {
+    use super::*;
+    fn lot() -> Game {
+        let mut g = Game::new_world_seed(4242, Sfx::default());
+        let (ox, oy) = (1000, 1000);
+        for y in oy - 2..oy + 9 { for x in ox - 2..ox + 9 { g.w.tmod.insert((x, y), 3); g.w.removed.insert((x, y)); } }
+        // กำแพง 5x5 (ภายใน 3x3) ประตูด้านล่างกลาง
+        for i in 0..5 {
+            for &(x, y) in &[(ox + i, oy), (ox + i, oy + 4), (ox, oy + i), (ox + 4, oy + i)] { g.w.placed.insert((x, y), 10); }
+        }
+        g.w.placed.insert((ox + 2, oy + 4), 12);
+        g.w.placed.insert((ox + 1, oy + 1), 33);
+        g.p.x = (ox + 2) as f32 * 16. + 8.;
+        g.p.y = (oy + 2) as f32 * 16. + 12.;
+        g
+    }
+    #[test]
+    fn closed_room_detected_and_open_room_not() {
+        let mut g = lot();
+        let r = g.w.room_from((1002, 1002)).expect("ห้องปิดต้องเจอ");
+        assert_eq!(r.tiles.len(), 9);
+        assert!(r.has_bed);
+        assert_eq!(r.doors.len(), 1);
+        assert!(r.walls.len() >= 15, "ผนัง+มุม {}", r.walls.len());
+        // ประตูเปิดก็ยังนับเป็นผนังห้อง
+        g.w.placed.insert((1002, 1004), 13);
+        assert!(g.w.room_from((1002, 1002)).is_some());
+        // เจาะกำแพง = ไม่ใช่ห้อง
+        g.w.placed.remove(&(1004, 1002));
+        assert!(g.w.room_from((1002, 1002)).is_none());
+        // ข้างนอกไม่ใช่ห้อง (ทุ่งโล่งเกิน ROOM_MAX)
+        assert!(lot().w.room_from((998, 998)).is_none());
+    }
+    #[test]
+    fn indoors_effects() {
+        let mut g = lot();
+        g.rooms_refresh();
+        assert_eq!(g.rooms.len(), 1);
+        assert!(g.indoors());
+        assert!(g.in_safe(1002. * 16. + 8., 1002. * 16. + 8.), "ในบ้านมอนไม่เกิด");
+        assert_eq!(g.season_climate(), (1., 1.));
+        // หลังคาจางลงเมื่ออยู่ข้างใน
+        for _ in 0..30 { g.house_tick(1. / 30.); }
+        assert!(g.rooms[0].alpha < 0.1);
+        // ออกไปข้างนอก หลังคากลับมา
+        g.p.y += 16. * 4.;
+        assert!(!g.indoors());
+        for _ in 0..30 { g.house_tick(1. / 30.); }
+        assert!(g.rooms.is_empty() || g.rooms[0].alpha > 0.9);
+        assert!(!g.in_safe(998. * 16., 998. * 16.) || !g.torches.is_empty());
+    }
+    #[test]
+    fn floors_place_and_refund() {
+        let mut g = lot();
+        g.p.inv[WOOD] = 3;
+        let k = (1003, 1003);
+        g.w.tmod.remove(&k);
+        g.w.tmod.remove(&(1002, 1002));
+        if SOLIDT[g.w.tile_at(k.0, k.1) as usize] { return; }
+        assert!(g.place_floor(k, OBJ_FLOOR_W));
+        assert_eq!(g.w.tile_at(k.0, k.1), T_FLOORW);
+        assert_eq!(g.p.inv[WOOD], 2);
+        assert!(!SOLIDT[T_FLOORW as usize]);
+        // พื้นไม่ทำให้ห้องรั่ว
+        assert!(g.w.room_from((1002, 1002)).is_some());
+        // วางซ้ำ = รื้อคืน
+        assert!(g.place_floor(k, OBJ_FLOOR_W));
+        assert_eq!(g.w.tile_at(k.0, k.1), g.w.gen_tile(k.0, k.1));
+        assert_eq!(g.p.inv[WOOD], 3);
+        // ไม้ → หิน เปลี่ยนชนิดแล้วคืนไม้
+        g.p.inv[STONE] = 1;
+        g.place_floor(k, OBJ_FLOOR_W);
+        assert!(g.place_floor(k, OBJ_FLOOR_S));
+        assert_eq!(g.w.tile_at(k.0, k.1), T_FLOORS);
+        assert_eq!((g.p.inv[WOOD], g.p.inv[STONE]), (3, 0));
+        // ไบโอมใต้พื้นยังเป็นของเดิม
+        assert_eq!(g.w.biome_at(k.0, k.1), g.w.gen_tile(k.0, k.1));
+    }
+    #[test]
+    fn floor_save_roundtrip() {
+        let mut g = lot();
+        g.p.inv[WOOD] = 2;
+        g.w.tmod.remove(&(1002, 1002));
+        if SOLIDT[g.w.tile_at(1002, 1002) as usize] { return; }
+        assert!(g.place_floor((1002, 1002), OBJ_FLOOR_W));
+        let s = g.save_string();
+        let h = Game::load_str(&s, Sfx::default()).ok().expect("load");
+        assert_eq!(h.w.tile_at(1002, 1002), T_FLOORW);
+    }
+    #[test]
+    fn adv_house_needs_room() {
+        let mut g = lot();
+        assert!(g.adv_check_one(3));
+        g.w.placed.remove(&(1004, 1002));
+        assert!(!g.adv_check_one(3), "เตียงกลางแจ้งยังไม่นับเป็นบ้าน");
     }
 }

@@ -9,7 +9,7 @@ pub struct Piece {
     pub icon: usize,
     pub cost: &'static [(usize, i32)],
 }
-pub const PIECES: [Piece; 14] = [
+pub const PIECES: [Piece; 16] = [
     Piece { name: "กำแพงไม้", desc: "กั้นทางได้ ตีพังได้ (ได้ไม้คืน)", obj: 10, icon: IC_WWALL, cost: &[(WOOD, 2)] },
     Piece { name: "กำแพงหิน", desc: "แข็งแรงกว่ากำแพงไม้", obj: 11, icon: IC_SWALL, cost: &[(STONE, 3)] },
     Piece { name: "ประตู", desc: "กด Q หรือปุ่ม \"ใช้\" เพื่อเปิด-ปิด", obj: 12, icon: IC_DOOR, cost: &[(WOOD, 4)] },
@@ -24,6 +24,8 @@ pub const PIECES: [Piece; 14] = [
     Piece { name: "บ่อน้ำ", desc: "น้ำดื่มสะอาด (ดื่มแล้ว +45) · ชาวบ้านในรัศมี 20 ช่องมีน้ำใช้ ไม่ต้องอยู่ริมน้ำ", obj: 39, icon: IC_POT, cost: &[(STONE, 10), (WOOD, 4)] },
     Piece { name: "กำแพงเมือง", desc: "กำแพงหินสูง ทนทานกว่ากำแพงหิน (นับรวมเป็นกำแพงเมือง)", obj: 38, icon: IC_SWALL, cost: &[(STONE, 8)] },
     Piece { name: "ปลูกต้นกล้า", desc: "ปลูกต้นไม้ (ใช้เมล็ดจากผลไม้) · 4 วันโตเป็นต้นไม้ตามไบโอม · ฤดูหนาวไม่โต", obj: T_SAPLING, icon: WOOD, cost: &[(WOOD, 1), (BERRY, 1)] },
+    Piece { name: "พื้นไม้", desc: "ปูพื้นในบ้าน (ไม้ 1/ช่อง) · วางซ้ำที่เดิม = รื้อคืนไม้", obj: OBJ_FLOOR_W, icon: IC_WWALL, cost: &[(WOOD, 1)] },
+    Piece { name: "พื้นหิน", desc: "ปูพื้นหิน (หิน 1/ช่อง) · วางซ้ำที่เดิม = รื้อคืนหิน", obj: OBJ_FLOOR_S, icon: IC_SWALL, cost: &[(STONE, 1)] },
 ];
 
 /// สิ่งที่ Game ขอให้ UI เปิด
@@ -67,6 +69,16 @@ impl Game {
             }
             return;
         }
+        if pc.obj == OBJ_FLOOR_W || pc.obj == OBJ_FLOOR_S {
+            let k = self.build_target();
+            if !self.in_reach(k) { self.toast("ไกลเกินไป"); return; }
+            if self.place_floor(k, pc.obj) {
+                play(&self.sfx.door);
+                self.room_t = 0.;
+                self.save();
+            }
+            return;
+        }
         if !can_pay(&self.p, pc.cost) {
             self.toast("วัสดุไม่พอ");
             return;
@@ -87,6 +99,7 @@ impl Game {
             self.p.inv[it] -= n;
         }
         self.w.placed.insert((tx, ty), pc.obj);
+        self.room_t = 0.;
         self.ev[3] += 1;
         if pc.obj == 14 {
             self.chests.insert((tx, ty), [0; NI]);

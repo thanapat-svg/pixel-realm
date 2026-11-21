@@ -239,9 +239,12 @@ impl Game {
             return;
         }
         self.bed = Some(k);
+        let home = self.w.room_from(k).is_some();
         let t0 = self.time;
         self.time = ((self.time / DAYLEN).floor() + 1.) * DAYLEN;
-        self.sleep_needs(self.time - t0);
+        // นอนในบ้านมีหลังคา: หิว/กระหายระหว่างหลับแค่ครึ่งเดียว + ตื่นมาสดชื่น (วิ่งเร็ว 2 นาที)
+        self.sleep_needs((self.time - t0) * if home { 0.5 } else { 1. });
+        if home { self.p.buff_spd = self.p.buff_spd.max(120.); }
         self.p.hp = self.p.maxhp;
         self.en.clear();
         self.proj.clear();
@@ -258,7 +261,11 @@ impl Game {
         self.refresh_torches();
         let day = (self.time / DAYLEN) as i32 + 1;
         let hungry = if self.survival_mode() > 0 && (self.p.thirst < 30. || self.p.hunger < 30.) { " · ตื่นมาหิว/กระหายน้ำ" } else { "" };
-        self.toast(format!("หลับสบาย... เช้าวันที่ {} (เลือดเต็ม · แรงเต็ม · ตั้งเตียงเป็นจุดเกิด){}", day, hungry));
+        if home {
+            self.toast(format!("นอนในบ้านอุ่นสบาย... เช้าวันที่ {} (เลือดเต็ม · หิวช้าลงครึ่งหนึ่ง · สดชื่น วิ่งเร็ว 2 นาที){}", day, hungry));
+        } else {
+            self.toast(format!("หลับกลางแจ้ง... เช้าวันที่ {} (เลือดเต็ม · ตั้งเตียงเป็นจุดเกิด · ล้อมกำแพงให้เป็นบ้านจะนอนดีกว่านี้){}", day, hungry));
+        }
         self.save();
     }
     /// จุดเกิดใหม่: เตียงถ้ายังอยู่ ไม่งั้นจุดเกิดเดิม

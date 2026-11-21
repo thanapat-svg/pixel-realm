@@ -54,6 +54,7 @@ impl Game {
     /// ตัวคูณ (ความกระหาย, ความหิว) จากฤดู — ใช้เฉพาะกลางแจ้ง
     pub fn season_climate(&self) -> (f32, f32) {
         if self.w.dun.is_some() { return (1., 1.); }
+        if self.indoors() { return (1., 1.); }
         let fire = self.w.near_fire(tfloor(self.p.x), tfloor(self.p.y), 3).is_some();
         match season(self) { 1 => (1.15, 1.), 3 => (1., if fire || self.p.coat { 1. } else { 1.2 }), _ => (1., 1.) }
     }

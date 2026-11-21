@@ -1033,6 +1033,10 @@ fn tab_npc_dialog(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c:
         let trs: Vec<&str> = n.soc.traits_ranked().into_iter().take(known).map(|(k, hi)| Soc::trait_name(k, hi)).collect();
         let body = g.npc_body(&n);
         let mut info = vec![format!("รูปร่าง: {} · {}", body.describe(), body.look_words())];
+        if n.state == ST_HOME {
+            let bed_ok = g.w.placed.get(&n.bed) == Some(&33);
+            info.push(if !bed_ok { "บ้าน: ไม่มีเตียง (ความสุขลดทุกวัน)".to_string() } else if g.npc_has_house(n.bed) { "บ้าน: มีบ้านมีหลังคา (อุ่นใจ ความสุข +4/วัน)".to_string() } else { "บ้าน: นอนกลางแจ้ง — ล้อมเตียงด้วยกำแพง+ประตู (ความสุข −3/วัน)".to_string() });
+        }
         info.push(format!("ความรู้สึกต่อคุณ: {}", if n.married { "คู่สมรส" } else { opinion_label(op) }));
         info.push(format!("นิสัย: {}{}", trs.join(" · "), if known < 5 { " · (ยังรู้จักไม่หมด)" } else { "" }));
         info.push(format!("ของที่ชอบ: {}", if n.hearts >= 4 { INAME[n.soc.love as usize] } else { "ยังไม่รู้ (สนิท 4 ขึ้นไปถึงจะรู้)" }));

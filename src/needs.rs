@@ -32,7 +32,12 @@ impl Game {
     /// (ตัวคูณความกระหาย, ตัวคูณความหิว) ตามภูมิอากาศใต้เท้า
     pub fn climate(&self) -> (f32, f32) {
         if self.w.dun.is_some() { return (1., 1.); }
-        let t = self.w.tile_at(tfloor(self.p.x), tfloor(self.p.y));
+        if self.indoors() {
+            // ในบ้าน: ร่ม อุ่น — ร้อน/แห้งยังกระหายบ้างแต่น้อยลงมาก
+            let t = self.w.biome_at(tfloor(self.p.x), tfloor(self.p.y));
+            return match t { 8 => (1.3, 1.0), T_ASH => (1.6, 1.0), T_SAVANNA => (1.15, 1.0), _ => (1., 1.) };
+        }
+        let t = self.w.biome_at(tfloor(self.p.x), tfloor(self.p.y));
         let fire = self.w.near_fire(tfloor(self.p.x), tfloor(self.p.y), 3).is_some();
         match t { 8 => (2.2, 1.0), 7 => (1.0, if fire { 1.0 } else if self.p.coat { 1.15 } else { 1.5 }), T_SAVANNA => (1.6, 1.0), T_ASH => (2.6, 1.0), T_SWAMP => (1.0, 1.1), _ => (1., 1.) }
     }

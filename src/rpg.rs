@@ -630,7 +630,7 @@ impl Game {
 impl Game {
     pub fn upd_weather(&mut self, dt: f32) {
         // ชนิดอากาศตามไบโอมที่ยืนอยู่: หิมะ = ดินแดนหิมะ · ทะเลทราย = ไม่มีฝน · ที่เหลือ = ฝน
-        let bt = self.w.tile_at(tfloor(self.p.x), tfloor(self.p.y));
+        let bt = self.w.biome_at(tfloor(self.p.x), tfloor(self.p.y));
         self.weather_kind = if self.w.dun.is_some() { 0 } else { self.season_weather(match bt { 7 => 2, 8 => 0, _ => 1 }, bt) };
         self.rain_t -= dt;
         if self.rain_t <= 0. {
@@ -659,6 +659,7 @@ impl Game {
 impl Game {
     /// ตัวคูณความเร็วเดินจากสภาพอากาศ: หิมะช้าลงได้ถึง 18% · ฝน 5%
     pub fn weather_mul(&self) -> f32 {
+        if self.indoors() { return 1.; }
         match self.weather_kind {
             2 => 1. - 0.18 * self.rain.min(1.),
             1 => 1. - 0.05 * self.rain.min(1.),
