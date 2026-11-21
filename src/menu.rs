@@ -723,7 +723,7 @@ fn tab_settings(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: R
     let rh = 50. * u;
     let mut flip = 0;
     let rows: [(&str, &str, bool); 3] = [
-        ("เสียงเอฟเฟกต์", "ดาบ ธนู โดนตี เก็บของ ฯลฯ", g.sfx_on),
+        ("เสียงเอฟเฟกต์", if crate::assets::HQ_LOADED.load(std::sync::atomic::Ordering::Relaxed) >= 60 { "ไฟล์เสียงสมจริงโหลดครบแล้ว" } else { "ใช้เสียงสำรองในโค้ด (โหลดไฟล์เสียงไม่เจอ)" }, g.sfx_on),
         ("เพลงประกอบ", "เปลี่ยนตามฉาก: สำรวจ · แคมป์ · บอส · ดันเจี้ยน/กลางคืน", g.bgm_on),
         ("เล็งอัตโนมัติ", "แตะโจมตี = ยิง/ฟันมอนสเตอร์ใกล้สุด (ลากเล็งเองได้เหมือนเดิม)", g.auto_aim),
     ];

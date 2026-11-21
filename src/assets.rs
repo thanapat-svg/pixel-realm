@@ -26,10 +26,28 @@ async fn first_bytes(base: &str, exts: &[&str]) -> Option<Vec<u8>> {
     None
 }
 
+/// ที่อยู่ไฟล์ asset ตามแพลตฟอร์ม: บนคอมอ้างจากโฟลเดอร์โปรเจกต์ ("assets/audio/x.ogg")
+/// แต่บน Android โฟลเดอร์ assets คือราก APK ต้องอ้างเป็น "audio/x.ogg"
+/// (ก่อน v16.1 ใช้ "assets/..." ทุกแพลตฟอร์ม → บนมือถือโหลดเสียงไม่เจอเลย ตกไปใช้เสียงสังเคราะห์ในโค้ดตลอด)
+fn asset_path(rel: &str) -> String {
+    if cfg!(target_os = "android") { rel.to_string() } else { format!("assets/{}", rel) }
+}
+
+/// จำนวนไฟล์เสียงคุณภาพสูงที่โหลดสำเร็จ (โชว์ในตั้งค่า ให้เช็กได้ว่าบนเครื่องจริงโหลดเจอ)
+pub static HQ_LOADED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 /// โหลดเสียงจาก assets/audio/<name>.ogg|wav (None ถ้าไม่มีไฟล์)
 pub async fn try_sound(name: &str) -> Option<Sound> {
-    let b = first_bytes(&format!("audio/{}", name), &["ogg", "wav"]).await?;
-    load_sound_from_bytes(&b).await.ok()
+    for e in ["ogg", "wav"] {
+        if let Ok(b) = load_file(&asset_path(&format!("audio/{}.{}", name, e))).await {
+            if !b.is_empty() {
+                let s = load_sound_from_bytes(&b).await.ok();
+                if s.is_some() { HQ_LOADED.fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
+                return s;
+            }
+        }
+    }
+    None
 }
 
 /// แทนเสียงสังเคราะห์ด้วยไฟล์ที่มี

@@ -4,7 +4,7 @@
 set -u
 cd "$(dirname "$0")/.."
 python3 -m pip install --quiet numpy scipy pillow 2>&1 | tail -1 || true
-python3 tools/gen_audio.py --out assets/audio --sr 44100 || echo "::warning::gen_audio ล้มเหลว (เกมใช้เสียงในโค้ดแทน)"
+python3 tools/gen_audio.py --out assets/audio --sr 44100 --secs 90 || echo "::warning::gen_audio ล้มเหลว (เกมใช้เสียงในโค้ดแทน)"
 # WAV ไม่บีบอัด ~78 MB → OGG Vorbis (~8 MB) — ถ้าแปลงไม่ได้ก็ใช้ WAV เดิม
 command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null) || true
 if command -v ffmpeg >/dev/null; then
