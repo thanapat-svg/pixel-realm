@@ -43,6 +43,8 @@ mod psy;
 use psy::*;
 mod ambience;
 use ambience::*;
+mod nav;
+use nav::*;
 use extra::*;
 use farm::*;
 use guide::*;
@@ -565,6 +567,9 @@ struct Game {
     paint_last: Option<(i32, i32)>,
     auto_doors: HashSet<(i32, i32)>,
     sites: Vec<Site>,
+    pins: Vec<(i32, i32)>,
+    pin_on: Option<usize>,
+    home_cd: f32,
     step_d: f32,
     step_last: usize,
     step_tracks: Vec<StepTrack>,
@@ -684,7 +689,7 @@ impl Game {
             w, p: Player::new(0., 0.), en: vec![], parts: vec![], floats: vec![], toasts: vec![], time: 0., spawn: (0., 0.),
             seen: HashSet::new(), obj_dmg: HashMap::new(), shake: ((0, 0), 0.), hurt_flash: 0., darkv: 0., last_biome: -1,
             spawn_t: 0., save_t: 0., mini_t: 99., died: false, big_map: false, sfx,
-            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, rooms: vec![], room_of: HashMap::new(), room_t: 0., paint_last: None, auto_doors: HashSet::new(), sites: vec![], step_d: 0., step_last: 0, step_tracks: vec![], step_budget: 4., amb: [0.; AMB_N], amb_t: 0., hammer_t: 0., aim_last: None, aim_last_t: 0., site_wait_t: 0., sit: None, sit_t: 0., psy: HashMap::new(), psy_t: 0., gather: HashMap::new(), an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
+            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, rooms: vec![], room_of: HashMap::new(), room_t: 0., paint_last: None, auto_doors: HashSet::new(), sites: vec![], pins: vec![], pin_on: None, home_cd: 0., step_d: 0., step_last: 0, step_tracks: vec![], step_budget: 4., amb: [0.; AMB_N], amb_t: 0., hammer_t: 0., aim_last: None, aim_last_t: 0., site_wait_t: 0., sit: None, sit_t: 0., psy: HashMap::new(), psy_t: 0., gather: HashMap::new(), an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
@@ -730,6 +735,7 @@ impl Game {
         s += &p.body.save_str();
         s += &self.npc_save_str();
         s += &self.sites_save();
+        s += &self.nav_save();
         if let Some(b) = self.bed { s += &format!("bed {} {}\n", b.0, b.1); }
         s += "crops";
         for ((x, y), c) in &self.crops { s += &format!(" {},{},{},{:.1},{:.1}", x, y, c.kind, c.grown, c.wet); }
@@ -825,6 +831,7 @@ impl Game {
                 "nsoc" | "nrel" | "nnews" => g.soc_load_line(tag, &rest),
                 "npsy" => g.psy_load(&rest),
                 "site" => g.sites_load(&rest),
+                "pins" => g.nav_load(&rest),
                 "nreq" => g.quests_load_line(&rest),
                 "v9" => g.balance_load_line(&rest),
                 "pet" => g.pets_load_line(&rest),
@@ -1419,6 +1426,7 @@ impl Game {
         self.house_tick(dt);
         self.sites_tick(dt);
         self.world_steps_tick(dt);
+        self.nav_tick(dt);
         self.psy_tick(dt);
         self.land_tick(dt);
         self.upd_enemies(dt);
@@ -2709,8 +2717,11 @@ async fn main() {
                             g.big_map = false;
                             g.mini_t = 99.;
                             tap_used = true;
-                        } else if tu.active && mr.contains(tp) {
+                        } else if g.map_tap(tp, mr, map_ctr, map_sc, 11. * uu) {
+                            tap_used = true;
+                        } else if tu.active && !mr.contains(tp) {
                             inp.map = true;
+                            tap_used = true;
                         }
                     }
                     if !tu.active && !tap_used {
@@ -2768,6 +2779,7 @@ async fn main() {
                 v.cx += so.0.round();
                 v.cy += so.1.round();
                 render_world(g, &sp, &v, t_now, &font);
+                draw_nav_world(g, &v, &font, t_now);
                 draw_hud(g, &sp, &font, tu.active);
                 // บอสอยู่ใกล้ = แถบเลือดบอสใช้พื้นที่ด้านบนแทนบทเรียน/เป้าหมาย
                 if !g.bosses.iter().any(|b| (b.x - g.p.x).hypot(b.y - g.p.y) < 420.) {
@@ -2808,11 +2820,16 @@ async fn main() {
                         let rr = if g.big_map { 11. * u } else { 6. * u };
                         draw_circle(mx, my, rr, hx(0x10202b));
                         draw_circle_lines(mx, my, rr, 2., if spn { hx(0xffffff) } else { hx(0x6ae8ff) });
-                        text_c(&font, if spn { "บ" } else { "W" }, mx, my + rr * 0.5, rr * 1.4, if spn { hx(0xffffff) } else { hx(0x6ae8ff) });
+                        if spn { text_c(&font, "เริ่ม", mx, my + rr * 0.35, rr * 0.85, hx(0xffffff)); } else { text_c(&font, "W", mx, my + rr * 0.5, rr * 1.4, hx(0x6ae8ff)); }
                     }
+                    draw_nav_map(g, &font, mr, map_ctr, map_sc, g.big_map, u);
                 }
                 if g.big_map {
-                    text_c(&font, "M = แคมป์ · W = เสาวาร์ป (แตะเพื่อวาร์ป) · บ = จุดเกิด · ม่วง = ดันเจี้ยน · แดงเล็ก = บอส · จุดแดงใหญ่ = คุณ", sw / 2., mr.y + mr.h + 18. * u, 13. * u, WHITE);
+                    // คำอธิบาย: แถบดำโปร่งด้านล่างในกรอบแผนที่ (ไม่ทับแถบไอเทม)
+                    draw_rectangle(mr.x, mr.y + mr.h - 40. * u, mr.w, 40. * u, Color::new(0., 0., 0., 0.62));
+                    let lf = (mr.w / 50.).min(14. * u);
+                    text_c(&font, "รูปบ้าน = บ้าน (แตะ = วาร์ปกลับ) · W = เสาวาร์ป · เริ่ม = จุดเริ่มเกม · M = แคมป์ · จุดแดง = คุณ", mr.x + mr.w / 2., mr.y + mr.h - 24. * u, lf, WHITE);
+                    text_c(&font, "แตะที่ว่าง = ปักหมุด+นำทาง · แตะหมุด = นำทาง · แตะซ้ำ = ลบ · แตะนอกแผนที่ = ปิด", mr.x + mr.w / 2., mr.y + mr.h - 7. * u, lf, hx(0x90f4ff));
                 }
                 if in_play {
                     draw_touch(&tu, &sp, &font, g.build_sel.is_some(), g.p.weapon, g.p.dash_cd, g.use_label().as_deref());
@@ -6333,5 +6350,60 @@ mod world_step_tests {
         for n in g.npcs.iter_mut() { n.x += 18.; }
         g.world_steps_tick(0.0);
         assert!(g.step_budget >= 0., "เล่นได้ไม่เกินโควตา แม้ 30 คนก้าวพร้อมกัน");
+    }
+}
+
+#[cfg(test)]
+mod nav_tests {
+    use super::*;
+    #[test]
+    fn home_marker_warp_and_cooldown() {
+        let mut g = Game::new_world_seed(4242, Sfx::default());
+        for y in 995..1006 { for x in 995..1006 { g.w.tmod.insert((x, y), 3); g.w.removed.insert((x, y)); } }
+        assert!(g.home_tile().is_none());
+        assert!(!g.warp_home(), "ยังไม่มีบ้าน");
+        g.w.placed.insert((1000, 1000), 33);
+        g.bed = Some((1000, 1000));
+        assert_eq!(g.home_tile(), Some(((1000, 1000), false)));
+        g.p.x = 5000.; g.p.y = 5000.;
+        assert!(g.warp_home());
+        assert!((g.p.x - 1000. * 16.).abs() < 40. && (g.p.y - 1000. * 16.).abs() < 40.);
+        g.p.x = 5000.;
+        assert!(!g.warp_home(), "ติดรอใช้ซ้ำ");
+        g.nav_tick(HOME_CD + 1.);
+        assert!(g.warp_home());
+        // ล้อมห้อง → เป็นบ้านมีหลังคา
+        for i in 0..5 { for &(x, y) in &[(998 + i, 998), (998 + i, 1002), (998, 998 + i), (1002, 998 + i)] { g.w.placed.insert((x, y), 10); } }
+        g.w.placed.insert((1000, 1002), 12);
+        assert_eq!(g.home_tile(), Some(((1000, 1000), true)));
+    }
+    #[test]
+    fn pins_place_navigate_delete_and_save() {
+        let mut g = Game::new_world_seed(4242, Sfx::default());
+        g.p.x = 0.; g.p.y = 0.;
+        let mr = Rect::new(0., 0., 480., 480.);
+        let ctr = (0, 0);
+        // แตะตรงกลางค่อนขวา → หมุดที่ (+40 ช่อง ด้วยสเกล 4)
+        assert!(g.map_tap(vec2(240. + 40., 240.), mr, ctr, 4, 11.));
+        assert_eq!(g.pins.len(), 1);
+        assert_eq!(g.pins[0], (40, 0));
+        assert_eq!(g.pin_on, Some(0));
+        let s = g.nav_save();
+        let mut h = Game::new_world_seed(4242, Sfx::default());
+        let r: Vec<&str> = s.split_whitespace().skip(1).collect();
+        h.nav_load(&r);
+        assert_eq!((h.pins.clone(), h.pin_on), (vec![(40, 0)], Some(0)));
+        // แตะหมุดที่กำลังนำทาง = ลบ
+        let (mx, my, _) = map_pt(40, 0, ctr, 4, mr);
+        assert!(g.map_tap(vec2(mx, my), mr, ctr, 4, 11.));
+        assert!(g.pins.is_empty() && g.pin_on.is_none());
+        // ถึงหมุดแล้วเลิกนำทางเอง
+        g.map_tap(vec2(240. + 10., 240.), mr, ctr, 4, 11.);
+        g.p.x = 10. * 16. + 8.; g.p.y = 0. * 16. + 8.;
+        g.nav_tick(0.016);
+        assert!(g.pin_on.is_none());
+        // หมุดเต็ม 8 แล้วแทนอันเก่า
+        for k in 0..10 { g.map_tap(vec2(20. + k as f32 * 40., 400.), mr, ctr, 4, 11.); }
+        assert_eq!(g.pins.len(), PIN_MAX);
     }
 }
