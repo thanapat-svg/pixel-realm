@@ -46,6 +46,8 @@ use ambience::*;
 mod nav;
 use nav::*;
 mod realm;
+mod path;
+use path::*;
 use realm::*;
 use extra::*;
 use farm::*;
@@ -516,7 +518,7 @@ fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
 #[derive(Clone, Copy, PartialEq)]
 enum EK { Slime, Skel, Bat, Soldier }
 #[derive(Clone)]
-struct Enemy { k: EK, x: f32, y: f32, hp: f32, spd: f32, dmg: i32, xp: i32, coin: i32, vx: f32, vy: f32, kb: f32, flash: f32, wt: f32, wdx: f32, wdy: f32, anim: f32, pal: usize, dead: bool, night: bool, burn: f32, slow: f32, stun: f32, btick: f32 }
+struct Enemy { path: Path, k: EK, x: f32, y: f32, hp: f32, spd: f32, dmg: i32, xp: i32, coin: i32, vx: f32, vy: f32, kb: f32, flash: f32, wt: f32, wdx: f32, wdy: f32, anim: f32, pal: usize, dead: bool, night: bool, burn: f32, slow: f32, stun: f32, btick: f32 }
 struct Particle { x: f32, y: f32, vx: f32, vy: f32, l: f32, c: Color }
 struct Float { x: f32, y: f32, t: String, c: Color, l: f32, icon: Option<usize>, sz: f32 }
 struct Player { x: f32, y: f32, dir: usize, flip: bool, hp: i32, maxhp: i32, xp: i32, lvl: i32, sword: usize, pick: bool, rod: bool, elem: u8, elems: u8, inv: [i32; NI], invul: f32, kbx: f32, kby: f32, kbt: f32, atk_t: f32, atk_cd: f32, anim: f32, moving: bool, regen: f32, last_hit: f32, kills: i32, weapon: u8, bow: bool, staff: u8, armor: [u8; 3], outfit: u8, outfits: u8, sp: i32, st: [u8; 4], wplus: [u8; 3], aplus: [u8; 3], dash_t: f32, dash_cd: f32, dash_dir: Vec2, ghost_t: f32, buff_spd: f32, buff_crit: f32, can: bool, water: i32, hunger: f32, thirst: f32, rest: f32, sick: f32, starve: f32, body: Body, hides: i32, coat: bool, boat: bool }
@@ -1213,6 +1215,7 @@ impl Game {
     }
     fn upd_enemies(&mut self, dt: f32) {
         let siege_c = self.rs.siege.as_ref().map(|s| s.center);
+        let mut path_budget = PATH_BUDGET + 1;
         let mut wall_hits: Vec<(i32, i32)> = vec![];
         let mut en = std::mem::take(&mut self.en);
         for e in en.iter_mut() {
@@ -1240,7 +1243,7 @@ impl Game {
             }
             let (dx, dy) = (self.p.x - e.x, self.p.y - e.y);
             let d = dx.hypot(dy).max(0.001);
-            if d > 440. && self.w.dun.is_none() { e.dead = true; continue; }
+            if d > 440. && self.w.dun.is_none() && !(e.k == EK::Soldier && siege_c.is_some()) { e.dead = true; continue; }
             let (mut mx, mut my): (f32, f32);
             if e.kb > 0. {
                 e.kb -= dt;
@@ -1253,14 +1256,17 @@ impl Game {
                     let fd = ax.hypot(ay).max(0.001);
                     mx = -ax / fd * e.spd;
                     my = -ay / fd * e.spd;
-                } else if e.k == EK::Soldier && siege_c.is_some() && d > 90. {
-                    // ทัพบุก: มุ่งลานกลางเมือง (ถ้าเราเข้าใกล้ค่อยหันมาสู้)
-                    let c = siege_c.unwrap();
-                    let (ax, ay) = (c.0 - e.x, c.1 - e.y);
+                } else if e.k == EK::Soldier {
+                    // ทัพบุก: มุ่งลานกลางเมือง (ถ้าเราเข้าใกล้ค่อยหันมาสู้) · ยามเมือง: ไล่จับเรา — หาทางอ้อมสิ่งกีดขวาง
+                    let goal = match siege_c { Some(c) if d > 90. => c, _ => (self.p.x, self.p.y) };
+                    let mode = if siege_c.is_some() { Pass::Breach } else { Pass::Walk };
+                    let (gx, gy) = e.path.steer(&self.w, e.x, e.y, goal, mode, dt, &mut path_budget);
+                    let (ax, ay) = (gx - e.x, gy - e.y);
                     let l = ax.hypot(ay).max(0.001);
-                    mx = ax / l * e.spd;
-                    my = ay / l * e.spd;
-                } else if d < 130. || e.k == EK::Soldier {
+                    let sp = if l < 2. { 0. } else { e.spd };
+                    mx = ax / l * sp;
+                    my = ay / l * sp;
+                } else if d < 130. {
                     mx = dx / d * e.spd;
                     my = dy / d * e.spd;
                 } else {
@@ -3177,7 +3183,7 @@ mod tests {
         g.p.inv[ARROW] = 2;
         g.p.x = 0.; g.p.y = 0.;
         // ศัตรูทางขวา
-        g.en.push(Enemy { night: false, burn: 0., slow: 0., stun: 0., btick: 0., k: EK::Skel, x: 60., y: 6., hp: 4., spd: 0., dmg: 1, xp: 1, coin: 2, vx: 0., vy: 0., kb: 0., flash: 0., wt: 0., wdx: 0., wdy: 0., anim: 0., pal: 0, dead: false });
+        g.en.push(Enemy { path: Path::default(), night: false, burn: 0., slow: 0., stun: 0., btick: 0., k: EK::Skel, x: 60., y: 6., hp: 4., spd: 0., dmg: 1, xp: 1, coin: 2, vx: 0., vy: 0., kb: 0., flash: 0., wt: 0., wdx: 0., wdy: 0., anim: 0., pal: 0, dead: false });
         // กันกำแพง: ล้างวัตถุในแนวยิง
         for tx in -2..8 { for ty in -2..2 { g.w.removed.insert((tx, ty)); } }
         for _ in 0..5 { g.w.tmod.insert((0, 0), 3); }
@@ -6725,5 +6731,189 @@ mod realm_tests {
         g.coach_go(0, 1);
         assert!(g.time > t0);
         assert_eq!(g.player_city(), Some(1));
+    }
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+    /// ลานโล่ง 40x40 รอบ (ox,oy)
+    fn flat() -> (World, i32, i32) {
+        let mut w = World::new(777);
+        let (ox, oy) = (5000, 5000);
+        for y in oy - 20..oy + 20 { for x in ox - 20..ox + 20 { w.tmod.insert((x, y), 3); w.removed.insert((x, y)); } }
+        (w, ox, oy)
+    }
+    fn walk(w: &World, from: (i32, i32), to: (i32, i32), mode: Pass, secs: f32) -> (bool, f32) {
+        let (mut x, mut y) = tile_foot(from);
+        let goal = tile_foot(to);
+        let mut p = Path::default();
+        let dt = 1. / 30.;
+        let mut t = 0.;
+        while t < secs {
+            let mut b = 2;
+            let (gx, gy) = p.steer(w, x, y, goal, mode, dt, &mut b);
+            let (dx, dy) = (gx - x, gy - y);
+            let l = dx.hypot(dy).max(0.001);
+            let st = (40. * dt).min(l);
+            // ชาวบ้าน/ชาวเมืองชนแบบจุดที่เท้า (เดินผ่านประตูได้) · ทหารชนแบบกล่อง
+            let blk = |x: f32, y: f32| if mode == Pass::Door { let (a, b) = (tfloor(x), tfloor(y - 3.)); w.obj_at(a, b) != 12 && w.solid_at(a, b) } else { collide(w, x, y) };
+            if !blk(x + dx / l * st, y) { x += dx / l * st; }
+            if !blk(x, y + dy / l * st) { y += dy / l * st; }
+            if (x - goal.0).hypot(y - goal.1) < 6. { return (true, t); }
+            t += dt;
+        }
+        (false, t)
+    }
+    #[test]
+    fn path_goes_around_wall_without_cutting_corners() {
+        let (mut w, ox, oy) = flat();
+        for y in oy - 6..=oy + 6 { w.placed.insert((ox, y), 11); }
+        let p = find_path(&w, (ox - 4, oy), (ox + 4, oy), Pass::Door, PATH_NODES);
+        assert_eq!(*p.last().unwrap(), (ox + 4, oy));
+        let mut prev = (ox - 4, oy);
+        for &q in &p {
+            assert!(!w.solid_at(q.0, q.1), "ทางผ่านช่องทึบ {:?}", q);
+            if q.0 != prev.0 && q.1 != prev.1 { assert!(!w.solid_at(q.0, prev.1) && !w.solid_at(prev.0, q.1), "ตัดมุม"); }
+            assert!((q.0 - prev.0).abs() <= 1 && (q.1 - prev.1).abs() <= 1);
+            prev = q;
+        }
+        assert!(p.iter().any(|q| (q.1 - oy).abs() >= 7), "อ้อมปลายกำแพง");
+        // เดินตามจริงด้วยการชนแบบเกม
+        let (ok, t) = walk(&w, (ox - 4, oy), (ox + 4, oy), Pass::Door, 30.);
+        assert!(ok, "เดินไปถึงอีกฝั่ง ({}s)", t);
+    }
+    #[test]
+    fn walker_enters_house_through_door_and_escapes_u_trap() {
+        let (mut w, ox, oy) = flat();
+        // บ้าน 5x5 ประตูด้านล่าง
+        for x in ox..=ox + 4 { w.placed.insert((x, oy), 11); w.placed.insert((x, oy + 4), if x == ox + 2 { 12 } else { 11 }); }
+        for y in oy..=oy + 4 { w.placed.insert((ox, y), 11); w.placed.insert((ox + 4, y), 11); }
+        // จากข้างบนบ้าน → เข้าไปข้างใน (ต้องอ้อมไปประตูด้านล่าง)
+        let (ok, _) = walk(&w, (ox + 2, oy - 3), (ox + 2, oy + 2), Pass::Door, 40.);
+        assert!(ok, "เข้าบ้านทางประตู");
+        // กับดักรูปตัว U (ปากเปิดด้านหลัง) — เดินตรงจะติดก้นตัว U
+        let (mut w, ox, oy) = flat();
+        for y in oy - 4..=oy + 4 { w.placed.insert((ox + 3, y), 11); }
+        for x in ox - 2..=ox + 3 { w.placed.insert((x, oy - 4), 11); w.placed.insert((x, oy + 4), 11); }
+        let (ok, _) = walk(&w, (ox, oy), (ox + 8, oy), Pass::Door, 40.);
+        assert!(ok, "ออกจากตัว U ไปอีกฝั่ง");
+    }
+    #[test]
+    fn unreachable_goal_gives_closest_point_and_breach_mode_breaks_in() {
+        let (mut w, ox, oy) = flat();
+        for x in ox - 2..=ox + 2 { w.placed.insert((x, oy - 2), 11); w.placed.insert((x, oy + 2), 11); }
+        for y in oy - 2..=oy + 2 { w.placed.insert((ox - 2, y), 11); w.placed.insert((ox + 2, y), 11); }
+        let p = find_path(&w, (ox - 8, oy), (ox, oy), Pass::Door, PATH_NODES);
+        let end = *p.last().unwrap();
+        assert!((end.0 - ox).abs() <= 3 && (end.1 - oy).abs() <= 3 && !w.solid_at(end.0, end.1), "หยุดข้างกำแพงที่ใกล้สุด {:?}", end);
+        let p = find_path(&w, (ox - 8, oy), (ox, oy), Pass::Breach, PATH_NODES);
+        assert_eq!(*p.last().unwrap(), (ox, oy));
+        assert_eq!(p.iter().filter(|q| w.solid_at(q.0, q.1)).count(), 1, "ทุบกำแพงชั้นเดียว");
+        // กำแพงเมือง (ไม่ใช่ของผู้เล่น) ทุบไม่ได้
+        assert_eq!(tile_cost(&w, ox - 30, oy, Pass::Breach), tile_cost(&w, ox - 30, oy, Pass::Door).filter(|_| !w.solid_at(ox - 30, oy)));
+    }
+    #[test]
+    fn pathfinding_is_cheap_enough() {
+        let g = Game::new_world_seed(4242, Sfx::default());
+        let c = g.w.realm.cities[0].clone();
+        let t0 = std::time::Instant::now();
+        let mut n = 0;
+        for i in 0..20 {
+            let a = (c.pos.0 - c.r + 2 + i, c.pos.1 - c.r + 2);
+            let b = (c.pos.0 + c.r - 2 - i, c.pos.1 + c.r - 2);
+            n += find_path(&g.w, a, b, Pass::Door, PATH_NODES).len();
+        }
+        let ms = t0.elapsed().as_secs_f32() * 1000. / 20.;
+        eprintln!("A* เฉลี่ย {:.2} ms (debug) · ความยาวรวม {}", ms, n);
+        assert!(ms < 40., "ช้าเกินไป {} ms", ms);
+    }
+    #[test]
+    fn citizens_reach_their_targets_in_city() {
+        let mut g = Game::new_world_seed(4242, Sfx::default());
+        let c = g.w.realm.cities[0].clone();
+        g.p.x = c.pos.0 as f32 * 16.; g.p.y = c.pos.1 as f32 * 16. + 40.;
+        g.realm_tick(0.01);
+        let n = g.rs.cit.iter().filter(|c| c.city == 0).count();
+        assert!(n > 0);
+        // นับจำนวนครั้งที่ถึงเป้าหมาย (เปลี่ยนเป้าหลังรอ) vs ยอมแพ้เพราะติด
+        let mut arrive = 0;
+        let mut give_up = 0;
+        let mut last: Vec<(f32, f32)> = g.rs.cit.iter().map(|c| (c.tx, c.ty)).collect();
+        for _ in 0..(60 * 30) {
+            let before: Vec<(f32, f32, f32, f32)> = g.rs.cit.iter().map(|c| (c.x, c.y, c.tx, c.ty)).collect();
+            g.time += 1. / 30.;
+            g.realm_tick(1. / 30.);
+            for (i, c) in g.rs.cit.iter().enumerate() {
+                if (c.tx, c.ty) != last[i] {
+                    let b = before[i];
+                    if (b.0 - b.2).hypot(b.1 - b.3) < 4. { arrive += 1; } else { give_up += 1; }
+                    last[i] = (c.tx, c.ty);
+                }
+                assert!(!g.w.solid_at(tfloor(c.x), tfloor(c.y - 3.)) || g.w.obj_at(tfloor(c.x), tfloor(c.y - 3.)) == 12, "ชาวเมืองทะลุของ");
+            }
+        }
+        eprintln!("ถึงเป้า {} ยอมแพ้ {} คน {}", arrive, give_up, n);
+        assert!(arrive >= n as i32 * 2 && give_up * 10 <= arrive, "ถึง {} ติด {}", arrive, give_up);
+    }
+    fn clear_ground(g: &mut Game, cx: i32, cy: i32, r: i32) {
+        for y in cy - r..=cy + r { for x in cx - r..=cx + r { g.w.tmod.insert((x, y), 3); g.w.removed.insert((x, y)); } }
+    }
+    #[test]
+    fn villager_walks_home_through_door_at_night_without_teleport() {
+        let mut g = Game::new_world_seed(4242, Sfx::default());
+        let (sx, sy) = (tfloor(g.spawn.0) + 30, tfloor(g.spawn.1) + 30);
+        clear_ground(&mut g, sx, sy, 14);
+        // บ้าน 5x5 ประตูทิศใต้ เตียงข้างใน
+        for x in sx..=sx + 4 { g.w.placed.insert((x, sy), 11); g.w.placed.insert((x, sy + 4), if x == sx + 2 { 12 } else { 11 }); }
+        for y in sy..=sy + 4 { g.w.placed.insert((sx, y), 11); g.w.placed.insert((sx + 4, y), 11); }
+        let bed = (sx + 2, sy + 1);
+        g.w.placed.insert(bed, 33);
+        let mut n = npc::Npc { id: 1, name: 1, look: 0, x: (sx + 2) as f32 * 16. + 8., y: (sy - 4) as f32 * 16. + 11., state: npc::ST_HOME, hearts: 3, mood: 70, married: false, child: false, role: 0, bed, anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false, soc: Soc::generate(1, 1) };
+        n.role = 0;
+        g.npcs.push(n);
+        g.p.x = (sx - 10) as f32 * 16.; g.p.y = sy as f32 * 16.;
+        while !g.is_night_hr() { g.time += 10.; }
+        g.last_day = day_of(&g);
+        let home = (bed.0 as f32 * 16. + 8., bed.1 as f32 * 16. + 18.);
+        let mut prev = (g.npcs[0].x, g.npcs[0].y);
+        let mut reached = false;
+        for _ in 0..(30 * 30) {
+            g.npc_tick(1. / 30.);
+            let n = &g.npcs[0];
+            assert!((n.x - prev.0).hypot(n.y - prev.1) < 6., "วาร์ป");
+            prev = (n.x, n.y);
+            if (n.x - home.0).hypot(n.y - home.1) < 8. { reached = true; break; }
+        }
+        assert!(reached, "เดินอ้อมเข้าประตูกลับถึงเตียง (อยู่ที่ {:?})", (tfloor(prev.0) - sx, tfloor(prev.1 - 3.) - sy));
+    }
+    #[test]
+    fn siege_soldiers_break_through_player_walls_to_center() {
+        let mut g = Game::new_world_seed(4242, Sfx::default());
+        if peaceful() { return; }
+        g.realm_tick(0.01);
+        let (sx, sy) = (tfloor(g.spawn.0), tfloor(g.spawn.1));
+        clear_ground(&mut g, sx, sy, 26);
+        for i in 0..4 { g.w.placed.insert((sx - 1 + i, sy + 1), 33); g.npcs.push(npc::Npc { id: i as u32 + 1, name: 1, look: 0, x: 0., y: 0., state: npc::ST_HOME, hearts: 3, mood: 70, married: false, child: false, role: 0, bed: (sx - 1 + i, sy + 1), anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false, soc: Soc::generate(i as u32 + 1, 1) }); }
+        g.bed = Some((sx, sy + 1));
+        let tc = g.town_center().unwrap();
+        // กำแพงหินล้อมรอบ (ไม่มีช่อง)
+        let r = 5;
+        for d in -r..=r { for k in [(tc.0 + d, tc.1 - r), (tc.0 + d, tc.1 + r), (tc.0 - r, tc.1 + d), (tc.0 + r, tc.1 + d)] { g.w.placed.insert(k, 38); } }
+        let walls0 = g.w.placed.values().filter(|&&o| o == 38).count();
+        g.p.x = (tc.0 + 20) as f32 * 16.; g.p.y = tc.1 as f32 * 16.;
+        g.rs.ks[2].army = Some(Army { x: tc.0 as f32 - 23., y: tc.1 as f32, n: 4, k: 2, vs: None });
+        g.realm_tick(0.01);
+        assert!(g.rs.siege.is_some());
+        let mut inside = false;
+        for _st in 0..(90 * 20) {
+            g.realm_tick(0.05);
+            g.upd_enemies(0.05);
+            g.p.hp = g.p.maxhp;
+            if g.en.iter().any(|e| e.k == EK::Soldier && (tfloor(e.x) - tc.0).abs() < r && (tfloor(e.y - 3.) - tc.1).abs() < r) { inside = true; break; }
+        }
+        let walls1 = g.w.placed.values().filter(|&&o| o == 38).count();
+        assert!(walls1 < walls0, "ทุบกำแพง");
+        assert!(inside, "ทหารเข้าถึงลานกลาง");
     }
 }

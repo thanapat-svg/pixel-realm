@@ -409,6 +409,9 @@ impl Game {
         let mut hits: Vec<(usize, f32, f32)> = vec![];
         let gather = std::mem::take(&mut self.gather);
         let mut npcs = std::mem::take(&mut self.npcs);
+        let mut paths = std::mem::take(&mut self.rs.npaths);
+        paths.retain(|id, _| npcs.iter().any(|n| n.id == *id));
+        let mut budget = PATH_BUDGET;
         for n in npcs.iter_mut() {
             n.anim += dt;
             n.atk_cd = (n.atk_cd - dt).max(0.);
@@ -446,19 +449,25 @@ impl Game {
             }
             n.moving = false;
             if spd > 0. {
-                let d = (tx - n.x).hypot(ty - n.y).max(0.01);
-                let (vx, vy) = ((tx - n.x) / d * spd * dt, (ty - n.y) / d * spd * dt);
+                // หาทาง: อ้อมกำแพง/ต้นไม้/บ้าน (เข้าบ้านทางประตู) แทนเดินชนตรงๆ
+                let pth = paths.entry(n.id).or_default();
+                let (gx, gy) = pth.steer(&self.w, n.x, n.y, (tx, ty), Pass::Door, dt, &mut budget);
+                let d = (gx - n.x).hypot(gy - n.y).max(0.01);
+                let st = (spd * dt).min(d);
+                let (vx, vy) = ((gx - n.x) / d * st, (gy - n.y) / d * st);
                 let (nx, ny) = (n.x + vx, n.y + vy);
                 // ชาวบ้านเดินผ่านประตูได้เอง (ไม่ต้องเปิดค้างไว้)
                 let blk = |x: f32, y: f32| { let (a, b) = (tfloor(x), tfloor(y - 3.)); self.w.obj_at(a, b) != 12 && self.w.solid_at(a, b) };
                 if !blk(nx, n.y) { n.x = nx; n.moving = true; }
                 if !blk(n.x, ny) { n.y = ny; n.moving = true; }
                 // กลางคืนติดกำแพงกลับบ้านไม่ได้ → เดินอ้อมเข้าบ้านไปเอง (วาร์ปไปที่เตียง)
-                if (night || gather.contains_key(&n.id)) && !n.moving && n.state == ST_HOME && (n.x - tx).hypot(n.y - ty) > 10. && n.wt < -2. { n.x = tx; n.y = ty; n.wt = 0.; }
+                // ไปไม่ถึงจริงๆ (ไม่มีทาง) นานเกินไป → ไปถึงเอง (เหมือนอ้อมไกล)
+                if (night || gather.contains_key(&n.id)) && !n.moving && n.state == ST_HOME && (n.x - tx).hypot(n.y - ty) > 10. && n.wt < -8. { n.x = tx; n.y = ty; n.wt = 0.; }
                 if vx.abs() > 0.01 { n.left = vx < 0.; }
             }
         }
         self.npcs = npcs;
+        self.rs.npaths = paths;
         self.gather = gather;
         let bonus = self.tier() as i32;
         for (ei, dx, dy) in hits {

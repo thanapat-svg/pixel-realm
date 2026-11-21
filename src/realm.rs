@@ -215,7 +215,7 @@ pub struct Petition { pub rank: u8, pub perk: u8, pub salary: i32, pub name: u8,
 #[derive(Clone, Debug)]
 pub struct Origin { pub city: usize, pub rank: u8, pub perk: u8, pub salary: i32, pub loyalty: i32, pub spy: bool }
 #[derive(Clone, Debug)]
-pub struct Citizen { pub x: f32, pub y: f32, pub tx: f32, pub ty: f32, pub look: u32, pub guard: bool, pub city: usize, pub wait: f32, pub anim: f32, pub left: bool }
+pub struct Citizen { pub path: Path, pub block: f32, pub x: f32, pub y: f32, pub tx: f32, pub ty: f32, pub look: u32, pub guard: bool, pub city: usize, pub wait: f32, pub anim: f32, pub left: bool }
 #[derive(Clone, Debug)]
 pub struct Siege { pub k: usize, pub total: u32, pub spawned: u32, pub t: f32, pub hold: f32, pub center: (f32, f32), pub from: (f32, f32) }
 
@@ -258,6 +258,7 @@ pub struct RealmState {
     pub curfew_day: i32,
     pub siege: Option<Siege>,
     pub cit: Vec<Citizen>,
+    pub npaths: HashMap<u32, Path>,
     pub tick_t: f32,
     pub inited: bool,
 }
@@ -477,27 +478,40 @@ impl Game {
             for i in 0..n {
                 let guard = i < if c.cap { 3 } else { 2 };
                 let (x, y) = road_point(c, ci * 100 + i);
-                self.rs.cit.push(Citizen { x, y, tx: x, ty: y, look: (ci * 131 + i * 17) as u32, guard, city: ci, wait: i as f32 * 0.3, anim: 0., left: false });
+                self.rs.cit.push(Citizen { path: Path::default(), block: 0., x, y, tx: x, ty: y, look: (ci * 131 + i * 17) as u32, guard, city: ci, wait: i as f32 * 0.3, anim: 0., left: false });
             }
         }
         let mut cit = std::mem::take(&mut self.rs.cit);
         let t = self.time as usize;
+        let mut budget = PATH_BUDGET;
+        let w = &self.w;
+        let blk = |x: f32, y: f32| { let (a, b) = (tfloor(x), tfloor(y - 3.)); w.obj_at(a, b) != 12 && w.solid_at(a, b) };
         for (i, c) in cit.iter_mut().enumerate() {
             c.anim += dt;
-            let (dx, dy) = (c.tx - c.x, c.ty - c.y);
-            let d = dx.hypot(dy);
-            if d < 2. {
+            let d = (c.tx - c.x).hypot(c.ty - c.y);
+            let new_target = |c: &mut Citizen, extra: usize| {
+                let city = &w.realm.cities[c.city];
+                let p = road_point(city, t * 7 + i * 13 + extra);
+                c.tx = p.0; c.ty = p.1; c.wait = 1.5 + (i % 4) as f32; c.block = 0.; c.path.clear();
+            };
+            if d < 3. {
                 c.wait -= dt;
-                if c.wait <= 0. {
-                    let city = &self.w.realm.cities[c.city];
-                    let p = road_point(city, t * 7 + i * 13);
-                    c.tx = p.0; c.ty = p.1; c.wait = 1.5 + (i % 4) as f32;
-                }
+                if c.wait <= 0. { new_target(c, 0); }
             } else {
+                // หาทางอ้อมแผงร้าน/บ่อน้ำ/บ้าน แทนเดินชนตรงๆ
+                let (gx, gy) = c.path.steer(w, c.x, c.y, (c.tx, c.ty), Pass::Door, dt, &mut budget);
+                let (dx, dy) = (gx - c.x, gy - c.y);
+                let l = dx.hypot(dy).max(0.001);
                 let sp = if c.guard { 22. } else { 28. };
-                let (nx, ny) = (c.x + dx / d * sp * dt, c.y + dy / d * sp * dt);
-                if !self.w.solid_at(tfloor(nx), tfloor(ny - 3.)) { c.x = nx; c.y = ny; } else { c.wait = 0.; c.tx = c.x; c.ty = c.y; }
-                c.left = dx < 0.;
+                let step = (sp * dt).min(l);
+                let (nx, ny) = (c.x + dx / l * step, c.y + dy / l * step);
+                let (ox, oy) = (c.x, c.y);
+                if !blk(nx, c.y) { c.x = nx; }
+                if !blk(c.x, ny) { c.y = ny; }
+                if (c.x - ox).abs() + (c.y - oy).abs() < sp * dt * 0.2 { c.block += dt; } else { c.block = (c.block - dt).max(0.); }
+                // ไปไม่ถึงจริงๆ (เป้าอยู่ในที่ปิด) → เปลี่ยนที่หมาย
+                if c.block > 2.5 { new_target(c, 5); }
+                if dx.abs() > 0.5 { c.left = dx < 0.; }
             }
         }
         self.rs.cit = cit;
@@ -522,7 +536,7 @@ impl Game {
                 1 => self.rumor_war(),
                 2 => format!("ชาวเมือง: ได้ยินว่า{}มีชื่อเสียง {} แล้วนะ คนเริ่มอยากย้ายไปอยู่", self.my_name(), self.fame()),
                 3 => if o != PLAYER_OWN { format!("ชาวเมือง: {}{}ของเรา{}", self.w.realm.ks[o as usize].title, self.w.realm.ks[o as usize].ruler, ["ชอบสงคราม", "ชอบเงิน", "รักษาคำพูด", "เข้มงวดมาก"][self.w.realm.ks[o as usize].trait_ as usize]) } else { "ชาวเมือง: ดีใจที่ได้อยู่ใต้การปกครองของท่าน".to_string() },
-                4 => "ชาวเมือง: ถ้าจะเดินทางไกล ไปที่ท่ารถม้าทางประตูใต้ หรือซื้อม้าที่คอกทางตะวันออก".to_string(),
+                4 => "ชาวเมือง: ถ้าจะเดินทางไกล รถม้ากับคอกม้าอยู่ที่ลานกลางเมือง ข้างๆ ปราสาท".to_string(),
                 _ => "ชาวเมือง: ไปที่ปราสาทกลางเมืองถ้าอยากเจรจากับผู้ปกครอง".to_string(),
             }
         };
@@ -1087,7 +1101,9 @@ impl Game {
             let l = dx.hypot(dy).max(1.);
             let side = (s.spawned as f32 * 1.7).sin() * 90.;
             let (x, y) = (s.center.0 + dx / l * 22. * 16. - dy / l * side, s.center.1 + dy / l * 22. * 16. + dx / l * side);
-            if !collide(&self.w, x, y) { self.make_enemy(EK::Soldier, x, y, 1.0 + s.total as f32 / 30., s.k, false); }
+            // จุดเกิดติดน้ำ/ต้นไม้ → หาที่ว่างใกล้ๆ (เดิมข้ามไปเลย = ทหารหายฟรี)
+            let spot = (0..40).map(|i| { let a = i as f32 * 2.4; let r = (i as f32).sqrt() * 16.; (x + a.cos() * r, y + a.sin() * r) }).find(|&(x, y)| !collide(&self.w, x, y) && !self.w.solid_at(tfloor(x), tfloor(y - 3.)));
+            if let Some((x, y)) = spot { self.make_enemy(EK::Soldier, x, y, 1.0 + s.total as f32 / 30., s.k, false); }
             s.spawned += 1;
         }
         let alive: Vec<(f32, f32)> = self.en.iter().filter(|e| e.k == EK::Soldier && !e.dead).map(|e| (e.x, e.y)).collect();

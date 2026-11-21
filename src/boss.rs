@@ -83,6 +83,7 @@ impl Game {
 
     fn minion(&mut self, x: f32, y: f32) {
         self.en.push(Enemy {
+            path: Path::default(),
             k: EK::Slime, x, y, hp: 3., spd: 26., dmg: 1, xp: 1, coin: 0, vx: 0., vy: 0., kb: 0., flash: 0., wt: 0., wdx: 0., wdy: 0.,
             anim: gen_range(0., 5.), pal: 0, dead: false, night: false, burn: 0., slow: 0., stun: 0., btick: 0.,
         });
