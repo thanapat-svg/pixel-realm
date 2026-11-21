@@ -150,6 +150,10 @@ class QuadSurface
     @SuppressWarnings("deprecation")
     @Override
     public boolean onKey(View v, int keyCode, KeyEvent event) {
+        // ปุ่มเพิ่ม/ลดเสียง/ปิดเสียงข้างเครื่อง: ปล่อยให้ระบบจัดการ (เดิม return true กินทุกปุ่ม ทำให้ปรับเสียงในเกมไม่ได้)
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_MUTE) {
+            return false;
+        }
         if (event.getAction() == KeyEvent.ACTION_DOWN && keyCode != 0) {
             QuadNative.surfaceOnKeyDown(keyCode);
         }
@@ -271,6 +275,8 @@ public class MainActivity extends Activity {
         setContentView(layout);
 
         QuadNative.activityOnCreate(this);
+        // ปุ่มเสียงข้างเครื่องคุมระดับเสียงสื่อ (เพลง/เอฟเฟกต์ของเกม) ไม่ใช่เสียงเรียกเข้า
+        setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);
 
         //% MAIN_ACTIVITY_ON_CREATE
     }
