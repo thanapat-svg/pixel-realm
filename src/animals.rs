@@ -51,6 +51,8 @@ pub struct Animal {
     pub winter: bool,
     pub h: f32,
     pub dead: bool,
+    /// สัตว์เลี้ยง (เชื่องแล้ว)
+    pub tame: bool,
 }
 
 pub fn predator(k: u8) -> bool { matches!(k, A_WOLF | A_CROC | A_BOAR) }
@@ -59,7 +61,7 @@ pub fn prey(k: u8) -> bool { matches!(k, A_DEER | A_RABBIT | A_ANTE) }
 impl Game {
     pub fn new_animal(&self, k: u8, x: f32, y: f32) -> Animal {
         let s = AN_STAT[k as usize];
-        Animal { k, x, y, vx: 0., vy: 0., hp: s.0, st: AS::Idle, t: gen_range(0.5, 2.5), anim: 0., flip: gen_range(0., 1.) < 0.5, flash: 0., fed: 0., cd: 0., bold: gen_range(0., 1.), winter: season(self) == 3, h: 0., dead: false }
+        Animal { k, x, y, vx: 0., vy: 0., hp: s.0, st: AS::Idle, t: gen_range(0.5, 2.5), anim: 0., flip: gen_range(0., 1.) < 0.5, flash: 0., fed: 0., cd: 0., bold: gen_range(0., 1.), winter: season(self) == 3, h: 0., dead: false, tame: false }
     }
     /// สัตว์ชนิดไหนเกิดได้บนพื้นนี้ (ตามเวลา/ฤดู)
     pub fn animal_for(&self, t: u8, night: bool, roll: f32) -> Option<u8> {
@@ -82,7 +84,7 @@ impl Game {
         if self.w.dun.is_some() { return; }
         let night = self.darkv > 0.45;
         let cap = if season(self) == 3 { 6 } else { 10 };
-        if self.animals.iter().filter(|a| a.k != A_BIRD).count() >= cap { return; }
+        if self.animals.iter().filter(|a| a.k != A_BIRD && !a.tame).count() >= cap { return; }
         let a = gen_range(0., std::f32::consts::TAU);
         let r = gen_range(10., 17.) * 16.;
         let (x, y) = (self.p.x + a.cos() * r, self.p.y + a.sin() * r);
@@ -90,7 +92,7 @@ impl Game {
         let t = self.w.tile_at(tx, ty);
         if collide(&self.w, x, y) || self.w.camp_near(tx, ty, 8).is_some() { return; }
         let Some(k) = self.animal_for(t, night, gen_range(0., 1.)) else { return };
-        if predator(k) && (self.in_grace() || self.in_safe(x, y) || self.w.near_fire(tx, ty, 8).is_some()) { return; }
+        if predator(k) && (peaceful() || self.in_grace() || self.in_safe(x, y) || self.w.near_fire(tx, ty, 8).is_some()) { return; }
         // เหยื่อมาเป็นฝูงเล็ก · นกเป็นฝูง · หมาป่ามาเป็นคู่/ฝูง
         let n = match k { A_BIRD => rnd(3, 5), A_DEER | A_ANTE => rnd(1, 3), A_WOLF => if night { rnd(2, 3) } else { 1 }, A_RABBIT => rnd(1, 2), _ => 1 };
         for i in 0..n {
@@ -102,7 +104,8 @@ impl Game {
     }
 
     pub fn animals_tick(&mut self, dt: f32) {
-        if self.w.dun.is_some() { self.animals.clear(); return; }
+        if self.w.dun.is_some() { self.animals.retain(|a| a.tame); self.pets_tick(dt); return; }
+        if peaceful() { self.animals.retain(|a| a.tame || !predator(a.k)); }
         self.an_spawn_t -= dt;
         if self.an_spawn_t <= 0. { self.an_spawn_t = 1.6; self.try_spawn_animal(); }
         let (px, py) = (self.p.x, self.p.y);
@@ -112,7 +115,7 @@ impl Game {
         let n = list.len();
         for i in 0..n {
             let (k, ax, ay) = (list[i].k, list[i].x, list[i].y);
-            if list[i].dead { continue; }
+            if list[i].dead || list[i].tame { continue; }
             let a = &mut list[i];
             a.t -= dt;
             a.anim += dt;
@@ -129,7 +132,7 @@ impl Game {
                 let fear = match k { A_RABBIT => 72., A_DEER | A_ANTE => 92., _ => 60. } * (1.2 - list[i].bold * 0.4);
                 if dp < fear && !self.p_sneak() { threat = Some((px, py, dp)); }
                 for (j, o) in list.iter().enumerate() {
-                    if j == i || o.dead || o.k != A_WOLF { continue; }
+                    if j == i || o.dead || o.k != A_WOLF || o.tame { continue; }
                     let d = (o.x - ax).hypot(o.y - ay);
                     if d < 110. && threat.map_or(true, |t| d < t.2) { threat = Some((o.x, o.y, d)); }
                 }
@@ -141,7 +144,7 @@ impl Game {
                 let aggro = if night { 120. } else { 70. } * aggro_mul();
                 if dp < aggro && self.p.hp > 0 { target = Some((px, py, None)); }
                 for (j, o) in list.iter().enumerate() {
-                    if j == i || o.dead || !prey(o.k) { continue; }
+                    if j == i || o.dead || !prey(o.k) || o.tame { continue; }
                     let d = (o.x - ax).hypot(o.y - ay);
                     let cur = target.map_or(f32::MAX, |t| (t.0 - ax).hypot(t.1 - ay));
                     if d < 130. && d < cur * 0.8 { target = Some((o.x, o.y, Some(j))); }
@@ -251,7 +254,7 @@ impl Game {
 
     /// สัตว์ที่อยู่ตรงจุดนี้ (ใช้กับลูกธนู/เวท)
     pub fn animal_at(&self, x: f32, y: f32, r: f32) -> Option<usize> {
-        self.animals.iter().position(|a| !a.dead && a.k != A_BIRD && (a.x - x).hypot(a.y - 6. - y) < r + 6.)
+        self.animals.iter().position(|a| !a.dead && !a.tame && a.k != A_BIRD && (a.x - x).hypot(a.y - 6. - y) < r + 6.)
     }
     pub fn hit_animal(&mut self, i: usize, dmg: i32, nx: f32, ny: f32) {
         let Some(a) = self.animals.get_mut(i) else { return };
@@ -284,7 +287,7 @@ impl Game {
         while i < self.animals.len() {
             let a = &self.animals[i];
             let n = self.animals.len();
-            if a.k != A_BIRD && !a.dead && (a.x - fx).hypot(a.y - 5. - fy) < 15. {
+            if a.k != A_BIRD && !a.dead && !a.tame && (a.x - fx).hypot(a.y - 5. - fy) < 15. {
                 hit = true;
                 self.hit_animal(i, dmg, dx, dy);
                 if self.animals.len() < n { continue; }
@@ -393,4 +396,10 @@ pub fn draw_animal(g: &Game, sp: &Sprites, v: &View, i: usize) {
     if a.k != A_BIRD || a.h < 4. { prect(v, sx - r.w / 2. + 2., sy - 1., r.w - 4., 2., shadow); }
     let c = if a.flash > 0. { Color::new(1., 0.5, 0.5, 1.) } else { WHITE };
     blit(sp, v, r, sx - (r.w / 2.).floor(), sy - r.h - a.h, a.flip, c);
+    if a.tame {
+        // ปลอกคอสีแดง + หัวใจเล็กลอยเป็นระยะ
+        let nx = if a.flip { sx - r.w / 2. + 3. } else { sx + r.w / 2. - 6. };
+        prect(v, nx, sy - r.h + if a.k == A_WOLF { 4. } else { 3. }, 3., 1., hx(0xe02020));
+        if (a.anim * 0.5).fract() < 0.25 { prect(v, sx - 1., sy - r.h - 5., 1., 1., hx(0xff6aa0)); prect(v, sx + 1., sy - r.h - 5., 1., 1., hx(0xff6aa0)); prect(v, sx - 1., sy - r.h - 4., 3., 1., hx(0xff6aa0)); prect(v, sx, sy - r.h - 3., 1., 1., hx(0xff6aa0)); }
+    }
 }

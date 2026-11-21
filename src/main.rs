@@ -34,6 +34,7 @@ mod animals;
 mod quests;
 mod balance;
 mod mcui;
+mod v11;
 use extra::*;
 use farm::*;
 use guide::*;
@@ -57,6 +58,7 @@ use animals::*;
 use quests::*;
 use balance::*;
 use mcui::*;
+use v11::*;
 
 // ======================= ค่าคงที่ =======================
 const DAYLEN: f32 = 240.0;
@@ -469,10 +471,10 @@ enum EK { Slime, Skel, Bat }
 struct Enemy { k: EK, x: f32, y: f32, hp: f32, spd: f32, dmg: i32, xp: i32, coin: i32, vx: f32, vy: f32, kb: f32, flash: f32, wt: f32, wdx: f32, wdy: f32, anim: f32, pal: usize, dead: bool, night: bool, burn: f32, slow: f32, stun: f32, btick: f32 }
 struct Particle { x: f32, y: f32, vx: f32, vy: f32, l: f32, c: Color }
 struct Float { x: f32, y: f32, t: String, c: Color, l: f32, icon: Option<usize>, sz: f32 }
-struct Player { x: f32, y: f32, dir: usize, flip: bool, hp: i32, maxhp: i32, xp: i32, lvl: i32, sword: usize, pick: bool, rod: bool, elem: u8, elems: u8, inv: [i32; NI], invul: f32, kbx: f32, kby: f32, kbt: f32, atk_t: f32, atk_cd: f32, anim: f32, moving: bool, regen: f32, last_hit: f32, kills: i32, weapon: u8, bow: bool, staff: u8, armor: [u8; 3], outfit: u8, outfits: u8, sp: i32, st: [u8; 4], wplus: [u8; 3], aplus: [u8; 3], dash_t: f32, dash_cd: f32, dash_dir: Vec2, ghost_t: f32, buff_spd: f32, buff_crit: f32, can: bool, water: i32, hunger: f32, thirst: f32, rest: f32, sick: f32, starve: f32, body: Body, hides: i32, coat: bool }
+struct Player { x: f32, y: f32, dir: usize, flip: bool, hp: i32, maxhp: i32, xp: i32, lvl: i32, sword: usize, pick: bool, rod: bool, elem: u8, elems: u8, inv: [i32; NI], invul: f32, kbx: f32, kby: f32, kbt: f32, atk_t: f32, atk_cd: f32, anim: f32, moving: bool, regen: f32, last_hit: f32, kills: i32, weapon: u8, bow: bool, staff: u8, armor: [u8; 3], outfit: u8, outfits: u8, sp: i32, st: [u8; 4], wplus: [u8; 3], aplus: [u8; 3], dash_t: f32, dash_cd: f32, dash_dir: Vec2, ghost_t: f32, buff_spd: f32, buff_crit: f32, can: bool, water: i32, hunger: f32, thirst: f32, rest: f32, sick: f32, starve: f32, body: Body, hides: i32, coat: bool, boat: bool }
 impl Player {
     fn new(x: f32, y: f32) -> Self {
-        Player { x, y, dir: 0, flip: false, hp: 10, maxhp: 10, xp: 0, lvl: 1, sword: 0, pick: false, rod: false, elem: 0, elems: 1, inv: [0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], invul: 0., kbx: 0., kby: 0., kbt: 0., atk_t: 0., atk_cd: 0., anim: 0., moving: false, regen: 0., last_hit: 0., kills: 0, weapon: 0, bow: false, staff: 0, armor: [0; 3], outfit: 0, outfits: 0, sp: 0, st: [0; 4], wplus: [0; 3], aplus: [0; 3], dash_t: 0., dash_cd: 0., dash_dir: Vec2::ZERO, ghost_t: 0., buff_spd: 0., buff_crit: 0., can: false, water: 0, hunger: 100., thirst: 100., rest: 100., sick: 0., starve: 0., body: Body::default(), hides: 0, coat: false }
+        Player { x, y, dir: 0, flip: false, hp: 10, maxhp: 10, xp: 0, lvl: 1, sword: 0, pick: false, rod: false, elem: 0, elems: 1, inv: [0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], invul: 0., kbx: 0., kby: 0., kbt: 0., atk_t: 0., atk_cd: 0., anim: 0., moving: false, regen: 0., last_hit: 0., kills: 0, weapon: 0, bow: false, staff: 0, armor: [0; 3], outfit: 0, outfits: 0, sp: 0, st: [0; 4], wplus: [0; 3], aplus: [0; 3], dash_t: 0., dash_cd: 0., dash_dir: Vec2::ZERO, ghost_t: 0., buff_spd: 0., buff_crit: 0., can: false, water: 0, hunger: 100., thirst: 100., rest: 100., sick: 0., starve: 0., body: Body::default(), hides: 0, coat: false, boat: false }
     }
     fn facing(&self) -> (f32, f32) {
         DV[if self.dir == 2 && self.flip { 3 } else { self.dir }]
@@ -480,7 +482,7 @@ impl Player {
 }
 
 #[derive(Default)]
-struct Input { mv: Vec2, atk: bool, eat: bool, fire: bool, menu: Option<usize>, map: bool, act: bool, swap: bool, place: bool, cancel: bool, potion: bool, aim: Option<Vec2>, dash: bool, tile_tap: Option<Vec2> }
+struct Input { hb: Option<usize>, mv: Vec2, atk: bool, eat: bool, fire: bool, menu: Option<usize>, map: bool, act: bool, swap: bool, place: bool, cancel: bool, potion: bool, aim: Option<Vec2>, dash: bool, tile_tap: Option<Vec2> }
 
 // ======================= game =======================
 struct Game {
@@ -524,6 +526,8 @@ struct Game {
     tips_seen: u32,
     an_hunted: u32,
     codex_done: u32,
+    adv_done: u32,
+    boated: bool,
     camp_t: f32,
     build_sel: Option<usize>,
     req: Option<Req>,
@@ -616,7 +620,7 @@ impl Game {
             w, p: Player::new(0., 0.), en: vec![], parts: vec![], floats: vec![], toasts: vec![], time: 0., spawn: (0., 0.),
             seen: HashSet::new(), obj_dmg: HashMap::new(), shake: ((0, 0), 0.), hurt_flash: 0., darkv: 0., last_biome: -1,
             spawn_t: 0., save_t: 0., mini_t: 99., died: false, big_map: false, sfx,
-            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, an_hunted: 0, codex_done: 0, camp_t: 0.,
+            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, camp_t: 0.,
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
@@ -756,6 +760,7 @@ impl Game {
                 "nsoc" | "nrel" | "nnews" => g.soc_load_line(tag, &rest),
                 "nreq" => g.quests_load_line(&rest),
                 "v9" => g.balance_load_line(&rest),
+                "pet" => g.pets_load_line(&rest),
                 "farm" => { g.p.can = f(0) > 0.; g.p.water = (f(1) as i32).clamp(0, WATER_MAX); g.seed_sel = (f(2) as u8).min(1); }
                 "bed" => g.bed = Some((f(0) as i32, f(1) as i32)),
                 "fruit" => g.fruit_load_line(&rest),
@@ -1092,6 +1097,7 @@ impl Game {
     fn try_spawn(&mut self) {
         if self.w.dun.is_some() { return; }
         let night = self.darkv > 0.45;
+        if peaceful() { return; }
         let ncap = if self.in_grace() { 5 } else { [6, 10, 12][diff() as usize] };
         if self.en.len() >= if night { ncap } else { 4 } { return; }
         let a = gen_range(0., std::f32::consts::TAU);
@@ -1221,6 +1227,7 @@ impl Game {
         if inp.eat { self.eat(); }
         if inp.fire { self.place_fire(); }
         if inp.potion { self.drink(); }
+        if let Some(k) = inp.hb { self.hotbar_use(k); }
         if inp.swap { self.swap_weapon(); }
         if inp.dash { self.try_dash(inp.mv); }
         if inp.act { self.interact(); }
@@ -1236,7 +1243,9 @@ impl Game {
         let mut mv = inp.mv;
         let il = mv.length();
         if il > 1. { mv /= il; }
-        let nmul = self.need_speed_mul() * self.ground_speed_mul();
+        let boating = self.on_boat();
+        if boating && !self.boated { self.boated = true; }
+        let nmul = self.need_speed_mul() * if boating { 1.35 } else { self.ground_speed_mul() };
         let p = &mut self.p;
         p.moving = il > 0.15;
         if p.moving && p.atk_t <= 0. {
@@ -1245,8 +1254,9 @@ impl Game {
         let sp = 64. * p.speed_mul() * wmul * nmul * if p.atk_t > 0. { 0.5 } else { 1. };
         let (mut mx, mut my) = if p.dash_t > 0. { (p.dash_dir.x * 250. * dt, p.dash_dir.y * 250. * dt) } else if p.moving { (mv.x * sp * dt, mv.y * sp * dt) } else { (0., 0.) };
         if p.kbt > 0. { p.kbt -= dt; mx += p.kbx * dt; my += p.kby * dt; }
-        if !collide(&self.w, p.x + mx, p.y) { p.x += mx; }
-        if !collide(&self.w, p.x, p.y + my) { p.y += my; }
+        let boat = p.boat;
+        if !collide_p(&self.w, p.x + mx, p.y, boat) { p.x += mx; }
+        if !collide_p(&self.w, p.x, p.y + my, boat) { p.y += my; }
         if p.moving { p.anim += dt; }
         if p.invul > 0. { p.invul -= dt; }
         if p.atk_t > 0. { p.atk_t -= dt; }
@@ -1290,6 +1300,8 @@ impl Game {
         self.spawn_t -= dt;
         if self.spawn_t <= 0. { self.spawn_t = 1.; self.try_spawn(); }
         self.animals_tick(dt);
+        if self.w.dun.is_none() { self.pets_tick(dt); }
+        if peaceful() && self.w.dun.is_none() && !self.en.is_empty() { self.en.clear(); }
         self.pick_cd -= dt;
         self.upd_buffs(dt);
         self.upd_fish(dt);
@@ -1555,9 +1567,18 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                         let _ = front;
                         draw_texture_ex(&sp.tex, ((sx + ox) * v.s).round(), ((sy + oy) * v.s).round(), hx(SWC[p.sword]), DrawTextureParams { source: Some(sp.icons[ICON_SWORD]), dest_size: Some(vec2(9. * v.s, 9. * v.s)), flip_x: left, ..Default::default() });
                     };
+                    if g.on_boat() { draw_boat(v, sx, sy, t_now, p.dir == 2); }
+                    let tool = tool_in_hand(g);
+                    let held_sword = held_sword && tool == 0;
                     if held_sword && p.dir == 1 { draw_sword(false); }
                     draw_skin(sp, p, (sx - 6.) * v.s, (sy - 15.) * v.s, v.s, p.dir, f, p.dir == 2 && p.flip, WHITE);
                     if held_sword && p.dir != 1 { draw_sword(true); }
+                    if tool > 0 && p.dir != 1 {
+                        let left = p.dir == 2 && p.flip;
+                        let (ox, oy) = match p.dir { 0 => (2., -11.), _ => if left { (-9., -12.) } else { (1., -12.) } };
+                        let (x0, y0, ps) = (((sx + ox) * v.s).round(), ((sy + oy) * v.s).round(), 9. * v.s / 12.);
+                        if tool == 1 { pix_icon_pick(x0, y0, ps); } else { pix_icon_rod(x0, y0, ps); }
+                    }
                     if p.weapon > 0 {
                         let (fx, fy) = p.facing();
                         let r = sp.icons[if p.weapon == 1 { IC_BOW } else { IC_STAFF }];
@@ -1967,6 +1988,7 @@ fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool) {
         match t.phase {
             TouchPhase::Started => {
                 let mut on_btn = false;
+                if let Some(k) = hotbar_hit(t.position) { inp.hb = Some(k); continue; }
                 // เลือกปุ่มที่ใกล้ที่สุด (สัดส่วนต่อรัศมี) ปุ่มเดียวต่อการแตะ กันกดซ้อนปุ่มติดกัน
                 let mut best: Option<(f32, usize)> = None;
                 for (c, r, id) in btns {
@@ -2441,7 +2463,7 @@ async fn main() {
                     inp.swap = is_key_pressed(KeyCode::Tab);
                     inp.dash = is_key_pressed(KeyCode::LeftShift) || is_key_pressed(KeyCode::K);
                     inp.potion = is_key_pressed(KeyCode::H);
-                    for (kc, di) in [(KeyCode::Key1, DISH_STEW), (KeyCode::Key2, DISH_SPEED), (KeyCode::Key3, DISH_CRIT), (KeyCode::Key4, DISH_FISH)] { if is_key_pressed(kc) { g.use_dish(di); } }
+                    for (k, kc) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4, KeyCode::Key5, KeyCode::Key6, KeyCode::Key7, KeyCode::Key8, KeyCode::Key9].iter().enumerate() { if is_key_pressed(*kc) { inp.hb = Some(k); } }
                     inp.cancel = is_key_pressed(KeyCode::T) || (is_key_pressed(KeyCode::Escape) && g.build_sel.is_some());
                     inp.menu = if is_key_pressed(KeyCode::C) { Some(0) } else if is_key_pressed(KeyCode::B) { Some(1) } else if is_key_pressed(KeyCode::I) { Some(2) } else if is_key_pressed(KeyCode::P) { Some(6) } else if is_key_pressed(KeyCode::O) { Some(7) } else { None };
                     #[cfg(debug_assertions)]
@@ -2478,6 +2500,8 @@ async fn main() {
                         } else if g.build_sel.is_some() {
                             if !over_map { g.build_cur = Some(tile_of(&v0, mp)); g.cur_pos = (g.p.x, g.p.y); }
                             if mouse_armed && !over_map && is_mouse_button_pressed(MouseButton::Left) { inp.place = true; }
+                        } else if !tu.active && hotbar_hit(mp).is_some() {
+                            if is_mouse_button_pressed(MouseButton::Left) { inp.hb = hotbar_hit(mp); }
                         } else if mouse_armed && !over_map && is_mouse_button_down(MouseButton::Left) {
                             inp.atk = true;
                             inp.aim = Some(vec2(mp.x / v0.s + v0.cx, mp.y / v0.s + v0.cy) - vec2(g.p.x, g.p.y - 6.));
@@ -2527,6 +2551,7 @@ async fn main() {
                 render_world(g, &sp, &v, t_now, &font);
                 draw_hud(g, &sp, &font, tu.active);
                 draw_tut(g, &font, &v0, ui_scale());
+                draw_adv(g, &font, ui_scale());
                 let mr = minimap_rect(g.big_map);
                 draw_rectangle(mr.x - 2., mr.y - 2., mr.w + 4., mr.h + 4., BLACK);
                 draw_texture_ex(&mini_tex, mr.x, mr.y, WHITE, DrawTextureParams { dest_size: Some(vec2(mr.w, mr.h)), ..Default::default() });
@@ -5449,5 +5474,105 @@ mod balance_tests {
         assert_eq!(g.p.maxhp, hp + 4, "รางวัลครบไบโอมได้ครั้งเดียว");
         assert_eq!(g.codex_progress(0).0, CODEX_BIOMES.len());
         assert_eq!(g.codex_progress(2).0, 0);
+    }
+}
+
+#[cfg(test)]
+mod v11_tests {
+    use super::*;
+
+    fn water_edge(g: &Game) -> (i32, i32) {
+        for r in 0..300 { for dx in -r..=r { for dy in [-r, r] {
+            if g.w.tile_at(dx, dy) == 1 && g.w.tile_at(dx, dy - 1) >= 2 && !g.w.solid_at(dx, dy - 1) && g.w.obj_at(dx, dy) == 0 { return (dx, dy); }
+        } } }
+        panic!("ไม่พบชายน้ำ")
+    }
+
+    #[test]
+    fn hotbar_eats_and_swaps() {
+        let mut g = Game::new_world_seed(777, Sfx::default());
+        g.p.inv = [0; NI];
+        g.p.inv[BERRY] = 3;
+        g.p.inv[WOOD] = 5;
+        g.p.hunger = 40.;
+        let items = hotbar_items(&g);
+        let k = items.iter().position(|&i| i == BERRY).unwrap();
+        g.hotbar_use(k);
+        assert_eq!(g.p.inv[BERRY], 2);
+        assert!(g.p.hunger > 40.);
+        let kw = items.iter().position(|&i| i == WOOD).unwrap();
+        g.hotbar_use(kw);
+        assert_eq!(g.p.inv[WOOD], 5, "วัสดุกดแล้วไม่หาย");
+        g.p.bow = true;
+        g.hotbar_use(9);
+        assert_eq!(g.p.weapon, 1, "ช่องอาวุธ = สลับอาวุธ");
+        assert_eq!(NMUL[3], 0., "สันติไม่หิว");
+    }
+
+    #[test]
+    fn boat_lets_you_sail_and_counts_goal() {
+        let mut g = Game::new_world_seed(777, Sfx::default());
+        let (x, y) = water_edge(&g);
+        let (wx, wy) = (x as f32 * 16. + 8., y as f32 * 16. + 10.);
+        assert!(collide_p(&g.w, wx, wy, false), "ไม่มีเรือลงน้ำไม่ได้");
+        assert!(!collide_p(&g.w, wx, wy, true), "มีเรือลงน้ำได้");
+        let ri = RECIPES.iter().position(|r| r.name == "เรือ").unwrap();
+        g.p.inv[WOOD] = 20;
+        g.craft(ri);
+        assert!(g.p.boat);
+        g.p.x = wx; g.p.y = wy;
+        assert!(g.on_boat());
+        let inp = Input { mv: vec2(0., 0.), ..Default::default() };
+        g.update(0.016, &inp);
+        assert!(g.boated);
+        g.adv_check();
+        assert!(g.adv_done & (1 << 9) != 0, "เป้าหมายล่องเรือสำเร็จ");
+    }
+
+    #[test]
+    fn taming_a_wolf_makes_a_saved_pet_that_follows() {
+        let mut g = Game::new_world_seed(777, Sfx::default());
+        g.p.x = 200.; g.p.y = 200.;
+        g.p.dir = 2; g.p.flip = false;
+        let w = g.new_animal(A_WOLF, 210., 201.);
+        g.animals.push(w);
+        g.p.inv[MEAT] = 0;
+        assert!(g.try_tame(), "มีสัตว์ตรงหน้า (บอกให้หาเนื้อ)");
+        assert!(!g.animals[0].tame);
+        g.p.inv[MEAT] = 60;
+        for _ in 0..60 { if g.animals[0].tame { break; } g.try_tame(); }
+        assert!(g.animals[0].tame, "ป้อนหลายครั้งต้องเชื่อง");
+        // ตีสัตว์เลี้ยงไม่โดน
+        assert!(!g.melee_animals(210., 196., 5, 1., 0.));
+        // วิ่งไกล → สัตว์เลี้ยงตาม
+        g.p.x = 600.;
+        for _ in 0..200 { g.pets_tick(0.05); }
+        assert!((g.animals[0].x - g.p.x).abs() < 60., "สัตว์เลี้ยงเดินตาม");
+        let s = g.pets_save_str();
+        let mut h = Game::new_world_seed(777, Sfx::default());
+        h.pets_load_line(&s.split_whitespace().skip(1).collect::<Vec<_>>());
+        assert!(h.animals.iter().any(|a| a.tame && a.k == A_WOLF));
+        g.adv_check();
+        assert!(g.adv_done & (1 << 10) != 0);
+    }
+
+    #[test]
+    fn goals_progress_and_tool_shows_in_hand() {
+        let mut g = Game::new_world_seed(777, Sfx::default());
+        assert_eq!(g.adv_next(), Some(0));
+        g.p.sword = 1;
+        g.adv_check();
+        assert!(g.adv_done & 0b11 == 0b11);
+        assert_eq!(g.adv_next(), Some(2));
+        let c0 = g.p.inv[COIN];
+        g.adv_check();
+        assert_eq!(g.p.inv[COIN], c0, "รางวัลได้ครั้งเดียว");
+        g.p.pick = true;
+        let (tx, ty) = g.facing_tile();
+        g.w.placed.insert((tx, ty), 4);
+        assert_eq!(tool_in_hand(&g), 1, "หันเข้าหินถืออีเต้อ");
+        g.w.placed.remove(&(tx, ty));
+        g.w.removed.insert((tx, ty));
+        assert_eq!(tool_in_hand(&g), 0);
     }
 }

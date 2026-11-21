@@ -121,6 +121,9 @@ impl Game {
             self.fish_press();
             return;
         }
+        if self.try_tame() {
+            return;
+        }
         if self.npc_interact() {
             return;
         }

@@ -22,7 +22,7 @@ pub fn show_fps() -> bool { SHOW_FPS.load(Relaxed) }
 pub fn shake() -> bool { SHAKE.load(Relaxed) }
 pub fn survival() -> u8 { SURVIVAL.load(Relaxed) }
 pub fn survival_name() -> &'static str { ["ปิด", "ปกติ", "ยาก"][survival().min(2) as usize] }
-pub fn cycle_diff() { DIFF.store((DIFF.load(Relaxed) + 1) % 3, Relaxed); save(); }
+pub fn cycle_diff() { DIFF.store((DIFF.load(Relaxed) + 1) % 4, Relaxed); save(); }
 pub fn cycle_survival() { SURVIVAL.store((survival() + 1) % 3, Relaxed); save(); }
 pub fn touch_mul() -> f32 { [0.8, 1.0, 1.2, 1.4][(TOUCH_SZ.load(Relaxed) as usize).min(3)] }
 /// เวลาต่อเฟรมเป้าหมาย (วินาที) หรือ None = ไม่จำกัด
@@ -53,7 +53,7 @@ pub fn load() {
             "showfps" => SHOW_FPS.store(v > 0, Relaxed),
             "shake" => SHAKE.store(v > 0, Relaxed),
             "survival" => SURVIVAL.store(v.min(2), Relaxed),
-            "diff" => DIFF.store(v.min(2), Relaxed),
+            "diff" => DIFF.store(v.min(3), Relaxed),
             _ => {}
         }
     }

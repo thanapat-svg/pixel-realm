@@ -54,6 +54,8 @@ fn need_row(rows: &[&str], x: f32, y: f32, s: f32, frac: f32, col: Color, rtl: b
 pub fn pix_icon_heart(x: f32, y: f32, s: f32) { pix(&HEARTB, x, y, s, &[('X', hx(0x3a0a0a)), ('o', hx(0xe23a3a)), ('w', WHITE)]); }
 pub fn pix_icon_pick(x: f32, y: f32, s: f32) { pix(&PICK, x, y, s, &[('X', hx(0x1e1e22)), ('s', hx(0xa8a8b0)), ('b', hx(0x8a5a2c))]); }
 pub fn pix_icon_rod(x: f32, y: f32, s: f32) { pix(&ROD, x, y, s, &[('X', hx(0x1e1e22)), ('b', hx(0x9a6a3a)), ('l', hx(0xdddddd)), ('h', hx(0xaaaaaa))]); }
+const BOATI: [&str; 12] = ["............", "......X.....", "......XW....", "......XWW...", "......XWWW..", "......X.....", "XXXXXXXXXXXX", "XbbbbbbbbbbX", ".XbBbBbBbbX.", "..XbbbbbbX..", "...XXXXXX...", "............"];
+pub fn pix_icon_boat(x: f32, y: f32, s: f32) { pix(&BOATI, x, y, s, &[('X', hx(0x3a2210)), ('b', hx(0x9a6a3a)), ('B', hx(0x6a4024)), ('W', hx(0xf0f0f0))]); }
 pub fn pix_lock(x: f32, y: f32, s: f32) { pix(&LOCK, x, y, s, &[('X', hx(0x2a2a2a)), ('o', hx(0xd8b040))]); }
 
 // ---------------- ช่องของ ----------------

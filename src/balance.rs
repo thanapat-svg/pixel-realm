@@ -2,14 +2,15 @@
 use super::*;
 
 /// 0 ง่าย · 1 ปกติ · 2 ยาก (ค่าส่วนกลาง เก็บใน .cfg)
-pub fn diff() -> u8 { prefs::DIFF.load(std::sync::atomic::Ordering::Relaxed).min(2) }
-pub fn diff_name() -> &'static str { ["ง่าย", "ปกติ", "ยาก"][diff() as usize] }
+pub fn diff() -> u8 { prefs::DIFF.load(std::sync::atomic::Ordering::Relaxed).min(3) }
+pub fn diff_name() -> &'static str { ["ง่าย", "ปกติ", "ยาก", "สันติ"][diff() as usize] }
 /// ดาเมจที่ผู้เล่นได้รับ
 pub fn dmg_taken_mul() -> f32 { DMG[diff() as usize] }
-pub const DMG: [f32; 3] = [0.6, 1.0, 1.4];
-pub const EMUL: [f32; 3] = [0.75, 1.0, 1.25];
-pub const NMUL: [f32; 3] = [0.7, 1.0, 1.25];
-pub const AMUL: [f32; 3] = [0.6, 1.0, 1.3];
+/// [ง่าย, ปกติ, ยาก, สันติ]
+pub const DMG: [f32; 4] = [0.6, 1.0, 1.4, 0.5];
+pub const EMUL: [f32; 4] = [0.75, 1.0, 1.25, 0.6];
+pub const NMUL: [f32; 4] = [0.7, 1.0, 1.25, 0.0];
+pub const AMUL: [f32; 4] = [0.6, 1.0, 1.3, 0.0];
 /// เลือด/พลังของมอนสเตอร์
 pub fn enemy_mul() -> f32 { EMUL[diff() as usize] }
 /// ความเร็วหิว/กระหาย/เหนื่อย
@@ -74,6 +75,7 @@ impl Game {
         if !self.marks_found.is_empty() { self.tip(TIP_LANDMARK); }
         if self.p.hides > 0 { self.tip(TIP_HIDE); }
         self.codex_check();
+        self.adv_check();
     }
     /// เตือนก่อนเข้าหน้าหนาว (เรียกตอนรุ่งเช้า)
     pub fn winter_warn(&mut self) {
@@ -120,7 +122,7 @@ impl Game {
         }
     }
     pub fn balance_save_str(&self) -> String {
-        format!("v9 {} {} {} {} {}\n", self.p.hides, self.p.coat as u8, self.tips_seen, self.an_hunted, self.codex_done)
+        format!("v9 {} {} {} {} {} {} {} {}\n{}", self.p.hides, self.p.coat as u8, self.tips_seen, self.an_hunted, self.codex_done, self.adv_done, self.boated as u8, self.p.boat as u8, self.pets_save_str())
     }
     pub fn balance_load_line(&mut self, rest: &[&str]) {
         let f = |i: usize| rest.get(i).and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
@@ -129,5 +131,8 @@ impl Game {
         self.tips_seen = f(2);
         self.an_hunted = f(3);
         self.codex_done = f(4);
+        self.adv_done = f(5);
+        self.boated = f(6) != 0;
+        self.p.boat = f(7) != 0;
     }
 }

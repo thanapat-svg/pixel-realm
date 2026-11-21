@@ -255,6 +255,7 @@ pub enum Eff {
     Can,
     Outfit(u8),
     Coat,
+    Boat,
 }
 pub struct Recipe {
     pub name: &'static str,
@@ -264,7 +265,7 @@ pub struct Recipe {
     pub need: Option<usize>,
     pub eff: Eff,
 }
-pub const RECIPES: [Recipe; 27] = [
+pub const RECIPES: [Recipe; 28] = [
     Recipe { name: "ดาบไม้", desc: "พลังโจมตี 2", cost: &[(WOOD, 5)], need: None, eff: Eff::Sword(1) },
     Recipe { name: "อีเต้อหิน", desc: "ขุดภูเขาเปิดทางได้", cost: &[(WOOD, 4), (STONE, 4)], need: None, eff: Eff::Pick },
     Recipe { name: "ดาบหิน", desc: "พลังโจมตี 3 (ต้องมีดาบไม้)", cost: &[(WOOD, 3), (STONE, 6)], need: None, eff: Eff::Sword(2) },
@@ -290,6 +291,7 @@ pub const RECIPES: [Recipe; 27] = [
     Recipe { name: "คันเบ็ด", desc: "ตกปลาที่แหล่งน้ำ (ใช้ Q / ปุ่ม \"ใช้\") — ได้ปลาไว้ทำอาหารหรือขาย", cost: &[(WOOD, 8), (STONE, 2)], need: None, eff: Eff::Rod },
     Recipe { name: "บัวรดน้ำ", desc: "รดน้ำพืชผล (เติมที่แหล่งน้ำ จุ 8 ครั้ง) — ใช้ Q หันหน้าหาแปลง", cost: &[(WOOD, 3), (STONE, 3)], need: None, eff: Eff::Can },
     Recipe { name: "ชุดชาวไร่", desc: "หมวกฟาง+เสื้อเอี๊ยม เปลี่ยนรูปตัวละคร (เกราะทับได้)", cost: &[(WOOD, 4), (CORN, 3)], need: None, eff: Eff::Outfit(1) },
+    Recipe { name: "เรือ", desc: "เดินลงน้ำได้ ล่องข้ามทะเลไปเกาะอื่น (เร็วกว่าเดิน · มอนสเตอร์ตามไม่ได้)", cost: &[(WOOD, 12)], need: None, eff: Eff::Boat },
     Recipe { name: "เสื้อขนสัตว์", desc: "ใช้หนังสัตว์ 5 ผืน (ล่าสัตว์ได้) + ไม้ 2 · หน้าหนาว/ในหิมะไม่หิวเร็วขึ้น", cost: &[(WOOD, 2)], need: None, eff: Eff::Coat },
     Recipe { name: "ชุดนักล่า", desc: "หมวกขนนก+เสื้อหนังสีเขียว เปลี่ยนรูปตัวละคร", cost: &[(WOOD, 3), (MEAT, 3), (HERB, 2)], need: None, eff: Eff::Outfit(2) },
 ];
@@ -317,6 +319,7 @@ pub fn recipe_state(p: &Player, r: &Recipe) -> u8 {
         Eff::Can => if p.can { 1 } else { 0 },
         Eff::Outfit(o) => if p.outfits & (1 << (o - 1)) != 0 { 1 } else { 0 },
         Eff::Coat => if p.coat { 1 } else if p.hides < HIDE_COAT { 2 } else { 0 },
+        Eff::Boat => if p.boat { 1 } else { 0 },
         Eff::Rod => if p.rod { 1 } else { 0 },
         Eff::Bow => if p.bow { 1 } else { 0 },
         Eff::Staff(t) => {
@@ -374,6 +377,10 @@ impl Game {
                 self.p.weapon = 2;
             }
             Eff::Armor(s, t) => self.p.armor[s] = t,
+            Eff::Boat => {
+                self.p.boat = true;
+                self.toast("ได้เรือแล้ว! เดินลงน้ำเพื่อล่องเรือ");
+            }
             Eff::Coat => {
                 self.p.hides -= HIDE_COAT;
                 self.p.coat = true;

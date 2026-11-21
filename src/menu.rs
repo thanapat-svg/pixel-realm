@@ -110,7 +110,7 @@ fn tab_adv(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, u
     recipe_list(g, sp, font, ui, c, u, &ADV_RECIPES)
 }
 /// ไอคอนผลลัพธ์ของสูตร
-enum RIcon { At(usize, Color), Pick, Rod, Heart }
+enum RIcon { At(usize, Color), Pick, Rod, Heart, Boat }
 fn recipe_icon(r: &Recipe) -> RIcon {
     match r.eff {
         Eff::Sword(t) => RIcon::At(ICON_SWORD, hx(SWC[t.min(5)])),
@@ -126,6 +126,7 @@ fn recipe_icon(r: &Recipe) -> RIcon {
         Eff::Can => RIcon::At(IC_CAN, WHITE),
         Eff::Outfit(o) => RIcon::At(IC_CHEST, if o == 1 { hx(0xd8b85a) } else { hx(0x5a9a4a) }),
         Eff::Coat => RIcon::At(IC_CHEST, hx(0xa8784a)),
+        Eff::Boat => RIcon::Boat,
     }
 }
 fn draw_ricon(sp: &Sprites, ic: &RIcon, x: f32, y: f32, s: f32, dim: bool) {
@@ -135,6 +136,7 @@ fn draw_ricon(sp: &Sprites, ic: &RIcon, x: f32, y: f32, s: f32, dim: bool) {
         RIcon::Pick => mcui::pix_icon_pick(x, y, s / 12.),
         RIcon::Rod => mcui::pix_icon_rod(x, y, s / 12.),
         RIcon::Heart => mcui::pix_icon_heart(x, y, s / 12.),
+        RIcon::Boat => mcui::pix_icon_boat(x, y, s / 12.),
     }
     if dim && !matches!(ic, RIcon::At(..)) { draw_rectangle(x, y, s, s, Color::new(0.1, 0.1, 0.12, 0.6)); }
 }
@@ -450,57 +452,28 @@ fn tab_chest(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect,
     let Some(k) = ui.chest else { return 0. };
     let top = c.y - ui.scroll;
     let mut y = top;
-    let rh = 40. * u;
     let mut mv: Option<(usize, i32, bool)> = None;
     let content = g.chests.get(&k).copied().unwrap_or([0; NI]);
-    header(font, c, y, "ในกล่อง (กดเพื่อเอาออก)", u);
+    // แบบ Minecraft: แตะช่องเพื่อย้ายทั้งกอง (กล่อง ↔ กระเป๋า)
+    header(font, c, y, "กล่องเก็บของ — แตะช่องเพื่อเอาออกทั้งกอง", u);
     y += 28. * u;
-    let mut any = false;
-    for i in 0..NI {
-        if content[i] <= 0 {
-            continue;
-        }
-        any = true;
-        if visible(y, rh, c) {
-            icon_c(sp, i, c.x + 8. * u, y + 8. * u, 24. * u, WHITE);
-            text(font, INAME[i], c.x + 40. * u, y + 20. * u, 14. * u, WHITE);
-            text(font, &format!("x{}", content[i]), c.x + 40. * u, y + 34. * u, 11. * u, hx(0xffee99));
-            if btn(ui, font, Rect::new(c.x + c.w - 210. * u, y + 6. * u, 98. * u, 28. * u), "เอาออก 1", true, u) {
-                mv = Some((i, 1, false));
-            }
-            if btn(ui, font, Rect::new(c.x + c.w - 106. * u, y + 6. * u, 98. * u, 28. * u), "ทั้งหมด", true, u) {
-                mv = Some((i, content[i], false));
-            }
-            sep(c, y + rh - 2.);
-        }
-        y += rh;
-    }
-    if !any {
-        if visible(y, rh, c) {
-            text(font, "(กล่องว่างเปล่า)", c.x + 10. * u, y + 24. * u, 13. * u, hx(0x888899));
-        }
-        y += rh;
-    }
-    header(font, c, y, "ในกระเป๋า (กดเพื่อใส่ลงกล่อง)", u);
+    let inside: Vec<usize> = (0..NI).filter(|&i| content[i] > 0).collect();
+    if inside.is_empty() {
+        if visible(y, 30. * u, c) { text(font, "(กล่องว่าง)", c.x + 10. * u, y + 20. * u, 13. * u, hx(0x888899)); }
+        y += 30. * u;
+    } else if let Some(h) = grid(ui, c, &mut y, inside.len(), 48. * u, 6. * u, usize::MAX, |n, x, yy, s| {
+        icon_c(sp, inside[n], x + s * 0.14, yy + s * 0.14, s * 0.72, WHITE);
+        mcui::slot_count(font, content[inside[n]], x, yy, s);
+    }) { mv = Some((inside[h], content[inside[h]], false)); }
+    y += 10. * u;
+    header(font, c, y, "กระเป๋า — แตะช่องเพื่อใส่ลงกล่องทั้งกอง", u);
     y += 28. * u;
-    for i in 0..NI {
-        if g.p.inv[i] <= 0 {
-            continue;
-        }
-        if visible(y, rh, c) {
-            icon_c(sp, i, c.x + 8. * u, y + 8. * u, 24. * u, WHITE);
-            text(font, INAME[i], c.x + 40. * u, y + 20. * u, 14. * u, WHITE);
-            text(font, &format!("x{}", g.p.inv[i]), c.x + 40. * u, y + 34. * u, 11. * u, hx(0xffee99));
-            if btn(ui, font, Rect::new(c.x + c.w - 210. * u, y + 6. * u, 98. * u, 28. * u), "ใส่ 1", true, u) {
-                mv = Some((i, 1, true));
-            }
-            if btn(ui, font, Rect::new(c.x + c.w - 106. * u, y + 6. * u, 98. * u, 28. * u), "ทั้งหมด", true, u) {
-                mv = Some((i, g.p.inv[i], true));
-            }
-            sep(c, y + rh - 2.);
-        }
-        y += rh;
-    }
+    let bag: Vec<usize> = (0..NI).filter(|&i| g.p.inv[i] > 0).collect();
+    if let Some(h) = grid(ui, c, &mut y, bag.len(), 48. * u, 6. * u, usize::MAX, |n, x, yy, s| {
+        icon_c(sp, bag[n], x + s * 0.14, yy + s * 0.14, s * 0.72, WHITE);
+        mcui::slot_count(font, g.p.inv[bag[n]], x, yy, s);
+    }) { mv = Some((bag[h], g.p.inv[bag[h]], true)); }
+    y += 10. * u;
     if let Some((i, n, into)) = mv {
         g.chest_move(k, i, n, into);
         play(&g.sfx.eat);
@@ -522,6 +495,26 @@ fn tab_shop(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
     }
     y += 76. * u;
     let rh = 58. * u;
+    // ---- สินค้า (ตารางช่อง + กล่องรายละเอียด)
+    let offers = camp_offers(g.shop_camp.map_or(0, |k| g.w.camp_kind(k)));
+    if ui.sel_i >= 1000 || ui.sel_i < 900 || ui.sel_i - 900 >= offers.len() { ui.sel_i = 900; }
+    let oi = ui.sel_i - 900;
+    let of = offers[oi];
+    let owned = of.once && g.p.inv[of.item] > 0;
+    let mut buy = false;
+    let dh = detail_box(font, c, y, u, of.name, of.desc, &|x, yy, s| icon_c(sp, of.item, x, yy, s, WHITE));
+    if visible(y, dh, c) {
+        cost_chips(g, sp, font, &[(COIN, of.price)], None, c.x + 82. * u, y + 70. * u, u);
+        if btn(ui, font, Rect::new(c.x + c.w - 112. * u, y + 20. * u, 100. * u, 40. * u), if owned { "มีแล้ว" } else if g.p.inv[COIN] >= of.price { "ซื้อ" } else { "เงินไม่พอ" }, !owned && g.p.inv[COIN] >= of.price, u) { buy = true; }
+    }
+    y += dh + 4. * u;
+    if let Some(h) = grid(ui, c, &mut y, offers.len(), 48. * u, 6. * u, oi, |n, x, yy, s| {
+        let o = offers[n];
+        icon_c(sp, o.item, x + s * 0.14, yy + s * 0.14, s * 0.72, if g.p.inv[COIN] >= o.price { WHITE } else { Color::new(1., 1., 1., 0.45) });
+        mcui::slot_count(font, o.qty, x, yy, s);
+    }) { ui.sel_i = 900 + h; }
+    if buy { g.buy_offer(of); }
+    y += 8. * u;
     // ---- เควสต์ย่อย
     header(font, c, y, "เควสต์ของแคมป์นี้", u);
     y += 28. * u;
@@ -593,28 +586,6 @@ fn tab_shop(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
         sep(c, y + 48. * u);
     }
     y += 52. * u;
-    header(font, c, y, "สินค้า", u);
-    y += 28. * u;
-    let mut buy: Option<usize> = None;
-    let offers = camp_offers(g.shop_camp.map_or(0, |k| g.w.camp_kind(k)));
-    for (i, of) in offers.iter().enumerate() {
-        if visible(y, rh, c) {
-            let owned = of.once && g.p.inv[of.item] > 0;
-            icon_c(sp, of.item, c.x + 8. * u, y + 10. * u, 26. * u, WHITE);
-            text(font, of.name, c.x + 44. * u, y + 20. * u, 14. * u, hx(0xffcc66));
-            text(font, of.desc, c.x + 44. * u, y + 36. * u, 11. * u, hx(0xaaaaaa));
-            icon_c(sp, COIN, c.x + 44. * u, y + 40. * u, 11. * u, WHITE);
-            text(font, &format!("{}", of.price), c.x + 58. * u, y + 50. * u, 11. * u, if g.p.inv[COIN] >= of.price { hx(0xaaffaa) } else { hx(0xff8888) });
-            if btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 10. * u, 92. * u, 32. * u), if owned { "มีแล้ว" } else { "ซื้อ" }, !owned && g.p.inv[COIN] >= of.price, u) {
-                buy = Some(i);
-            }
-            sep(c, y + rh - 2.);
-        }
-        y += rh;
-    }
-    if let Some(i) = buy {
-        g.buy_offer(offers[i]);
-    }
     y - top
 }
 
@@ -651,26 +622,27 @@ fn tab_forge(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect,
 fn tab_cook(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32 {
     let top = c.y - ui.scroll;
     let mut y = top;
-    let rh = 62. * u;
-    header(font, c, y, "หม้อทำอาหาร — วัตถุดิบดรอปจากมอนสเตอร์ (ค้างคาว=เนื้อ · สไลม์=เห็ด · โครงกระดูก=สมุนไพร)", u);
-    y += 28. * u;
-    let mut act: Option<usize> = None;
-    for (i, d) in DISHES.iter().enumerate() {
-        if visible(y, rh, c) {
-            icon_c(sp, d.item, c.x + 8. * u, y + 10. * u, 28. * u, WHITE);
-            text(font, d.name, c.x + 44. * u, y + 18. * u, 14. * u, hx(0xffcc66));
-            text(font, d.desc, c.x + 44. * u, y + 33. * u, 11. * u, hx(0xaaaaaa));
-            costs(g, sp, font, d.cost, None, c.x + 44. * u, y + 40. * u, u);
-            if btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 14. * u, 92. * u, 32. * u), "ทำ", can_pay(&g.p, d.cost), u) { act = Some(i); }
-            sep(c, y + rh - 2.);
-        }
-        y += rh;
+    if ui.sel_r >= 2000 || ui.sel_r < 1000 || ui.sel_r - 1000 >= DISHES.len() { ui.sel_r = 1000; }
+    let di = ui.sel_r - 1000;
+    let d = &DISHES[di];
+    let mut act = false;
+    let dh = detail_box(font, c, y, u, d.name, d.desc, &|x, yy, s| icon_c(sp, d.item, x, yy, s, WHITE));
+    if visible(y, dh, c) {
+        cost_chips(g, sp, font, d.cost, None, c.x + 82. * u, y + 70. * u, u);
+        if btn(ui, font, Rect::new(c.x + c.w - 112. * u, y + 20. * u, 100. * u, 40. * u), if can_pay(&g.p, d.cost) { "ทำอาหาร!" } else { "ของไม่พอ" }, can_pay(&g.p, d.cost), u) { act = true; }
     }
-    if visible(y, 60. * u, c) {
-        text(font, "ใช้อาหารจากแท็บ \"ชุด/ของ\" หรือกด 1 สเต็ก · 2 ซุป · 3 ชา", c.x + 8. * u, y + 22. * u, 11. * u, hx(0x888899));
+    y += dh + 4. * u;
+    if let Some(h) = grid(ui, c, &mut y, DISHES.len(), 50. * u, 6. * u, di, |n, x, yy, s| {
+        let dd = &DISHES[n];
+        if can_pay(&g.p, dd.cost) { draw_rectangle_lines(x + 2., yy + 2., s - 4., s - 4., 3., hx(0xffcc44)); }
+        icon_c(sp, dd.item, x + s * 0.14, yy + s * 0.14, s * 0.72, WHITE);
+        mcui::slot_count(font, g.p.inv[dd.item], x, yy, s);
+    }) { ui.sel_r = 1000 + h; }
+    if visible(y, 40. * u, c) {
+        text(font, "วัตถุดิบ: เนื้อ/ปลา (ล่าสัตว์ ตกปลา) · เห็ด (สไลม์ หนองน้ำ) · สมุนไพร (โครงกระดูก ต้นไม้ยักษ์) · กินได้จากแถบล่างหรือกระเป๋า", c.x + 8. * u, y + 20. * u, 11. * u, hx(0x888899));
     }
     y += 40. * u;
-    if let Some(i) = act { g.cook(i); }
+    if act { g.cook(di); }
     y - top
 }
 
@@ -711,6 +683,18 @@ fn tab_stats(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect
         if visible(y, hh, c) { for (k, w) in ws.iter().enumerate() { text(font, w, c.x + 8. * u, y + 14. * u + k as f32 * 15. * u, 12. * u, if done { hx(0x88ff88) } else { hx(0xdddddd) }); } }
         y += hh;
     }
+    // ---- เป้าหมาย (ความสำเร็จ)
+    header(font, c, y, &format!("เป้าหมาย {}/{}", g.adv_done.count_ones(), ADV.len()), u);
+    y += 28. * u;
+    for (k, (n, h, cn, _)) in ADV.iter().enumerate() {
+        let done = g.adv_done & (1 << k) != 0;
+        if visible(y, 20. * u, c) {
+            if done { tick(c.x + 8. * u, y + 4. * u, 12. * u); } else { draw_rectangle_lines(c.x + 8. * u, y + 4. * u, 12. * u, 12. * u, 2., hx(0x777788)); }
+            text(font, &format!("{} — {} (+{} เหรียญ)", n, h, cn), c.x + 28. * u, y + 15. * u, 12. * u, if done { hx(0x88ff88) } else { hx(0xdddddd) });
+        }
+        y += 20. * u;
+    }
+    y += 8. * u;
     if let Some(i) = act { g.spend_stat(i); }
     y - top
 }
@@ -736,7 +720,7 @@ fn tab_settings(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: R
     }
     // ---- กราฟิก/ประสิทธิภาพ (ค่าส่วนกลาง ใช้ร่วมกับหน้าเมนูหลัก)
     let grows: [(&str, &str, String); 8] = [
-        ("ความยาก", "ง่าย = โดนตีเบา หิวช้า สัตว์ไม่ค่อยดุ · ยาก = ทุกอย่างโหดขึ้น", diff_name().to_string()),
+        ("ความยาก", "ง่าย = โดนตีเบา หิวช้า · ยาก = โหดขึ้น · สันติ = ไม่มีมอนสเตอร์/สัตว์ดุนอกดันเจี้ยน ไม่หิว ไม่กระหาย (เหมาะกับเด็ก)", diff_name().to_string()),
         ("เฟรมเรต", "30 ประหยัดแบต · 60 ลื่น · ไม่จำกัด = ตามรีเฟรชเรตจอ", prefs::fps_name().to_string()),
         ("เอฟเฟกต์ฝน/หิมะ", "ปิดแล้วเครื่องแรงน้อยจะลื่นขึ้น (ผลช้าลง/มืดยังอยู่)", if prefs::weather_fx() { "เปิด" } else { "ปิด" }.to_string()),
         ("แสงไดนามิก", "สูง = ละเอียด · ต่ำ = เร็วขึ้น · ปิด = มืดเรียบ", prefs::light_name().to_string()),
