@@ -134,6 +134,10 @@ impl Game {
             }
         }
         for (id, msg) in &self.rs.help { add(format!("proj{}", id), 2, msg.clone(), AdvAct::Npc(*id), "ดูคนนี้"); }
+        // v23 เหตุการณ์
+        let sick: Vec<u32> = self.rs.lv.sick.keys().copied().collect();
+        if !sick.is_empty() { add("sick".into(), 1, format!("{} คนป่วย (กากบาทเขียวบนหัว) ทำงานไม่ได้ — {}", sick.len(), if self.p.inv[HERB] > 0 { "เดินไปกดคุยเพื่อให้สมุนไพร" } else { "หาสมุนไพร (ต้นสมุนไพรในป่า/หนองน้ำ) แล้วเอาไปให้" }), AdvAct::Npc(sick[0]), "ดูคนป่วย"); }
+        if self.rs.lv.waiting > 0 { add("refugee".into(), 1, format!("ผู้ลี้ภัย {} คนรอเตียงว่าง — วางเตียงหรือสร้างบ้านให้ จะย้ายเข้าตอนเช้า", self.rs.lv.waiting), AdvAct::Build(33), "วางเตียง"); }
         // ---- งาน/การเติบโต
         let has = |r: u8| s.roles.iter().any(|x| x.0 == r && x.1 > 0);
         if s.pop >= 3 && !has(1) { add("farmer".into(), 2, "ยังไม่มีชาวไร่ — เปลี่ยนอาชีพใครสักคนเป็น \"ชาวไร่\" (กดที่คน → เปลี่ยนอาชีพ) เขาจะทำไร่ให้เอง".into(), AdvAct::Tab(10), "เลือกคน"); }

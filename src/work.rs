@@ -41,7 +41,12 @@ pub struct Job {
 
 /// โครงการของชาวบ้าน (คิดเอง): สร้างบ้านของตัวเอง ฯลฯ
 #[derive(Clone, Debug)]
-pub struct Project { pub by: u32, pub kind: u8, pub at: (i32, i32), pub need: Vec<(usize, i32)>, pub started: bool }
+pub struct Project { pub by: u32, pub kind: u8, pub at: (i32, i32), pub need: Vec<(usize, i32)>, pub started: bool, pub dir: u8 }
+/// ทิศประตูที่หันเข้าหาจุด c (ใจกลางเมือง) จากบ้านที่ประตูอยู่ p
+pub fn door_toward(p: (i32, i32), c: (i32, i32)) -> u8 {
+    let (dx, dy) = (c.0 - p.0, c.1 - p.1);
+    if dx.abs() > dy.abs() { if dx > 0 { 3 } else { 1 } } else if dy < 0 { 2 } else { 0 }
+}
 
 pub fn project_what(kind: u8) -> &'static str {
     match kind {
@@ -219,6 +224,8 @@ impl Game {
 
     /// เรียกจาก npc_tick (ต่อคน): คืนจุดที่ควรเดินไป + ความเร็ว ถ้ามีงาน · ทำงานจนเสร็จแล้วส่งผลไปที่ done
     pub fn work_step(&mut self, n: &mut npc::Npc, dt: f32, done: &mut Vec<(u32, Job)>) -> Option<((f32, f32), f32)> {
+        // v23 ป่วย = พักอยู่บ้าน ไม่ทำงาน
+        if self.is_sick(n.id) { self.rs.work.remove(&n.id); return None; }
         let j = self.rs.work.get_mut(&n.id)?;
         if j.kind == J_HUNT && j.stage == 0 {
             // ตามสัตว์ (มันวิ่งหนี) จนเข้าระยะยิง แล้วเล็งธนู
@@ -271,8 +278,8 @@ impl Game {
             let fx = (t.0 as f32 * 16. + 8., t.1 as f32 * 16. + 10.);
             let mut got: Option<(usize, i32)> = None;
             match j.kind {
-                J_HARVEST => { let bonus = self.saga_perk(1); if let Some(c) = self.crops.get_mut(&t) {
-                    if c.stage() == 2 { got = Some((HARVEST_OF[c.kind as usize], if bonus { 3 } else { 2 })); c.grown = 0.; c.wet = WET_T; let o = c.obj(); self.w.placed.insert(t, o); }
+                J_HARVEST => { let bonus = self.saga_perk(1) as i32 + self.bumper_today() as i32; if let Some(c) = self.crops.get_mut(&t) {
+                    if c.stage() == 2 { got = Some((HARVEST_OF[c.kind as usize], 2 + bonus)); c.grown = 0.; c.wet = WET_T; let o = c.obj(); self.w.placed.insert(t, o); }
                 } },
                 J_WATER => if let Some(c) = self.crops.get_mut(&t) { c.wet = WET_T; self.burst(fx.0, fx.1, hx(0x66aaff), 6, 30.); },
                 J_TILL => if self.can_till(t.0, t.1) && !self.crops.contains_key(&t) {
@@ -351,12 +358,12 @@ impl Game {
             let (kind, r0, r1) = house_style(n);
             let c = self.town_center().unwrap_or(n.bed);
             let mut at = None;
-            'f: for rr in r0..=r1 { for k in 0..(rr * 8) { let a = k as f32 / (rr * 8) as f32 * std::f32::consts::TAU + id as f32; let p = (c.0 + (a.cos() * rr as f32) as i32, c.1 + (a.sin() * rr as f32) as i32 + 3); if self.prefab_blocked(kind, p).is_none() && !self.rs.projects.iter().any(|q| (q.at.0 - p.0).abs() < 8 && (q.at.1 - p.1).abs() < 8) { at = Some(p); break 'f; } } }
+            'f: for rr in r0..=r1 { for k in 0..(rr * 8) { let a = k as f32 / (rr * 8) as f32 * std::f32::consts::TAU + id as f32; let p = (c.0 + (a.cos() * rr as f32) as i32, c.1 + (a.sin() * rr as f32) as i32 + 3); if self.prefab_blocked(kind, p, door_toward(p, c)).is_none() && !self.rs.projects.iter().any(|q| (q.at.0 - p.0).abs() < 8 && (q.at.1 - p.1).abs() < 8) { at = Some(p); break 'f; } } }
             let Some(at) = at else { continue };
             let cost = project_cost(kind);
             let nm = NPC_NAMES[n.name as usize];
             self.news_add(format!("{}อยาก{} ({})", nm, project_what(kind), prefab_name(kind)));
-            self.rs.projects.push(Project { by: id, kind, at, need: cost, started: false });
+            self.rs.projects.push(Project { by: id, kind, at, need: cost, started: false, dir: door_toward(at, c) });
         }
         // โครงการส่วนรวม: มีคนไม่มีน้ำดื่ม → ขุดบ่อน้ำ · ชุมชนโตแล้วแต่ไม่มีทั่ง → ตั้งโรงตีเหล็ก
         let served = self.water_served();
@@ -377,7 +384,7 @@ impl Game {
         let cost = project_cost(kind);
         let nm = self.idx(by).map(|i| NPC_NAMES[self.npcs[i].name as usize]).unwrap_or("");
         self.news_add(format!("{}เสนอ{}", nm, project_what(kind)));
-        self.rs.projects.push(Project { by, kind, at, need: cost, started: false });
+        self.rs.projects.push(Project { by, kind, at, need: cost, started: false, dir: 0 });
     }
     fn free_spot_near(&self, c: (i32, i32), r0: i32, r1: i32) -> Option<(i32, i32)> {
         for rr in r0..=r1 { for dy in -rr..=rr { for dx in -rr..=rr {
@@ -404,7 +411,7 @@ impl Game {
                 continue;
             }
             let prefab = is_prefab(p.kind);
-            if prefab && self.prefab_blocked(p.kind, p.at).is_some() { continue; }
+            if prefab && self.prefab_blocked(p.kind, p.at, p.dir).is_some() { continue; }
             if !prefab && !self.can_place_at(p.at.0, p.at.1) { continue; }
             // หักวัสดุจากกล่องใกล้บ้าน
             for &(it, mut n) in &p.need {
@@ -414,8 +421,8 @@ impl Game {
             p.started = true;
             self.rs.help.remove(&p.by);
             if prefab {
-                for ((x, y), _) in self.prefab_cells(p.kind, p.at) { if !self.w.placed.contains_key(&(x, y)) && self.w.nat_obj(x, y) != 0 { self.w.removed.insert((x, y)); } }
-                self.sites.push(Site { kind: p.kind, k: p.at, prog: 0., done: 0 });
+                for ((x, y), _) in self.prefab_cells(p.kind, p.at, p.dir) { if !self.w.placed.contains_key(&(x, y)) && self.w.nat_obj(x, y) != 0 { self.w.removed.insert((x, y)); } }
+                self.sites.push(Site { kind: p.kind, k: p.at, prog: 0., done: 0, dir: p.dir });
                 self.toast(format!("{}เริ่ม{}แล้ว! (ช่างไม้ช่วยได้ · เราอยู่ใกล้ก็เร็วขึ้น)", nm, project_what(p.kind)));
             } else {
                 // ของชิ้นเดียว: สร้างเสร็จเลย

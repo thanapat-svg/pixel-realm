@@ -231,7 +231,7 @@ impl Game {
     /// ตัวคูณความเร็วเดินจากพื้น (หนองน้ำเดินช้า)
     pub fn ground_speed_mul(&self) -> f32 {
         if self.w.dun.is_some() { return 1.; }
-        match self.w.tile_at(tfloor(self.p.x), tfloor(self.p.y)) { T_SWAMP => 0.7, T_ASH => 0.92, _ => 1. }
+        match self.w.tile_at(tfloor(self.p.x), tfloor(self.p.y)) { T_SWAMP => 0.7, T_ASH => 0.92, T_ROAD | T_BRIDGE => 1.2, _ => 1. }
     }
     pub fn discover_marks(&mut self) {
         if self.w.dun.is_some() { return; }

@@ -93,7 +93,7 @@ impl Game {
         }
         if is_prefab(pc.obj) {
             let k = self.build_target();
-            if self.place_prefab(pc.obj, k, pc.cost) { self.save(); }
+            if self.place_prefab(pc.obj, k, self.build_dir, pc.cost) { self.save(); }
             return;
         }
         if pc.obj == OBJ_FLOOR_W || pc.obj == OBJ_FLOOR_S {
@@ -168,6 +168,9 @@ impl Game {
             return;
         }
         if self.npc_interact() {
+            return;
+        }
+        if self.caravan_use() {
             return;
         }
         if let Some(i) = self.citizen_near() {

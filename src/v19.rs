@@ -129,6 +129,16 @@ impl Game {
         true
     }
 
+    /// v23 หมุนทิศบ้านสำเร็จรูปก่อนวาง (Y / ปุ่ม "หมุน")
+    pub fn rotate_build(&mut self) {
+        let Some(sel) = self.build_sel else { return };
+        let o = PIECES[sel].obj;
+        if !is_prefab(o) || o == OBJ_FIRERING { self.toast("ชิ้นนี้วางได้ทิศเดียว — หมุนได้เฉพาะบ้าน/กระท่อม/เต็นท์"); return; }
+        self.build_dir = (self.build_dir + 1) & 3;
+        self.rs.build_arm = None;
+        play_vol(&self.sfx.door, 0.5);
+        self.toast(format!("หมุนแล้ว: {}", DIR_NAMES[self.build_dir as usize]));
+    }
     // ---------------------------------------------------------------- สร้างตรงจุดที่แตะ/ลาก
     /// แตะ = วางตรงนั้น · ลาก = วางต่อเนื่อง (กำแพง หน้าต่าง กำแพงเมือง พื้น ไถดิน) · บ้านสำเร็จรูป = แตะซ้ำที่เดิมเพื่อยืนยัน
     pub fn build_drag(&mut self, t: (i32, i32), started: bool) {
@@ -157,7 +167,7 @@ impl Game {
         } else if started {
             if is_prefab(o) {
                 if self.rs.build_arm == Some(t) { self.rs.build_arm = None; self.place_piece(); }
-                else { self.rs.build_arm = Some(t); self.toast("ดูตำแหน่งให้ดี แล้วแตะซ้ำที่เดิมเพื่อสร้าง"); }
+                else { self.rs.build_arm = Some(t); self.toast("ดูตำแหน่งให้ดี แล้วแตะซ้ำที่เดิมเพื่อสร้าง · ปุ่ม \"หมุน\" (Y) = หันประตู"); }
             } else {
                 self.place_piece();
             }

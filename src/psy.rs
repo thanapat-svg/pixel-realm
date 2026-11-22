@@ -137,12 +137,15 @@ impl Game {
             let mut ring_n: HashMap<(i32, i32), usize> = HashMap::new();
             let mut ids: Vec<(u32, (i32, i32))> = self.npcs.iter().filter(|n| n.state == ST_HOME && n.soc.anger < 40).map(|n| (n.id, n.bed)).collect();
             ids.sort();
+            // v23 วันเทศกาล: ทุกคน (แม้แต่คนเงียบๆ) มารวมที่ลานเมือง
+            let fest = if self.festival_today().is_some() { self.fest_spot() } else { None };
             for (id, bed) in ids {
-                let Some(f) = self.w.near_fire(bed.0, bed.1, 14) else { continue };
+                let fhere = fest.filter(|f| (f.0 - bed.0).abs().max((f.1 - bed.1).abs()) < 40 && !self.is_sick(id));
+                let Some(f) = fhere.or_else(|| self.w.near_fire(bed.0, bed.1, 14)) else { continue };
                 let p = &self.psy[&id];
                 // อยากไปไหม: เข้าสังคม + แบตเหลือ + สุ่มรายวัน · อินโทรเวิร์ตแบตหมด = ขอตัวกลับ
-                let want = p.t[PE] / 100. * 0.6 + p.bat / 100. * 0.4 + (hash(day, id as i32, 7710) as f32 - 0.5) * 0.35;
-                if want < 0.45 || p.bat < 18. { continue; }
+                let want = p.t[PE] / 100. * 0.6 + p.bat / 100. * 0.4 + (hash(day, id as i32, 7710) as f32 - 0.5) * 0.35 + if fhere.is_some() { 0.5 } else { 0. };
+                if want < 0.45 || (p.bat < 18. && fhere.is_none()) { continue; }
                 let fire = (f.0 as f32 * 16. + 8., f.1 as f32 * 16. + 12.);
                 // ที่นั่ง: ท่อนไม้/เก้าอี้ใกล้กองไฟก่อน ไม่งั้นนั่งพื้นเป็นวง
                 let mut seat = None;
@@ -153,7 +156,8 @@ impl Game {
                 let pos = if let Some(k) = seat { used.insert(k); (k.0 as f32 * 16. + 8., k.1 as f32 * 16. + 15.) } else {
                     let i = ring_n.entry(f).or_insert(0); *i += 1;
                     let a = *i as f32 * 2.1 + 0.6;
-                    (fire.0 + a.cos() * 26., fire.1 + a.sin() * 20.)
+                    let ring = 1. + (*i / 7) as f32 * 0.55;
+                    (fire.0 + a.cos() * 26. * ring, fire.1 + a.sin() * 20. * ring)
                 };
                 plan.insert(id, (pos, fire));
             }

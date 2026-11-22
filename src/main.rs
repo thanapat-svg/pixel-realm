@@ -58,6 +58,8 @@ mod advisor;
 use advisor::*;
 mod saga;
 use saga::*;
+mod living;
+use living::*;
 use realm::*;
 use extra::*;
 use farm::*;
@@ -88,16 +90,16 @@ use finale::*;
 
 // ======================= ค่าคงที่ =======================
 const DAYLEN: f32 = 240.0;
-const TN: [&str; 21] = [
+const TN: [&str; 23] = [
     "ทะเลลึก", "แหล่งน้ำ", "ชายหาด", "ทุ่งหญ้า", "ป่าทึบ", "เขตหินผา", "ภูเขา", "ดินแดนหิมะ", "ทะเลทราย", "ดันเจี้ยน", "กำแพงดันเจี้ยน", "ดินไถ", "ดินเปียก", "พื้นถ้ำ", "ผนังถ้ำ",
-    "หนองน้ำ", "สะวันนา", "เถ้าภูเขาไฟ", "ลาวา", "พื้นไม้", "พื้นหิน",
+    "หนองน้ำ", "สะวันนา", "เถ้าภูเขาไฟ", "ลาวา", "พื้นไม้", "พื้นหิน", "ถนน", "สะพาน",
 ];
-const TCOL: [u32; 21] = [
+const TCOL: [u32; 23] = [
     0x1d4f91, 0x2f7fd0, 0xe6d29a, 0x5fae4a, 0x3f8a3a, 0x8a8a8a, 0x5c5450, 0xeef4f8, 0xe8b86a, 0x3a3a4c, 0x14141e, 0x7a5230, 0x52341e, 0x3a343c, 0x1a1618,
-    0x4f6136, 0xc4b25c, 0x4a4446, 0xe0500e, 0xb07a44, 0x8e8a84,
+    0x4f6136, 0xc4b25c, 0x4a4446, 0xe0500e, 0xb07a44, 0x8e8a84, 0xb0905e, 0x8a5a30,
 ];
 // tiles: 0 deep,1 water,2 sand,3 grass,4 forest,5 stone,6 mountain,7 snow,8 desert
-const SOLIDT: [bool; 21] = [true, true, false, false, false, false, true, false, false, false, true, false, false, false, true, false, false, false, true, false, false];
+const SOLIDT: [bool; 23] = [true, true, false, false, false, false, true, false, false, false, true, false, false, false, true, false, false, false, true, false, false, false, false];
 // objects: 1 tree,2 bush,3 flower,4 rock,5 ore,6 chest,7 cactus,8 pine,9 campfire,
 //   10 กำแพงไม้,11 กำแพงหิน,12 ประตูปิด,13 ประตูเปิด,14 กล่องเก็บของ,15 พ่อค้า,16 เต็นท์
 //   37 ปราสาท,38 กำแพงเมือง,39 บ่อน้ำ
@@ -223,6 +225,15 @@ impl World {
     }
     fn gen_tile(&self, x: i32, y: i32) -> u8 {
         if let Some(ci) = self.realm.city_at(x, y) { return self.realm.layout(ci, x, y).0; }
+        // v23 ถนนระหว่างเมือง · ข้ามน้ำ/ลาวา = สะพาน
+        if !self.realm.roads.is_empty() && self.realm.roads.contains(&(x, y)) {
+            let b = self.gen_base(x, y);
+            return if b < 2 || b == T_LAVA { T_BRIDGE } else { T_ROAD };
+        }
+        self.gen_base(x, y)
+    }
+    /// ภูมิประเทศธรรมชาติ (ไม่รวมเมือง/ถนน)
+    fn gen_base(&self, x: i32, y: i32) -> u8 {
         if let Some(t) = self.volcano_tile(x, y) { return t; }
         let s = self.seed;
         let e = fbm(x as f64 / 48., y as f64 / 48., s);
@@ -447,6 +458,8 @@ fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
         Box::new(lava_tex),
         Box::new(|i| house::floor_tex(false, i)),
         Box::new(|i| house::floor_tex(true, i)),
+        Box::new(living::road_tex),
+        Box::new(living::bridge_tex),
     ];
     for d in &defs {
         tiles.push((0..4).map(|i| at.add(&d(i))).collect::<Vec<_>>());
@@ -545,7 +558,7 @@ impl Player {
 }
 
 #[derive(Default)]
-struct Input { hb: Option<usize>, mv: Vec2, atk: bool, eat: bool, fire: bool, menu: Option<usize>, map: bool, act: bool, swap: bool, place: bool, cancel: bool, potion: bool, aim: Option<Vec2>, dash: bool, tile_tap: Option<Vec2>, place_hold: bool, ride: bool, build_tap: Option<Vec2>, build_start: bool, build_end: bool }
+struct Input { hb: Option<usize>, mv: Vec2, atk: bool, eat: bool, fire: bool, menu: Option<usize>, map: bool, act: bool, swap: bool, place: bool, cancel: bool, potion: bool, aim: Option<Vec2>, dash: bool, tile_tap: Option<Vec2>, place_hold: bool, ride: bool, build_tap: Option<Vec2>, build_start: bool, build_end: bool, rot: bool }
 
 // ======================= game =======================
 struct Game {
@@ -621,6 +634,8 @@ struct Game {
     ending: f32,
     camp_t: f32,
     build_sel: Option<usize>,
+    /// v23 ทิศที่จะวางบ้านสำเร็จรูป (0 ประตูลง · 1 ซ้าย · 2 ขึ้น · 3 ขวา) — จำไว้ข้ามการวาง
+    build_dir: u8,
     req: Option<Req>,
     // ---- v3
     drops: Vec<Loot>,
@@ -718,7 +733,7 @@ impl Game {
             seen: HashSet::new(), obj_dmg: HashMap::new(), shake: ((0, 0), 0.), hurt_flash: 0., darkv: 0., last_biome: -1,
             spawn_t: 0., save_t: 0., mini_t: 99., died: false, big_map: false, sfx,
             proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, rooms: vec![], room_of: HashMap::new(), room_t: 0., paint_last: None, auto_doors: HashSet::new(), sites: vec![], rs: RealmState::default(), saga: Saga::default(), pins: vec![], pin_on: None, home_cd: 0., step_d: 0., step_last: 0, step_tracks: vec![], step_budget: 4., amb: [0.; AMB_N], amb_t: 0., hammer_t: 0., aim_last: None, aim_last_t: 0., site_wait_t: 0., sit: None, sit_t: 0., psy: HashMap::new(), psy_t: 0., gather: HashMap::new(), an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
-            build_sel: None, req: None,
+            build_sel: None, build_dir: 0, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
             rain: 0., rain_on: false, rain_t: 90., thunder: 0., cshake: (0., 0.), bgm_on: true, to_title: false, npcs: vec![], rels: HashMap::new(), news: vec![], npc_next: 1, npc_seen: HashSet::new(), lost_told: HashSet::new(), lost_hint_t: 1., last_day: -1, tax_pool: 0, wed_day: 0, last_child: -99, tut: TUT_DONE, tut_ev0: [0; EV_N], ev: [0; EV_N], tut_flash: 0., hitstop: 0., sfx_on: true,
@@ -766,6 +781,7 @@ impl Game {
         s += &self.nav_save();
         s += &self.realm_save();
         s += &self.saga_save();
+        s += &self.living_save();
         if let Some(b) = self.bed { s += &format!("bed {} {}\n", b.0, b.1); }
         s += "crops";
         for ((x, y), c) in &self.crops { s += &format!(" {},{},{},{:.1},{:.1}", x, y, c.kind, c.grown, c.wet); }
@@ -866,6 +882,7 @@ impl Game {
                 "rk" | "rc" | "rd" | "rp" | "ro" | "rr" | "rq" => g.realm_load(tag, &rest),
                 "nreq" => g.quests_load_line(&rest),
                 "saga" => g.saga_load(&rest),
+                "living" => g.living_load(&rest),
                 "v9" => g.balance_load_line(&rest),
                 "pet" => g.pets_load_line(&rest),
                 "farm" => { g.p.can = f(0) > 0.; g.p.water = (f(1) as i32).clamp(0, WATER_MAX); g.seed_sel = (f(2) as u8).min(1); }
@@ -1377,6 +1394,7 @@ impl Game {
         if inp.place { self.place_piece(); self.paint_last = None; }
         if inp.ride { self.toggle_ride(); }
         prof::t("paint_tick", || self.paint_tick(inp.place_hold));
+        if inp.rot { self.rotate_build(); }
         if inp.cancel && self.build_sel.is_some() { self.build_sel = None; self.toast("ยกเลิกโหมดสร้าง"); }
         if self.build_sel.is_none() { self.build_cur = None; }
         if self.build_cur.is_some() && (self.p.x - self.cur_pos.0).hypot(self.p.y - self.cur_pos.1) > 20. { self.build_cur = None; }
@@ -1502,6 +1520,7 @@ impl Game {
         prof::t("advisor", || self.advisor_tick(dt));
         self.rs.saga_t -= dt;
         if self.rs.saga_t <= 0. { self.rs.saga_t = 2.; prof::t("saga", || self.saga_tick()); }
+        prof::t("living", || self.living_tick(dt));
         self.dun_t -= dt;
         if self.dun_t <= 0. { self.dun_t = 1.; self.discover_duns(); self.discover_wps(); }
         // fx
@@ -1542,7 +1561,7 @@ fn make_view(cam_x: f32, cam_y: f32) -> View {
     View { s, vw, vh, cx: (cam_x - vw / 2.).round(), cy: (cam_y - vh / 2. - 6.).round() }
 }
 
-enum Draw { Obj(u8, i32, i32), Enemy(usize), Animal(usize), Boss(usize), Player, Loot(usize), Comp, Npc(usize), Lost(f32, f32, u8, u8), Citizen(usize) }
+enum Draw { Obj(u8, i32, i32), Enemy(usize), Animal(usize), Boss(usize), Player, Loot(usize), Comp, Npc(usize), Lost(f32, f32, u8, u8), Citizen(usize), Caravan(usize) }
 
 fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     let w = &g.w;
@@ -1653,6 +1672,9 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         let (sx, sy) = (n.x - v.cx, n.y - v.cy);
         if sx < -12. || sx > v.vw + 12. || sy < -20. || sy > v.vh + 12. { continue; }
         list.push((n.y, Draw::Npc(i)));
+    }
+    for (i, c) in g.rs.lv.cara.iter().enumerate() {
+        if (c.x - g.p.x).abs() < 440. && (c.y - g.p.y).abs() < 320. { list.push((c.y, Draw::Caravan(i))); }
     }
     for (i, c) in g.rs.cit.iter().enumerate() {
         if (c.x - g.p.x).abs() < 420. && (c.y - g.p.y).abs() < 300. { list.push((c.y, Draw::Citizen(i))); }
@@ -1785,6 +1807,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
             Draw::Comp => draw_comp(g, sp, v),
             Draw::Npc(i) => draw_npc(g, sp, v, i, t_now),
             Draw::Citizen(i) => draw_citizen(g, sp, v, i),
+            Draw::Caravan(i) => living::draw_caravan(g, sp, v, i, t_now),
             Draw::Lost(x, y, name, look) => draw_lost(g, sp, v, x, y, name, look, t_now),
             Draw::Player => {
                 let p = &g.p;
@@ -1868,6 +1891,8 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     draw_roofs(g, v);
     draw_sites(g, sp, v, font, t_now);
     draw_bubbles(g, v, font);
+    living::draw_living(g, v, t_now);
+    living::draw_caravan_labels(g, v, font);
     if let Some(sel) = g.build_sel {
         let (tx, ty) = g.build_target();
         // กริดช่วยวางให้ตรงช่อง (เฉพาะช่องที่อยู่ในระยะ)
@@ -1883,9 +1908,9 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         let po = PIECES[sel].obj;
         if is_prefab(po) {
             // พรีวิวทั้งหลัง: เขียว = วางได้ · แดง = มีของขวาง (ข้อความบอกเหตุผล)
-            let bad = g.prefab_blocked(po, (tx, ty)).or(if can_pay(&g.p, PIECES[sel].cost) { None } else { Some("วัสดุไม่พอ") });
+            let bad = g.prefab_blocked(po, (tx, ty), g.build_dir).or(if can_pay(&g.p, PIECES[sel].cost) { None } else { Some("วัสดุไม่พอ") });
             let tint = if bad.is_none() { Color::new(0.75, 1., 0.75, 0.6) } else { Color::new(1., 0.55, 0.55, 0.55) };
-            for ((x, y), c) in g.prefab_cells(po, (tx, ty)) {
+            for ((x, y), c) in g.prefab_cells(po, (tx, ty), g.build_dir) {
                 let (px, py) = (x as f32 * 16. - v.cx, y as f32 * 16. - v.cy);
                 match c {
                     Cell::Wall(o) => blit(sp, v, sp.obj[o as usize], px, py, false, tint),
@@ -1899,11 +1924,22 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                     }
                 }
             }
-            let lay = prefab_layout(po);
+            let lay = prefab_layout_d(po, g.build_dir);
             let (x0, y0) = (lay.iter().map(|c| c.0 .0).min().unwrap(), lay.iter().map(|c| c.0 .1).min().unwrap());
             let (x1, y1) = (lay.iter().map(|c| c.0 .0).max().unwrap(), lay.iter().map(|c| c.0 .1).max().unwrap());
             let lc = if bad.is_none() { Color::new(0.3, 1., 0.3, 0.9) } else { Color::new(1., 0.3, 0.3, 0.9) };
             draw_rectangle_lines(((tx + x0) as f32 * 16. - v.cx) * v.s, ((ty + y0) as f32 * 16. - v.cy) * v.s, (x1 - x0 + 1) as f32 * 16. * v.s, (y1 - y0 + 1) as f32 * 16. * v.s, 3., lc);
+            if po != OBJ_FIRERING {
+                // ลูกศรบอกทางเข้า: ชี้ออกจากประตู
+                let (ox, oy) = rot_off((0, 1), g.build_dir);
+                let (cx0, cy0) = (((tx as f32 + 0.5) * 16. - v.cx) * v.s, ((ty as f32 + 0.5) * 16. - v.cy) * v.s);
+                let (ax, ay) = (cx0 + ox as f32 * 14. * v.s, cy0 + oy as f32 * 14. * v.s);
+                let (px2, py2) = (-oy as f32, ox as f32);
+                let tip = vec2(ax + ox as f32 * 7. * v.s, ay + oy as f32 * 7. * v.s);
+                let pul = 0.7 + 0.3 * (t_now * 5.).sin();
+                draw_triangle(tip, vec2(ax + px2 * 5. * v.s, ay + py2 * 5. * v.s), vec2(ax - px2 * 5. * v.s, ay - py2 * 5. * v.s), Color::new(1., 0.9, 0.3, pul));
+                draw_line(cx0 + ox as f32 * 6. * v.s, cy0 + oy as f32 * 6. * v.s, ax, ay, 2. * v.s, Color::new(1., 0.9, 0.3, pul));
+            }
             if let Some(why) = bad {
                 let (mx, my) = (((tx as f32) * 16. + 8. - v.cx) * v.s, ((ty + 1) as f32 * 16. + 4. - v.cy) * v.s);
                 let fs = (6. * v.s) as u16;
@@ -1939,6 +1975,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     }
     if prefs::weather_fx() && !g.indoors() { draw_weather(g, v, t_now); }
     vfx::draw_ambient(g, v, &mut lights);
+    living::fest_lights(g, v, &mut lights);
     // แสง+โทนสี (shader) — ถ้าใช้ไม่ได้ใช้ระบบเดิม (เซลล์สี่เหลี่ยมบน CPU)
     let pr0 = if g.p.weapon == 2 && g.p.staff > 0 { pulse_r(62., t_now, 0., 0.) } else { 48. };
     if g.darkv > 0.02 && g.p.weapon == 2 && g.p.staff > 0 {
@@ -2324,7 +2361,7 @@ fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool, horse: bool, blo
                     match id {
                         0 => { tu.atk_id = Some(t.id); tu.aim = Vec2::ZERO; tu.atk_start = t.position; }
                         1 => inp.eat = true,
-                        2 => inp.fire = true,
+                        2 => if build { inp.rot = true; } else { inp.fire = true; },
                         3 => inp.menu = Some(0),
                         4 => inp.map = true,
                         5 => if build { inp.cancel = true; } else { inp.swap = true; },
@@ -2416,6 +2453,13 @@ fn draw_touch(tu: &TouchUI, sp: &Sprites, font: &Font, build: bool, weapon: u8, 
                 }
             }
             1 => { ic(BERRY, c.x - r * 0.5, c.y - r * 0.6, r); lab("กิน"); }
+            2 if build => {
+                // โหมดสร้าง: ปุ่มกองไฟกลายเป็น "หมุน" (ลูกศรวนรอบ)
+                draw_circle(c.x, c.y, r, Color::new(0.15, 0.4, 0.75, 0.5));
+                draw_circle_lines(c.x, c.y - 3. * u, r * 0.42, 3. * u, WHITE);
+                draw_triangle(vec2(c.x + r * 0.42 - 6. * u, c.y - 3. * u), vec2(c.x + r * 0.42 + 6. * u, c.y - 3. * u), vec2(c.x + r * 0.42, c.y + 5. * u), WHITE);
+                tc("หมุน", c.x, c.y + r * 0.86, 11. * u, WHITE);
+            }
             2 => { ic(FIRE, c.x - r * 0.5, c.y - r * 0.6, r); lab("ไฟ"); }
             3 => tc("เมนู", c.x, c.y + 5. * u, 14. * u, WHITE),
             4 => tc("แผนที่", c.x, c.y + 5. * u, 13. * u, WHITE),
@@ -2458,8 +2502,11 @@ enum State { Title, Play, Menu }
 #[cfg(debug_assertions)]
 fn debug_keys(g: &mut Game) {
     let shift = is_key_down(KeyCode::LeftShift);
+    if shift && is_key_pressed(KeyCode::F1) { g.p.inv[WOOD] += 60; g.p.inv[STONE] += 20; g.build_sel = PIECES.iter().position(|p| p.obj == OBJ_HOUSE_S); }
+    if shift && is_key_pressed(KeyCode::F2) { g.dbg_caravan(); }
+    if shift && is_key_pressed(KeyCode::F3) { let d = day_of(g); let e = (d % 4) as u8; g.start_event(e, d); }
     if shift && is_key_pressed(KeyCode::F12) { g.saga.end_day = day_of(g); g.rs.ending = Some(0.); }
-    if is_key_pressed(KeyCode::F1) {
+    if !shift && is_key_pressed(KeyCode::F1) {
         for i in [WOOD, STONE, GEM, GEL, CORE] { g.p.inv[i] += 50; }
         g.p.inv[COIN] += 300;
         g.p.inv[ARROW] += 30;
@@ -2473,7 +2520,7 @@ fn debug_keys(g: &mut Game) {
         else if g.p.armor[0] >= 4 { g.p.armor = [0; 3]; g.p.outfit = 1; }
         else if g.p.outfit == 1 { g.p.outfit = 2; } else { g.p.outfit = 0; g.p.armor = [1; 3]; }
     }
-    if is_key_pressed(KeyCode::F2) {
+    if !shift && is_key_pressed(KeyCode::F2) {
         let (pcx, pcy) = (tfloor(g.p.x).div_euclid(CELL), tfloor(g.p.y).div_euclid(CELL));
         'find: for r in 0..12i32 {
             for cy in -r..=r {
@@ -2526,7 +2573,7 @@ fn debug_keys(g: &mut Game) {
         if g.npcs.len() > 1 { g.npcs[1].soc.anger = 60; g.npcs[1].soc.grudge = 35; } // ให้เห็นไอคอนโกรธ
         g.toast(format!("[debug] หมู่บ้านทดสอบ: {} คน", n));
     }
-    if is_key_pressed(KeyCode::F3) { let (x, y) = (g.p.x + 90., g.p.y); g.spawn_boss(0, x, y); }
+    if !shift && is_key_pressed(KeyCode::F3) { let (x, y) = (g.p.x + 90., g.p.y); g.spawn_boss(0, x, y); }
     if is_key_pressed(KeyCode::F4) { let (x, y) = (g.p.x + 90., g.p.y); g.spawn_boss(1, x, y); }
     if is_key_pressed(KeyCode::F11) { let (x, y) = (g.p.x + 90., g.p.y); g.spawn_boss_hp(FINAL_KIND, x, y, FINAL_HP); }
     if is_key_pressed(KeyCode::F5) { g.time = DAYLEN * 0.7; }
@@ -2870,6 +2917,7 @@ async fn main() {
                     inp.act = is_key_pressed(KeyCode::Q);
                     inp.place = is_key_pressed(KeyCode::R);
                     inp.place_hold = is_key_down(KeyCode::R);
+                    inp.rot = is_key_pressed(KeyCode::Y) && g.build_sel.is_some();
                     inp.swap = is_key_pressed(KeyCode::Tab);
                     inp.ride = is_key_pressed(KeyCode::G);
                     inp.dash = is_key_pressed(KeyCode::LeftShift) || is_key_pressed(KeyCode::K);
@@ -5237,7 +5285,7 @@ mod land_tests {
     #[test]
     fn new_biomes_appear_in_world() {
         let g = Game::new_world_seed(777, Sfx::default());
-        let mut cnt = [0; 21];
+        let mut cnt = [0; 23];
         for y in (-500..500).step_by(3) { for x in (-500..500).step_by(3) { cnt[g.w.tile_at(x, y) as usize] += 1; } }
         assert!(cnt[T_SWAMP as usize] > 50, "หนองน้ำ {:?}", cnt);
         assert!(cnt[T_SAVANNA as usize] > 50, "สะวันนา {:?}", cnt);
@@ -6297,13 +6345,13 @@ mod house2_tests {
         // tmod กันปูพื้น → ล้างช่องในบ้านให้เป็นหญ้าธรรมชาติ ด้วยการลบ tmod ภายในแล้วดูว่าเป็นพื้นแข็งไหม
         g.p.x = 1000. * 16. + 8.; g.p.y = 1002. * 16. + 12.;
         let k = (1000, 1001);
-        assert_eq!(g.prefab_blocked(OBJ_HOUSE_S, k), Some("ทับแปลงผัก/ดินที่ขุดไว้ — หาที่อื่น"), "tmod หญ้าที่ทดสอบใส่ไว้ถือว่าดัดแปลงแล้ว");
-        for ((x, y), _) in g.prefab_cells(OBJ_HOUSE_S, k) { g.w.tmod.remove(&(x, y)); }
-        assert!(!g.prefab_cells(OBJ_HOUSE_S, k).iter().any(|((x, y), _)| SOLIDT[g.w.tile_at(*x, *y) as usize]), "ที่ทดสอบต้องเป็นพื้นดิน");
+        assert_eq!(g.prefab_blocked(OBJ_HOUSE_S, k, 0), Some("ทับแปลงผัก/ดินที่ขุดไว้ — หาที่อื่น"), "tmod หญ้าที่ทดสอบใส่ไว้ถือว่าดัดแปลงแล้ว");
+        for ((x, y), _) in g.prefab_cells(OBJ_HOUSE_S, k, 0) { g.w.tmod.remove(&(x, y)); }
+        assert!(!g.prefab_cells(OBJ_HOUSE_S, k, 0).iter().any(|((x, y), _)| SOLIDT[g.w.tile_at(*x, *y) as usize]), "ที่ทดสอบต้องเป็นพื้นดิน");
         g.p.inv[WOOD] = 50; g.p.inv[STONE] = 10;
         let cost = PIECES.iter().find(|p| p.obj == OBJ_HOUSE_S).unwrap().cost;
         g.build_sel = Some(0);
-        assert!(g.place_prefab(OBJ_HOUSE_S, k, cost));
+        assert!(g.place_prefab(OBJ_HOUSE_S, k, 0, cost));
         assert_eq!(g.p.inv[WOOD], 10);
         assert!(g.build_sel.is_none(), "วางแล้วออกจากโหมดสร้างเอง");
         assert!(g.w.room_from((1000, 999)).is_none(), "ยังไม่เสร็จทันที ต้องใช้เวลาสร้าง");
@@ -6317,23 +6365,70 @@ mod house2_tests {
         assert_eq!(g.w.obj_at(1000, 1001), 12);
         assert!(g.torches.iter().any(|_| true), "โคมไฟนับเป็นแสง");
         // วางซ้ำทับไม่ได้
-        assert!(g.prefab_blocked(OBJ_HOUSE_S, k).is_some());
+        assert!(g.prefab_blocked(OBJ_HOUSE_S, k, 0).is_some());
+    }
+    #[test]
+    fn prefab_rotates_door_all_four_ways() {
+        // บ้านเล็กหมุน 4 ทิศ: ประตูอยู่ที่จุดเลือกเสมอ ตัวบ้านยื่นไปฝั่งตรงข้าม และยังเป็นห้องปิดที่มีเตียง
+        let mut ran = 0;
+        for dir in 0..4u8 {
+            let mut g = Game::new_world_seed(4242, Sfx::default());
+            clear_lot(&mut g, 985, 985, 1015, 1015);
+            let k = (1000, 1000);
+            for ((x, y), _) in g.prefab_cells(OBJ_HOUSE_S, k, dir) { g.w.tmod.remove(&(x, y)); }
+            if g.prefab_cells(OBJ_HOUSE_S, k, dir).iter().any(|((x, y), _)| SOLIDT[g.w.tile_at(*x, *y) as usize]) { continue; }
+            let (ox, oy) = rot_off((0, 1), dir);
+            g.p.x = (k.0 + ox * 2) as f32 * 16. + 8.; g.p.y = (k.1 + oy * 2) as f32 * 16. + 12.;
+            g.p.inv[WOOD] = 50; g.p.inv[STONE] = 10;
+            let cost = PIECES.iter().find(|p| p.obj == OBJ_HOUSE_S).unwrap().cost;
+            assert!(g.place_prefab(OBJ_HOUSE_S, k, dir, cost), "ทิศ {}", dir);
+            for _ in 0..(31 * 30) { g.sites_tick(1. / 30.); }
+            assert!(g.sites.is_empty());
+            assert_eq!(g.w.obj_at(k.0, k.1), 12, "ประตูที่จุดเลือก ทิศ {}", dir);
+            // ด้านนอกประตู (ทางเข้า) ว่าง · ด้านในประตูเป็นห้อง
+            assert_eq!(g.w.obj_at(k.0 + ox, k.1 + oy), 0);
+            let inside = (k.0 - ox * 2, k.1 - oy * 2);
+            let r = g.w.room_from(inside).unwrap_or_else(|| panic!("ทิศ {} ต้องเป็นห้องปิด", dir));
+            assert_eq!(r.tiles.len(), 9);
+            assert!(r.has_bed);
+            assert!(r.doors.contains(&k));
+            ran += 1;
+        }
+        assert_eq!(ran, 4, "ทดสอบครบ 4 ทิศ");
+        // เซฟ/โหลดไซต์ที่หมุนแล้วจำทิศได้
+        let mut g = Game::new_world_seed(4242, Sfx::default());
+        g.sites.push(Site { kind: OBJ_HUT, k: (5, 6), prog: 1., done: 2, dir: 3 });
+        let line = g.sites_save();
+        g.sites.clear();
+        let parts: Vec<&str> = line.trim().split(' ').skip(1).collect();
+        g.sites_load(&parts);
+        assert_eq!(g.sites[0].dir, 3);
+        g.sites.clear();
+        g.sites_load(&["249", "5", "6", "1.0", "2"]);
+        assert_eq!(g.sites[0].dir, 0, "เซฟเก่าไม่มีทิศ = ประตูหันลง");
+    }
+    #[test]
+    fn door_faces_town_center() {
+        assert_eq!(door_toward((10, 0), (0, 0)), 1);
+        assert_eq!(door_toward((-10, 0), (0, 0)), 3);
+        assert_eq!(door_toward((0, 10), (0, 0)), 2);
+        assert_eq!(door_toward((0, -10), (0, 0)), 0);
     }
     #[test]
     fn prefab_large_house_comfort_and_player_block() {
         let mut g = Game::new_world_seed(4242, Sfx::default());
         let k = (1000, 1001);
         clear_lot(&mut g, 990, 990, 1010, 1010);
-        for ((x, y), _) in g.prefab_cells(OBJ_HOUSE_L, k) { g.w.tmod.remove(&(x, y)); }
-        assert!(!g.prefab_cells(OBJ_HOUSE_L, k).iter().any(|((x, y), _)| SOLIDT[g.w.tile_at(*x, *y) as usize]), "ที่ทดสอบต้องเป็นพื้นดิน");
+        for ((x, y), _) in g.prefab_cells(OBJ_HOUSE_L, k, 0) { g.w.tmod.remove(&(x, y)); }
+        assert!(!g.prefab_cells(OBJ_HOUSE_L, k, 0).iter().any(|((x, y), _)| SOLIDT[g.w.tile_at(*x, *y) as usize]), "ที่ทดสอบต้องเป็นพื้นดิน");
         // ยืนตรงกำแพงหลังบ้าน → ห้ามวาง
         g.p.x = 1000. * 16. + 8.; g.p.y = 996. * 16. + 12.;
-        assert!(g.prefab_blocked(OBJ_HOUSE_L, k).is_some());
+        assert!(g.prefab_blocked(OBJ_HOUSE_L, k, 0).is_some());
         g.p.y = 1003. * 16. + 12.;
-        assert_eq!(g.prefab_blocked(OBJ_HOUSE_L, k), None);
+        assert_eq!(g.prefab_blocked(OBJ_HOUSE_L, k, 0), None);
         g.p.inv[WOOD] = 50; g.p.inv[STONE] = 60; g.p.inv[BERRY] = 3;
         let cost = PIECES.iter().find(|p| p.obj == OBJ_HOUSE_L).unwrap().cost;
-        assert!(g.place_prefab(OBJ_HOUSE_L, k, cost));
+        assert!(g.place_prefab(OBJ_HOUSE_L, k, 0, cost));
         for _ in 0..(61 * 30) { g.sites_tick(1. / 30.); }
         assert!(g.sites.is_empty());
         let r = g.w.room_from((1000, 999)).unwrap();
@@ -6493,17 +6588,17 @@ mod psy_tests {
     fn tent_builds_fast_into_a_room() {
         let mut g = lot();
         let k = (1000, 1003);
-        for ((x, y), _) in g.prefab_cells(OBJ_TENT, k) { assert!(!SOLIDT[g.w.tile_at(x, y) as usize]); }
+        for ((x, y), _) in g.prefab_cells(OBJ_TENT, k, 0) { assert!(!SOLIDT[g.w.tile_at(x, y) as usize]); }
         g.p.x = 1000. * 16. + 8.; g.p.y = 1005. * 16.;
         g.p.inv[WOOD] = 8;
-        assert!(g.place_prefab(OBJ_TENT, k, &[(WOOD, 8)]));
+        assert!(g.place_prefab(OBJ_TENT, k, 0, &[(WOOD, 8)]));
         for _ in 0..(7 * 30) { g.sites_tick(1. / 30.); }
         assert!(g.sites.is_empty());
         let r = g.w.room_from((1000, 1001)).expect("เต็นท์เป็นห้อง");
         assert!(r.tent && r.has_bed);
         // ไซต์ที่อยู่ไกลไม่คืบ
         g.p.inv[WOOD] = 30;
-        assert!(g.place_prefab(OBJ_HUT, (1010, 1003), &[(WOOD, 22)]));
+        assert!(g.place_prefab(OBJ_HUT, (1010, 1003), 0, &[(WOOD, 22)]));
         g.p.x = 0.; g.p.y = 0.;
         for _ in 0..(20 * 30) { g.sites_tick(1. / 30.); }
         assert_eq!(g.sites[0].done, 0);

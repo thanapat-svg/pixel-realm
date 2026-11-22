@@ -113,7 +113,7 @@ impl Game {
                 let kind = ((o - 27) / 3) as usize;
                 self.w.placed.remove(&k);
                 self.crops.remove(&k);
-                let n = rnd(1, 2);
+                let n = rnd(1, 2) + self.bumper_today() as i32;
                 self.gain(HARVEST_OF[kind], n, px, py);
                 if gen_range(0., 1.) < 0.6 {
                     self.gain(SEED_OF[kind], 1, px, py - 10.);

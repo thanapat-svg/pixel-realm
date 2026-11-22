@@ -46,7 +46,7 @@ pub struct City { pub name: &'static str, pub pos: (i32, i32), pub r: i32, pub c
 #[derive(Clone, Debug)]
 pub struct KDef { pub name: String, pub title: &'static str, pub ruler: &'static str, pub color: u32, pub trait_: u8, pub laws: Vec<u8>, pub cap: usize, pub claim: i32 }
 #[derive(Clone, Debug, Default)]
-pub struct Realm { pub ks: Vec<KDef>, pub cities: Vec<City> }
+pub struct Realm { pub ks: Vec<KDef>, pub cities: Vec<City>, pub roads: HashSet<(i32, i32)>, pub routes: Vec<Route> }
 
 impl World {
     /// อยู่ใกล้/ในเมือง (ใช้กันแคมป์ จุดสำคัญ ดันเจี้ยน เสาวาร์ป ไม่ให้ทับเมือง)
@@ -121,7 +121,8 @@ impl Realm {
             if !laws.contains(&extra) { laws.push(extra); }
             ks.push(KDef { name: format!("อาณาจักร{}", K_NAMES[names[k]]), title, ruler, color: K_COLORS[names[k]], trait_, laws, cap: cap_idx, claim: 190 });
         }
-        Realm { ks, cities }
+        let (roads, routes) = build_roads(w, &cities);
+        Realm { ks, cities, roads, routes }
     }
     /// เมืองที่ช่องนี้อยู่ (รวมกำแพงรอบเมือง)
     pub fn city_at(&self, x: i32, y: i32) -> Option<usize> {
@@ -182,12 +183,12 @@ impl Realm {
 }
 
 fn biome_spec(w: &World, c: (i32, i32)) -> ([usize; 2], [usize; 2]) {
-    let mut cnt = [0; 21];
+    let mut cnt = [0; 23];
     let mut water = 0;
     for j in -6..=6 { for i in -6..=6 {
         let t = w.gen_tile(c.0 + i * 5, c.1 + j * 5) as usize;
         if t < 2 { water += 1; }
-        if t < 21 { cnt[t] += 1; }
+        if t < 23 { cnt[t] += 1; }
     } }
     let top = (2..21).max_by_key(|&t| cnt[t]).unwrap_or(3);
     if water > 30 { return ([FISH, WOOD], [STONE, CORN]); }
@@ -280,6 +281,7 @@ pub struct RealmState {
     pub adv_cd: HashMap<String, f32>,
     pub ending: Option<f32>,
     pub saga_t: f32,
+    pub lv: Living,
     pub tick_t: f32,
     pub inited: bool,
 }

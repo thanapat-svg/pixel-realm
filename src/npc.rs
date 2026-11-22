@@ -183,6 +183,7 @@ impl Game {
             }
         }
         if let Some(id) = self.npc_near() {
+            if self.is_sick(id) && self.cure_with_herb(id) { return true; }
             // v19: กดใช้ = คุยทันที (ครั้งแรกของวัน) · คุยแล้วกดอีก = เปิดเมนูชาวบ้าน
             let talked = self.idx(id).map_or(true, |i| self.npcs[i].talked);
             if !talked { self.quick_talk(id); } else { self.req = Some(Req::Npc(id)); play(&self.sfx.click); }
@@ -389,6 +390,7 @@ impl Game {
             self.realm_dawn();
             self.projects_dawn();
             self.season_dawn();
+            self.living_dawn();
         }
         self.last_day = day;
         // ได้ยินเสียงขอความช่วยเหลือ (ครั้งเดียวต่อคน)

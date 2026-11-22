@@ -50,7 +50,16 @@ pub enum Cell { Wall(u8), Floor(u8, u8), Ground(u8) }
 
 /// แบบสิ่งก่อสร้าง: ช่องที่เลือก = (0,0) (บ้าน = ประตู ตัวบ้านยื่นขึ้นไปด้านบน · วงกองไฟ = กองไฟตรงกลาง)
 /// Floor(พื้น, ของบนพื้น) · Ground(ของบนดินเดิม 0 = เว้นว่าง)
-pub fn prefab_layout(kind: u8) -> Vec<((i32, i32), Cell)> {
+pub fn prefab_layout(kind: u8) -> Vec<((i32, i32), Cell)> { prefab_layout_d(kind, 0) }
+/// v23 หมุนทิศ: 0 = ประตูหันลง (ใต้) · 1 = หันซ้าย (ตะวันตก) · 2 = หันขึ้น (เหนือ) · 3 = หันขวา (ตะวันออก)
+pub const DIR_NAMES: [&str; 4] = ["ประตูหันลง", "ประตูหันซ้าย", "ประตูหันขึ้น", "ประตูหันขวา"];
+pub fn rot_off(d: (i32, i32), dir: u8) -> (i32, i32) {
+    match dir & 3 { 1 => (-d.1, d.0), 2 => (-d.0, -d.1), 3 => (d.1, -d.0), _ => d }
+}
+pub fn prefab_layout_d(kind: u8, dir: u8) -> Vec<((i32, i32), Cell)> {
+    prefab_layout0(kind).into_iter().map(|(d, c)| (rot_off(d, dir), c)).collect()
+}
+fn prefab_layout0(kind: u8) -> Vec<((i32, i32), Cell)> {
     if kind == OBJ_FIRERING {
         return vec![((0, 0), Cell::Ground(9)), ((-2, 0), Cell::Ground(O_LOG)), ((2, 0), Cell::Ground(O_LOG)), ((0, -2), Cell::Ground(O_LOG)), ((0, 2), Cell::Ground(O_LOG))];
     }
@@ -85,8 +94,8 @@ pub fn prefab_layout(kind: u8) -> Vec<((i32, i32), Cell)> {
 /// ขั้นตอนการสร้าง: พื้น (ล่าง→บน) → กำแพง (ล่าง→บน) → ของในบ้าน — ใช้ทั้งตอนสร้างทีละชิ้นและวาดนั่งร้าน
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Step { Tile(u8), Obj(u8) }
-pub fn prefab_steps(kind: u8, k: (i32, i32)) -> Vec<((i32, i32), Step)> {
-    let lay: Vec<((i32, i32), Cell)> = prefab_layout(kind).into_iter().map(|((dx, dy), c)| ((k.0 + dx, k.1 + dy), c)).collect();
+pub fn prefab_steps(kind: u8, k: (i32, i32), dir: u8) -> Vec<((i32, i32), Step)> {
+    let lay: Vec<((i32, i32), Cell)> = prefab_layout_d(kind, dir).into_iter().map(|((dx, dy), c)| ((k.0 + dx, k.1 + dy), c)).collect();
     let mut tiles = vec![];
     let mut walls = vec![];
     let mut furn = vec![];
@@ -107,7 +116,7 @@ pub fn prefab_steps(kind: u8, k: (i32, i32)) -> Vec<((i32, i32), Step)> {
 
 /// ไซต์ก่อสร้างที่กำลังสร้างอยู่
 #[derive(Clone, Debug)]
-pub struct Site { pub kind: u8, pub k: (i32, i32), pub prog: f32, pub done: usize }
+pub struct Site { pub kind: u8, pub k: (i32, i32), pub prog: f32, pub done: usize, pub dir: u8 }
 
 /// ความน่าอยู่ของห้อง 0–5 ดาว: เตียง · ปูพื้นเกือบเต็ม · หน้าต่าง · เฟอร์นิเจอร์คนละแบบ (2 ชิ้น = 1 ดาว) · แสงไฟ/กองไฟ
 pub fn comfort_of(w: &World, r: &Room) -> u8 {
@@ -355,18 +364,18 @@ pub fn draw_roofs(g: &Game, v: &View) {
 
 impl Game {
     /// ช่องโลกของบ้านสำเร็จรูป เมื่อประตูอยู่ที่ k
-    pub fn prefab_cells(&self, kind: u8, k: (i32, i32)) -> Vec<((i32, i32), Cell)> {
-        prefab_layout(kind).into_iter().map(|((dx, dy), c)| ((k.0 + dx, k.1 + dy), c)).collect()
+    pub fn prefab_cells(&self, kind: u8, k: (i32, i32), dir: u8) -> Vec<((i32, i32), Cell)> {
+        prefab_layout_d(kind, dir).into_iter().map(|((dx, dy), c)| ((k.0 + dx, k.1 + dy), c)).collect()
     }
     /// ช่องนี้ถูกจองโดยไซต์ก่อสร้างที่ยังสร้างไม่เสร็จ
     pub fn site_reserved(&self, k: (i32, i32)) -> bool {
-        self.sites.iter().any(|st| prefab_layout(st.kind).iter().any(|((dx, dy), _)| (st.k.0 + dx, st.k.1 + dy) == k))
+        self.sites.iter().any(|st| prefab_layout_d(st.kind, st.dir).iter().any(|((dx, dy), _)| (st.k.0 + dx, st.k.1 + dy) == k))
     }
     /// วางสิ่งก่อสร้างสำเร็จรูปตรงนี้ได้ไหม (None = ได้ · Some(เหตุผล))
-    pub fn prefab_blocked(&self, kind: u8, k: (i32, i32)) -> Option<&'static str> {
+    pub fn prefab_blocked(&self, kind: u8, k: (i32, i32), dir: u8) -> Option<&'static str> {
         if self.w.dun.is_some() { return Some("สร้างในดันเจี้ยนไม่ได้"); }
         let (ptx, pty) = (tfloor(self.p.x), tfloor(self.p.y - 3.));
-        for ((x, y), c) in self.prefab_cells(kind, k) {
+        for ((x, y), c) in self.prefab_cells(kind, k, dir) {
             let t = self.w.tile_at(x, y);
             if SOLIDT[t as usize] { return Some("พื้นที่ติดน้ำ/ภูเขา — หาที่โล่งกว้างกว่านี้"); }
             if self.w.tmod.contains_key(&(x, y)) && t != T_FLOORW && t != T_FLOORS { return Some("ทับแปลงผัก/ดินที่ขุดไว้ — หาที่อื่น"); }
@@ -381,16 +390,16 @@ impl Game {
         None
     }
     /// เริ่มก่อสร้าง: จ่ายของ เคลียร์หญ้า/ดอกไม้ จองพื้นที่ แล้วค่อยๆ สร้างขึ้นทีละชิ้นตอนผู้เล่นอยู่ใกล้
-    pub fn place_prefab(&mut self, kind: u8, k: (i32, i32), cost: &[(usize, i32)]) -> bool {
-        if let Some(why) = self.prefab_blocked(kind, k) { self.toast(why); return false; }
+    pub fn place_prefab(&mut self, kind: u8, k: (i32, i32), dir: u8, cost: &[(usize, i32)]) -> bool {
+        if let Some(why) = self.prefab_blocked(kind, k, dir) { self.toast(why); return false; }
         if !can_pay(&self.p, cost) { self.toast("วัสดุไม่พอ"); return false; }
         for &(it, n) in cost { self.p.inv[it] -= n; }
-        for ((x, y), _) in self.prefab_cells(kind, k) {
+        for ((x, y), _) in self.prefab_cells(kind, k, dir) {
             if !self.w.placed.contains_key(&(x, y)) && self.w.nat_obj(x, y) != 0 { self.w.removed.insert((x, y)); }
             self.obj_dmg.remove(&(x, y));
             if gen_range(0., 1.) < 0.5 { self.burst(x as f32 * 16. + 8., y as f32 * 16. + 10., hx(0xc8a070), 3, 30.); }
         }
-        self.sites.push(Site { kind, k, prog: 0., done: 0 });
+        self.sites.push(Site { kind, k, prog: 0., done: 0, dir });
         self.build_sel = None; // ออกจากโหมดสร้างเลย ไม่ต้องหาปุ่มยกเลิก
         play(&self.sfx.craft);
         self.toast(format!("เริ่มสร้าง{}! อยู่ใกล้ๆ แล้วจะค่อยๆ เสร็จ (~{} วินาที)", prefab_name(kind), prefab_time(kind) as i32));
@@ -402,7 +411,7 @@ impl Game {
         let mut sites = std::mem::take(&mut self.sites);
         let mut finished = vec![];
         for (si, st) in sites.iter_mut().enumerate() {
-            let steps = prefab_steps(st.kind, st.k);
+            let steps = prefab_steps(st.kind, st.k, st.dir);
             let n = steps.len().max(1);
             let total = prefab_time(st.kind);
             let c = self.site_center(st);
@@ -456,17 +465,17 @@ impl Game {
         self.sites = sites;
     }
     pub fn site_center(&self, st: &Site) -> (f32, f32) {
-        let lay = prefab_layout(st.kind);
+        let lay = prefab_layout_d(st.kind, st.dir);
         let n = lay.len() as f32;
         let (sx, sy) = lay.iter().fold((0., 0.), |a, ((dx, dy), _)| (a.0 + *dx as f32, a.1 + *dy as f32));
         ((st.k.0 as f32 + sx / n) * 16. + 8., (st.k.1 as f32 + sy / n) * 16. + 8.)
     }
     pub fn sites_save(&self) -> String {
-        self.sites.iter().map(|st| format!("site {} {} {} {:.2} {}\n", st.kind, st.k.0, st.k.1, st.prog, st.done)).collect()
+        self.sites.iter().map(|st| format!("site {} {} {} {:.2} {} {}\n", st.kind, st.k.0, st.k.1, st.prog, st.done, st.dir)).collect()
     }
     pub fn sites_load(&mut self, r: &[&str]) {
         let v: Vec<f32> = r.iter().filter_map(|x| x.parse().ok()).collect();
-        if v.len() >= 5 && is_prefab(v[0] as u8) { self.sites.push(Site { kind: v[0] as u8, k: (v[1] as i32, v[2] as i32), prog: v[3], done: v[4] as usize }); }
+        if v.len() >= 5 && is_prefab(v[0] as u8) { self.sites.push(Site { kind: v[0] as u8, k: (v[1] as i32, v[2] as i32), prog: v[3], done: v[4] as usize, dir: v.get(5).map_or(0, |d| *d as u8 & 3) }); }
     }
     /// กดค้างปุ่มสร้างแล้วเดิน = วางกำแพงตามทางที่เดินผ่าน (วางที่ช่องที่เพิ่งเดินออกมา) · พื้น = ปูใต้เท้า
     pub fn paint_tick(&mut self, held: bool) {
@@ -618,7 +627,7 @@ impl Game {
 /// ไซต์ก่อสร้าง: เงาสิ่งที่จะสร้าง + นั่งร้าน + ค้อนเคาะ + แถบความคืบหน้า
 pub fn draw_sites(g: &Game, sp: &Sprites, v: &View, font: &Font, t_now: f32) {
     for st in &g.sites {
-        let steps = prefab_steps(st.kind, st.k);
+        let steps = prefab_steps(st.kind, st.k, st.dir);
         let n = steps.len().max(1);
         let near = { let c = g.site_center(st); (c.0 - g.p.x).hypot(c.1 - g.p.y) < 8. * 16. };
         for (i, &((x, y), step)) in steps.iter().enumerate().skip(st.done) {
@@ -646,7 +655,7 @@ pub fn draw_sites(g: &Game, sp: &Sprites, v: &View, font: &Font, t_now: f32) {
             }
         }
         // แถบความคืบหน้าเหนือไซต์
-        let lay = prefab_layout(st.kind);
+        let lay = prefab_layout_d(st.kind, st.dir);
         let (x0, y0) = (lay.iter().map(|c| c.0 .0).min().unwrap(), lay.iter().map(|c| c.0 .1).min().unwrap());
         let x1 = lay.iter().map(|c| c.0 .0).max().unwrap();
         let (bx, by) = (((st.k.0 + x0) as f32 * 16. - v.cx) * v.s, ((st.k.1 + y0) as f32 * 16. - 14. - v.cy) * v.s);
