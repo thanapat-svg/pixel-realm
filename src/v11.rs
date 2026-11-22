@@ -92,20 +92,30 @@ impl Game {
     pub fn adv_next(&self) -> Option<usize> { (0..ADV.len()).find(|&k| self.adv_done & (1 << k) == 0) }
 }
 /// แผงเป้าหมายด้านบน (แสดงเมื่อบทเรียนจบแล้ว)
+/// แถบด้านบน: เป้าหมายผจญภัย 4 ข้อแรก (สอนพื้นฐาน) → จากนั้นภารกิจ "เส้นทาง" (ค่าย→รวมแผ่นดิน) → เป้าหมายผจญภัยที่เหลือ
+pub enum TopGoal { Adv(usize), Saga(usize) }
+pub fn top_goal(g: &Game) -> Option<TopGoal> {
+    if g.tut_text().is_some() { return None; }
+    if let Some(k) = g.adv_next() { if k < 4 || !g.rs.inited { return Some(TopGoal::Adv(k)); } }
+    if let Some(i) = g.saga_next() { return Some(TopGoal::Saga(i)); }
+    g.adv_next().map(TopGoal::Adv)
+}
 pub fn draw_adv(g: &Game, font: &Font, u: f32) {
-    if g.tut_text().is_some() { return; }
-    let Some(k) = g.adv_next() else { return };
+    let Some(goal) = top_goal(g) else { return };
     let sw = screen_width();
     let w = (420. * u).min(sw * 0.38);
     let h = 42. * u;
     let x = sw / 2. - w / 2.;
     let y = 8. * u;
+    let (col, label, name, hint) = match goal {
+        TopGoal::Adv(k) => (hx(0x7ee83a), format!("เป้าหมาย {}/{}", g.adv_done.count_ones() + 1, ADV.len()), ADV[k].0.to_string(), ADV[k].1.to_string()),
+        TopGoal::Saga(i) => (hx(0xffcc66), CHAPTERS[MISSIONS[i].0 as usize].0.to_string(), g.mission_name(i), MISSIONS[i].2.to_string()),
+    };
     draw_rectangle(x, y, w, h, Color::new(0.05, 0.07, 0.12, 0.72));
-    draw_rectangle_lines(x, y, w, h, 2., hx(0x7ee83a));
-    let n = g.adv_done.count_ones();
-    text(font, &format!("เป้าหมาย {}/{}", n + 1, ADV.len()), x + 8. * u, y + 13. * u, 10. * u, hx(0x9cff5a));
-    text_c(font, ADV[k].0, sw / 2., y + 26. * u, 14. * u, WHITE);
-    text_c(font, ADV[k].1, sw / 2., y + 38. * u, 10. * u, hx(0xaaaaaa));
+    draw_rectangle_lines(x, y, w, h, 2., col);
+    text(font, &label, x + 8. * u, y + 13. * u, 10. * u, col);
+    text_c(font, &name, sw / 2., y + 26. * u, 14. * u, WHITE);
+    text_c(font, &hint, sw / 2., y + 38. * u, 10. * u, hx(0xaaaaaa));
 }
 
 // ======================= 5) เรือ =======================

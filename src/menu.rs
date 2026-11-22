@@ -879,6 +879,7 @@ pub fn draw_menu(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState) -> b
     if g.p.lvl >= 2 || g.p.sp > 0 {
         tabs.push((6, "สเตตัส"));
     }
+    if g.rs.inited { tabs.push((13, "เส้นทาง")); }
     if !g.npcs.is_empty() || ui.npc.is_some() {
         tabs.push((10, "ชุมชน"));
     }
@@ -923,6 +924,7 @@ pub fn draw_menu(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState) -> b
         10 => tab_town(g, sp, font, ui, c, u),
         11 => tab_realm(g, sp, font, ui, c, u),
         12 => tab_city(g, sp, font, ui, c, u),
+        13 => { let top = c.y - ui.scroll; tab_saga(g, font, c, top, u) - top }
         _ => tab_shop(g, sp, font, ui, c, u),
     };
     set_clip(None);

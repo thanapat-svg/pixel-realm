@@ -202,7 +202,7 @@ pub fn adv_rects(g: &Game) -> Option<(Rect, Option<Rect>, Rect)> {
     let h = 52. * u;
     let x = sw / 2. - w / 2.;
     // อยู่ใต้แถบบทเรียน/เป้าหมายด้านบน (ถ้ามี)
-    let y = if g.tut_text().is_some() || g.adv_next().is_some() { 62. * u } else { 8. * u };
+    let y = if g.tut_text().is_some() || top_goal(g).is_some() { 62. * u } else { 8. * u };
     let r = Rect::new(x, y, w, h);
     let close = Rect::new(x + w - 46. * u, y + 10. * u, 38. * u, 32. * u);
     let go = if a.act != AdvAct::None { Some(Rect::new(close.x - 92. * u, y + 10. * u, 86. * u, 32. * u)) } else { None };

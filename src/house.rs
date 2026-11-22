@@ -27,19 +27,22 @@ pub const OBJ_HOUSE_S: u8 = 252;
 pub const OBJ_HOUSE_L: u8 = 251;
 pub const OBJ_TENT: u8 = 250;
 pub const OBJ_HUT: u8 = 249;
+/// v22 บ้านตามนิสัยชาวบ้าน: บ้านหิน (กล้าหาญ/มั่นคง) · บ้านสวน (ใจดี/รักธรรมชาติ)
+pub const OBJ_STONEHOUSE: u8 = 247;
+pub const OBJ_GARDENHOUSE: u8 = 246;
 pub const OBJ_FIRERING: u8 = 248;
 
 /// ผนังของห้อง: กำแพงไม้ · กำแพงหิน · กำแพงเมือง · ประตู (ปิด/เปิด) · หน้าต่าง · ผ้าเต็นท์
 pub fn is_wall_obj(o: u8) -> bool { matches!(o, 10 | 11 | 38 | 12 | 13 | O_WINDOW | O_TENTWALL) }
 pub fn is_furniture(o: u8) -> bool { matches!(o, O_TABLE | O_CHAIR | O_RUG | O_SHELF | O_PLANT | O_LAMP | O_WARDROBE | O_LOG) }
-pub fn is_prefab(o: u8) -> bool { matches!(o, OBJ_HOUSE_S | OBJ_HOUSE_L | OBJ_TENT | OBJ_HUT | OBJ_FIRERING) }
+pub fn is_prefab(o: u8) -> bool { matches!(o, OBJ_HOUSE_S | OBJ_HOUSE_L | OBJ_TENT | OBJ_HUT | OBJ_FIRERING | OBJ_STONEHOUSE | OBJ_GARDENHOUSE) }
 pub fn is_seat(o: u8) -> bool { o == O_CHAIR || o == O_LOG }
 /// เวลาสร้าง (วินาที ต้องอยู่ใกล้ๆ)
 pub fn prefab_time(kind: u8) -> f32 {
-    match kind { OBJ_TENT => 6., OBJ_FIRERING => 8., OBJ_HUT => 15., OBJ_HOUSE_S => 30., _ => 60. }
+    match kind { OBJ_TENT => 6., OBJ_FIRERING => 8., OBJ_HUT => 15., OBJ_HOUSE_S | OBJ_GARDENHOUSE => 30., OBJ_STONEHOUSE => 40., _ => 60. }
 }
 pub fn prefab_name(kind: u8) -> &'static str {
-    match kind { OBJ_TENT => "เต็นท์", OBJ_FIRERING => "วงกองไฟ", OBJ_HUT => "กระท่อม", OBJ_HOUSE_S => "บ้านเล็ก", _ => "บ้านใหญ่" }
+    match kind { OBJ_TENT => "เต็นท์", OBJ_FIRERING => "วงกองไฟ", OBJ_HUT => "กระท่อม", OBJ_HOUSE_S => "บ้านเล็ก", OBJ_STONEHOUSE => "บ้านหิน", OBJ_GARDENHOUSE => "บ้านสวน", _ => "บ้านใหญ่" }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -51,7 +54,7 @@ pub fn prefab_layout(kind: u8) -> Vec<((i32, i32), Cell)> {
     if kind == OBJ_FIRERING {
         return vec![((0, 0), Cell::Ground(9)), ((-2, 0), Cell::Ground(O_LOG)), ((2, 0), Cell::Ground(O_LOG)), ((0, -2), Cell::Ground(O_LOG)), ((0, 2), Cell::Ground(O_LOG))];
     }
-    let (hw, h, wall): (i32, i32, u8) = match kind { OBJ_TENT => (1, 3, O_TENTWALL), OBJ_HUT => (2, 3, 10), OBJ_HOUSE_L => (3, 5, 11), _ => (2, 4, 10) };
+    let (hw, h, wall): (i32, i32, u8) = match kind { OBJ_TENT => (1, 3, O_TENTWALL), OBJ_HUT => (2, 3, 10), OBJ_HOUSE_L => (3, 5, 11), OBJ_STONEHOUSE => (2, 4, 11), _ => (2, 4, 10) };
     let mut v = vec![];
     for dy in -h..=0 {
         for dx in -hw..=hw {
@@ -61,6 +64,8 @@ pub fn prefab_layout(kind: u8) -> Vec<((i32, i32), Cell)> {
                     OBJ_TENT => Cell::Ground(if (dx, dy) == (0, -2) { 33 } else { 0 }),
                     OBJ_HUT => Cell::Ground(match (dx, dy) { (-1, -2) => 33, (1, -2) => O_LOG, _ => 0 }),
                     OBJ_HOUSE_L => Cell::Floor(T_FLOORW, match (dx, dy) { (-2, -4) => 33, (2, -4) => O_LAMP, (-1, -4) => O_SHELF, (1, -3) => O_TABLE, (0, -3) => O_CHAIR, (2, -1) => O_PLANT, (-2, -1) => 14, (0, -2) => O_RUG, _ => 0 }),
+                    OBJ_STONEHOUSE => Cell::Floor(T_FLOORS, match (dx, dy) { (-1, -3) => 33, (1, -3) => O_SHELF, (1, -1) => 14, _ => 0 }),
+                    OBJ_GARDENHOUSE => Cell::Floor(T_FLOORW, match (dx, dy) { (-1, -3) => 33, (1, -3) => O_PLANT, (1, -1) => O_PLANT, (-1, -1) => O_RUG, _ => 0 }),
                     _ => Cell::Floor(T_FLOORW, match (dx, dy) { (-1, -3) => 33, (1, -3) => O_LAMP, _ => 0 }),
                 }
             } else if (dx, dy) == (0, 0) {
@@ -73,6 +78,8 @@ pub fn prefab_layout(kind: u8) -> Vec<((i32, i32), Cell)> {
             v.push(((dx, dy), c));
         }
     }
+    // บ้านสวน: กระถางดอกไม้หน้าบ้านสองข้างประตู
+    if kind == OBJ_GARDENHOUSE { v.push(((-2, 1), Cell::Ground(O_PLANT))); v.push(((2, 1), Cell::Ground(O_PLANT))); }
     v
 }
 /// ขั้นตอนการสร้าง: พื้น (ล่าง→บน) → กำแพง (ล่าง→บน) → ของในบ้าน — ใช้ทั้งตอนสร้างทีละชิ้นและวาดนั่งร้าน

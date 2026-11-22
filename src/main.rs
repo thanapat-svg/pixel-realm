@@ -56,6 +56,8 @@ mod work;
 use work::*;
 mod advisor;
 use advisor::*;
+mod saga;
+use saga::*;
 use realm::*;
 use extra::*;
 use farm::*;
@@ -592,6 +594,7 @@ struct Game {
     auto_doors: HashSet<(i32, i32)>,
     sites: Vec<Site>,
     rs: RealmState,
+    saga: Saga,
     pins: Vec<(i32, i32)>,
     pin_on: Option<usize>,
     home_cd: f32,
@@ -714,7 +717,7 @@ impl Game {
             w, p: Player::new(0., 0.), en: vec![], parts: vec![], floats: vec![], toasts: vec![], time: 0., spawn: (0., 0.),
             seen: HashSet::new(), obj_dmg: HashMap::new(), shake: ((0, 0), 0.), hurt_flash: 0., darkv: 0., last_biome: -1,
             spawn_t: 0., save_t: 0., mini_t: 99., died: false, big_map: false, sfx,
-            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, rooms: vec![], room_of: HashMap::new(), room_t: 0., paint_last: None, auto_doors: HashSet::new(), sites: vec![], rs: RealmState::default(), pins: vec![], pin_on: None, home_cd: 0., step_d: 0., step_last: 0, step_tracks: vec![], step_budget: 4., amb: [0.; AMB_N], amb_t: 0., hammer_t: 0., aim_last: None, aim_last_t: 0., site_wait_t: 0., sit: None, sit_t: 0., psy: HashMap::new(), psy_t: 0., gather: HashMap::new(), an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
+            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, rooms: vec![], room_of: HashMap::new(), room_t: 0., paint_last: None, auto_doors: HashSet::new(), sites: vec![], rs: RealmState::default(), saga: Saga::default(), pins: vec![], pin_on: None, home_cd: 0., step_d: 0., step_last: 0, step_tracks: vec![], step_budget: 4., amb: [0.; AMB_N], amb_t: 0., hammer_t: 0., aim_last: None, aim_last_t: 0., site_wait_t: 0., sit: None, sit_t: 0., psy: HashMap::new(), psy_t: 0., gather: HashMap::new(), an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
             build_sel: None, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
@@ -762,6 +765,7 @@ impl Game {
         s += &self.sites_save();
         s += &self.nav_save();
         s += &self.realm_save();
+        s += &self.saga_save();
         if let Some(b) = self.bed { s += &format!("bed {} {}\n", b.0, b.1); }
         s += "crops";
         for ((x, y), c) in &self.crops { s += &format!(" {},{},{},{:.1},{:.1}", x, y, c.kind, c.grown, c.wet); }
@@ -861,6 +865,7 @@ impl Game {
                 "pins" => g.nav_load(&rest),
                 "rk" | "rc" | "rd" | "rp" | "ro" | "rr" | "rq" => g.realm_load(tag, &rest),
                 "nreq" => g.quests_load_line(&rest),
+                "saga" => g.saga_load(&rest),
                 "v9" => g.balance_load_line(&rest),
                 "pet" => g.pets_load_line(&rest),
                 "farm" => { g.p.can = f(0) > 0.; g.p.water = (f(1) as i32).clamp(0, WATER_MAX); g.seed_sel = (f(2) as u8).min(1); }
@@ -1495,6 +1500,8 @@ impl Game {
         prof::t("v19_tick", || self.v19_tick(dt));
         prof::t("work_tick", || self.work_tick(dt));
         prof::t("advisor", || self.advisor_tick(dt));
+        self.rs.saga_t -= dt;
+        if self.rs.saga_t <= 0. { self.rs.saga_t = 2.; prof::t("saga", || self.saga_tick()); }
         self.dun_t -= dt;
         if self.dun_t <= 0. { self.dun_t = 1.; self.discover_duns(); self.discover_wps(); }
         // fx
@@ -2450,6 +2457,8 @@ enum State { Title, Play, Menu }
 /// ปุ่มลัดสำหรับทดสอบ (มีเฉพาะ debug build)
 #[cfg(debug_assertions)]
 fn debug_keys(g: &mut Game) {
+    let shift = is_key_down(KeyCode::LeftShift);
+    if shift && is_key_pressed(KeyCode::F12) { g.saga.end_day = day_of(g); g.rs.ending = Some(0.); }
     if is_key_pressed(KeyCode::F1) {
         for i in [WOOD, STONE, GEM, GEL, CORE] { g.p.inv[i] += 50; }
         g.p.inv[COIN] += 300;
@@ -2457,7 +2466,7 @@ fn debug_keys(g: &mut Game) {
         g.p.inv[SEED_CORN] += 5; g.p.inv[SEED_CARROT] += 5; g.p.can = true; g.p.water = WATER_MAX;
         g.toast("[debug] ได้ของ");
     }
-    if is_key_pressed(KeyCode::F12) {
+    if !shift && is_key_pressed(KeyCode::F12) {
         // วนสกิน: เกราะทุกชิ้นระดับ 0..4 แล้วสลับชุดชาวไร่/นักล่า
         g.p.outfits = 3;
         if g.p.armor[0] < 4 && g.p.outfit != 1 && g.p.outfit != 2 { let a = g.p.armor[0] + 1; g.p.armor = [a; 3]; }
@@ -2942,7 +2951,7 @@ async fn main() {
                     }
                     if inp.map { g.big_map = !g.big_map; g.mini_t = 99.; }
                     let sdt = if g.hitstop > 0. { g.hitstop -= dt; dt * 0.08 } else { dt };
-                    prof::t("update", || g.update(sdt, &inp));
+                    if g.rs.ending.is_none() { prof::t("update", || g.update(sdt, &inp)); }
                     if let Some(rq) = g.req.take() {
                         ui.reset_context();
                         match rq {
@@ -3003,6 +3012,7 @@ async fn main() {
                 draw_siege_hud(g, &font, ui_scale());
                 prof::t("hud", || draw_hud(g, &sp, &font, tu.active));
                 if matches!(state, State::Play) { v19::draw_quick(g, &make_view(g.p.x, g.p.y), &font); advisor::draw_advice(g, &font); }
+
                 // บอสอยู่ใกล้ = แถบเลือดบอสใช้พื้นที่ด้านบนแทนบทเรียน/เป้าหมาย
                 if !g.bosses.iter().any(|b| (b.x - g.p.x).hypot(b.y - g.p.y) < 420.) {
                     draw_tut(g, &font, &v0, ui_scale());
@@ -3098,6 +3108,13 @@ async fn main() {
             (_, Some(g)) => g.bgm_scene(),
             _ => -1,
         };
+        // ฉากจบ (รวมแผ่นดินสำเร็จ) — วาดทับทุกอย่าง เกมหยุดจนกด "เล่นต่อ"
+        if let (State::Play, Some(g)) = (&state, game.as_mut()) {
+            if let Some(t) = g.rs.ending {
+                g.rs.ending = Some(t + get_frame_time().min(0.1));
+                if saga::draw_saga_end(g, &font, t) { g.rs.ending = None; g.save(); }
+            }
+        }
         prof::lap("L:ui");
         bgm.set(want).await;
         prof::lap("L:bgm");

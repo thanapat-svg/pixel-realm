@@ -278,6 +278,8 @@ pub struct RealmState {
     pub adv_show: Option<(Advice, f32)>,
     pub adv_t: f32,
     pub adv_cd: HashMap<String, f32>,
+    pub ending: Option<f32>,
+    pub saga_t: f32,
     pub tick_t: f32,
     pub inited: bool,
 }
@@ -342,6 +344,7 @@ impl Game {
         if self.role_count(R_GENERAL) > 0 { d *= 1.4; }
         if self.perk_on(P_GENERAL) { d *= 1.3; }
         if self.rs.laws & ML_MILITIA != 0 { d += self.pop() as f32 * 1.2; }
+        if self.saga_perk(3) { d *= 1.25; }
         for (k, s) in self.rs.ks.iter().enumerate() { if s.stance == 2 && s.alive { d += s.strength * 0.12; let _ = k; } }
         d
     }
@@ -597,7 +600,7 @@ impl Game {
                 let e = self.rs.px.entry((ci, gi)).or_insert(1.);
                 *e = (*e * 0.97).max(0.5);
             }
-            if o != PLAYER_OWN { let k = &mut self.rs.ks[o as usize]; k.wealth += p as f32 * 0.2; if gen_range(0, 25) < p { k.rep = (k.rep + 1).min(100); } }
+            if o != PLAYER_OWN { let k = &mut self.rs.ks[o as usize]; k.wealth += p as f32 * 0.2; if gen_range(0, 25) < p { k.rep = (k.rep + 1).min(100); } self.saga.trades += 1; }
         }
         play(&self.sfx.buy);
     }
@@ -1030,6 +1033,7 @@ impl Game {
             if l & ML_LOWTAX != 0 { tax = tax * 6 / 10; }
             if l & ML_HIGHTAX != 0 { tax = tax * 3 / 2; }
             if self.perk_on(P_TREASURY) { tax = tax * 13 / 10; }
+            if self.saga_perk(2) { tax = tax * 12 / 10; }
             self.tax_pool += tax;
         }
     }
