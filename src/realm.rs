@@ -275,6 +275,9 @@ pub struct RealmState {
     pub worked: HashSet<u32>,
     pub projects: Vec<Project>,
     pub help: HashMap<u32, String>,
+    pub adv_show: Option<(Advice, f32)>,
+    pub adv_t: f32,
+    pub adv_cd: HashMap<String, f32>,
     pub tick_t: f32,
     pub inited: bool,
 }

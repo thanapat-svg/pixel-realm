@@ -16,7 +16,7 @@ pub const ST_FOLLOW: u8 = 1;
 pub const ST_HOME: u8 = 2;
 pub const MARRY_COIN: i32 = 100;
 pub const MARRY_GEM: i32 = 5;
-const FOODS: [usize; 10] = [2, 24, 23, 14, 13, 20, 16, 17, 18, 19];
+pub const FOODS: [usize; 10] = [2, 24, 23, 14, 13, 20, 16, 17, 18, 19];
 
 #[derive(Clone, Debug)]
 pub struct Npc {

@@ -14,12 +14,15 @@ pub static SHAKE: AtomicBool = AtomicBool::new(true);
 pub static SURVIVAL: AtomicU8 = AtomicU8::new(1);
 /// ระดับความยาก 0 ง่าย · 1 ปกติ · 2 ยาก
 pub static DIFF: AtomicU8 = AtomicU8::new(1);
+/// ที่ปรึกษา: เด้งแถบคำแนะนำตามสถานการณ์
+pub static ADVISOR: AtomicBool = AtomicBool::new(true);
 
 pub fn fps_mode() -> u8 { FPS_MODE.load(Relaxed) }
 pub fn weather_fx() -> bool { WEATHER_FX.load(Relaxed) }
 pub fn light_q() -> u8 { LIGHT_Q.load(Relaxed) }
 pub fn show_fps() -> bool { SHOW_FPS.load(Relaxed) }
 pub fn shake() -> bool { SHAKE.load(Relaxed) }
+pub fn advisor() -> bool { ADVISOR.load(Relaxed) }
 pub fn survival() -> u8 { SURVIVAL.load(Relaxed) }
 pub fn survival_name() -> &'static str { ["ปิด", "ปกติ", "ยาก"][survival().min(2) as usize] }
 pub fn cycle_diff() { DIFF.store((DIFF.load(Relaxed) + 1) % 4, Relaxed); save(); }
@@ -38,8 +41,8 @@ pub fn set_slot(s: u8) { SLOT.store(s.min(2), Relaxed); save(); }
 
 pub fn save() {
     let s = format!(
-        "fps {}\nweather {}\nlight {}\ntouch {}\nshowfps {}\nshake {}\nsurvival {}\ndiff {}\nslot {}\n",
-        fps_mode(), weather_fx() as u8, light_q(), TOUCH_SZ.load(Relaxed), show_fps() as u8, shake() as u8, survival(), DIFF.load(Relaxed), SLOT.load(Relaxed)
+        "fps {}\nweather {}\nlight {}\ntouch {}\nshowfps {}\nshake {}\nsurvival {}\ndiff {}\nslot {}\nadvisor {}\n",
+        fps_mode(), weather_fx() as u8, light_q(), TOUCH_SZ.load(Relaxed), show_fps() as u8, shake() as u8, survival(), DIFF.load(Relaxed), SLOT.load(Relaxed), advisor() as u8
     );
     let _ = std::fs::write(path(), s);
 }
@@ -59,6 +62,7 @@ pub fn load() {
             "survival" => SURVIVAL.store(v.min(2), Relaxed),
             "diff" => DIFF.store(v.min(3), Relaxed),
             "slot" => SLOT.store(v.min(2), Relaxed),
+            "advisor" => ADVISOR.store(v > 0, Relaxed),
             _ => {}
         }
     }

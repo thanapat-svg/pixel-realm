@@ -753,7 +753,7 @@ fn tab_settings(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: R
         y += rh;
     }
     // ---- กราฟิก/ประสิทธิภาพ (ค่าส่วนกลาง ใช้ร่วมกับหน้าเมนูหลัก)
-    let grows: [(&str, &str, String); 8] = [
+    let grows: [(&str, &str, String); 9] = [
         ("ความยาก", "ง่าย = โดนตีเบา หิวช้า · ยาก = โหดขึ้น · สันติ = ไม่มีมอนสเตอร์/สัตว์ดุนอกดันเจี้ยน ไม่หิว ไม่กระหาย (เหมาะกับเด็ก)", diff_name().to_string()),
         ("เฟรมเรต", "30 ประหยัดแบต · 60 ลื่น · ไม่จำกัด = ตามรีเฟรชเรตจอ", prefs::fps_name().to_string()),
         ("เอฟเฟกต์ฝน/หิมะ", "ปิดแล้วเครื่องแรงน้อยจะลื่นขึ้น (ผลช้าลง/มืดยังอยู่)", if prefs::weather_fx() { "เปิด" } else { "ปิด" }.to_string()),
@@ -762,6 +762,7 @@ fn tab_settings(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: R
         ("กล้องสั่น", "ตอนโดนตี/ระเบิด", if prefs::shake() { "เปิด" } else { "ปิด" }.to_string()),
         ("แสดง FPS", "มุมซ้ายล่าง", if prefs::show_fps() { "เปิด" } else { "ปิด" }.to_string()),
         ("เอาตัวรอด", "หิว/กระหาย/เหนื่อย · ปกติ = ไม่ตายเพราะหิว · ยาก = หมดสติได้ · ปิด = ไม่มี", prefs::survival_name().to_string()),
+        ("ที่ปรึกษา", "เด้งคำแนะนำตามสถานการณ์ (ไม่มีน้ำ หิว ทัพศัตรูมา ฯลฯ) · ดูรายการเต็มที่หน้าภาพรวมเมือง", if prefs::advisor() { "เปิด" } else { "ปิด" }.to_string()),
     ];
     let mut gflip = usize::MAX;
     for (i, (n, d, val)) in grows.iter().enumerate() {
@@ -782,6 +783,7 @@ fn tab_settings(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: R
         5 => prefs::toggle(&prefs::SHAKE),
         6 => prefs::toggle(&prefs::SHOW_FPS),
         7 => prefs::cycle_survival(),
+        8 => { prefs::toggle(&prefs::ADVISOR); if !prefs::advisor() { g.rs.adv_show = None; } }
         _ => {}
     }
     if visible(y, rh, c) {
@@ -970,27 +972,116 @@ fn tab_town(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
         return tab_npc_dialog(g, sp, font, ui, c, u, id);
     }
     let tier = g.tier();
-    header(font, c, y, &format!("ระดับ: {} · ชาวบ้าน {} คน", TIER_N[tier as usize], g.pop()), u);
+    // ===== v21 ภาพรวมเมือง =====
+    let st = g.town_stats();
+    let title = if g.rs.founded { g.my_name() } else { TIER_N[tier as usize].to_string() };
+    header(font, c, y, &format!("ภาพรวม: {} · ชาวบ้าน {} คน", title, st.pop), u);
     y += 28. * u;
-    let rh = 24. * u;
-    let lines = [
-        format!("เตียงว่าง {} / ทั้งหมด {} · อาหารในกล่องเก็บของ {} ชิ้น", g.free_beds().len(), g.beds().len(), g.food_stock()),
-        match tier {
-            0 => "ช่วยผู้หลงทางในโลก (เครื่องหมาย ! สีเหลือง) แล้วชวนมาอยู่ที่ฐาน — ต้องมีเตียงว่าง".to_string(),
-            1 => "ค่าย (1-3 คน): ชาวไร่รดน้ำ/เก็บเกี่ยวให้ทุกเช้า · ครบ 4 คนเป็นหมู่บ้าน".to_string(),
-            2 => format!("หมู่บ้าน: มีพ่อค้าเฉพาะทาง+ทหารยาม · อาณาจักรต้อง >10 คน + ปราสาท({}) + กำแพงเมือง {}/12", if g.has_castle() { "มีแล้ว" } else { "ยังไม่มี" }, g.walls()),
-            _ => "อาณาจักร: เก็บภาษีได้ทุกเช้า".to_string(),
-        },
-        "ชาวบ้านอยู่ต่อเมื่อมีเตียงและอาหารในกล่องเก็บของใกล้เตียง (รัศมี 16 ช่อง) — ถ้าหิว/ไม่มีเตียงความสุขจะลด แล้วย้ายออก".to_string(),
+    // การ์ดสถิติ (สีบอกสถานะ: เขียว ดี · เหลือง ระวัง · แดง มีปัญหา)
+    let good = hx(0x66dd66);
+    let warn = hx(0xeedd44);
+    let bad = hx(0xee5544);
+    let soldiers = g.npcs.iter().filter(|n| n.state == ST_HOME && matches!(n.role, 2 | R_SOLDIER | R_GENERAL)).count();
+    let housed = st.pop - st.outdoor.len() - st.no_bed.len();
+    let cards: Vec<(&str, String, String, Color)> = vec![
+        ("ประชากร", format!("{}", st.pop), format!("เตียงว่าง {}", st.free_beds), if st.no_bed.is_empty() { if st.free_beds > 0 { good } else { warn } } else { bad }),
+        ("อาหาร", format!("{}", st.food), if st.pop > 0 { format!("พอราว {:.0} วัน", st.food_days.min(99.)) } else { "-".into() }, if !st.hungry.is_empty() || (st.pop > 0 && st.food_days < 1.) { bad } else if st.food_days < 3. { warn } else { good }),
+        ("น้ำดื่ม", format!("{}/{}", st.water_ok, st.pop), "คนมีน้ำใช้".into(), if st.no_water.is_empty() { good } else { bad }),
+        ("ความสุข", format!("{}%", st.mood_avg), format!("ไม่พอใจ {} คน", st.unhappy.len()), mood_col(st.mood_avg)),
+        ("บ้าน", format!("{}/{}", housed, st.pop), "มีหลังคา".into(), if st.outdoor.is_empty() && st.no_bed.is_empty() { good } else { warn }),
+        ("ไร่", format!("{} แปลง", st.plots), format!("สุกรอเก็บ {}", st.ripe), if st.plots > 0 { good } else { hx(0x9999aa) }),
+        ("ป้องกัน", format!("{:.0}", g.defense()), format!("ทหาร/ยาม {}", soldiers), if soldiers > 0 { good } else { hx(0x9999aa) }),
+        ("ภาษี", format!("{}", g.tax_pool), format!("ชื่อเสียง {}", g.fame()), hx(0xffee99)),
     ];
-    for l in &lines {
-        let ws = wrap_th(font, l, 11. * u, c.w - 24. * u);
-        let hh = (ws.len() as f32 * 14. * u + 10. * u).max(rh);
+    let cols = if c.w > 400. * u { 4 } else { 2 };
+    let gap = 6. * u;
+    let cw = (c.w - gap * (cols as f32 + 1.)) / cols as f32;
+    let ch = 56. * u;
+    for (k, (lab, val, sub, col)) in cards.iter().enumerate() {
+        let (cx, cy) = (c.x + gap + (k % cols) as f32 * (cw + gap), y + (k / cols) as f32 * (ch + gap));
+        if visible(cy, ch, c) {
+            draw_rectangle(cx, cy, cw, ch, Color::new(0.1, 0.11, 0.17, 0.95));
+            draw_rectangle(cx, cy, 4. * u, ch, *col);
+            text(font, lab, cx + 10. * u, cy + 15. * u, 11. * u, hx(0xaaaabb));
+            text(font, val, cx + 10. * u, cy + 36. * u, 18. * u, *col);
+            text(font, sub, cx + 10. * u, cy + 50. * u, 10. * u, hx(0x9999aa));
+        }
+    }
+    y += ((cards.len() + cols - 1) / cols) as f32 * (ch + gap) + 4. * u;
+    // ควรทำตอนนี้ (ที่ปรึกษา)
+    let adv = g.advice();
+    header(font, c, y, if adv.is_empty() { "ควรทำตอนนี้: ไม่มีปัญหา เมืองไปได้ดี!" } else { "ควรทำตอนนี้" }, u);
+    y += 28. * u;
+    let mut act: Option<AdvAct> = None;
+    for a in adv.iter().take(8) {
+        let tw = c.w - if a.act != AdvAct::None { 130. * u } else { 24. * u } - 44. * u;
+        let ws = wrap_th(font, &a.text, 11. * u, tw);
+        let hh = (ws.len() as f32 * 14. * u + 14. * u).max(42. * u);
         if visible(y, hh, c) {
-            for (k, w) in ws.iter().enumerate() { text(font, w, c.x + 8. * u, y + 16. * u + k as f32 * 14. * u, 11. * u, hx(0xbbbbcc)); }
+            let pc = hx(PRIO_C[a.prio as usize]);
+            draw_rectangle(c.x + 6. * u, y + 4. * u, 4. * u, hh - 8. * u, pc);
+            text(font, PRIO_N[a.prio as usize], c.x + 14. * u, y + 17. * u, 10. * u, pc);
+            for (k, w) in ws.iter().enumerate() { text(font, w, c.x + 56. * u, y + 17. * u + k as f32 * 14. * u, 11. * u, hx(0xeeeeee)); }
+            if a.act != AdvAct::None && btn(ui, font, Rect::new(c.x + c.w - 116. * u, y + (hh - 32. * u) / 2., 104. * u, 32. * u), a.btn, true, u) { act = Some(a.act); }
+            sep(c, y + hh - 2.);
         }
         y += hh;
     }
+    if let Some(a) = act {
+        match a {
+            AdvAct::Tab(t) => { ui.open(t as usize); return y; }
+            AdvAct::Npc(id) => { ui.npc = Some(id); ui.scroll = 0.; return y; }
+            AdvAct::Build(_) => { g.adv_do(a); ui.close = true; }
+            _ => g.adv_do(a),
+        }
+    }
+    // งานตอนนี้: อาชีพละกี่คน กำลังทำอะไร
+    if !st.roles.is_empty() {
+        header(font, c, y, "อาชีพ & งานตอนนี้", u);
+        y += 28. * u;
+        for &(r, nr) in &st.roles {
+            let doing: Vec<String> = g.npcs.iter().filter(|n| n.state == ST_HOME && !n.child && n.role == r).map(|n| {
+                let what = if g.rs.sleeping.contains(&n.id) { "นอน".to_string() }
+                    else if let Some(j) = g.rs.work.get(&n.id) { if j.stage == 1 { "ขนของเข้ากล่อง".to_string() } else if j.working { J_NAMES[j.kind as usize].to_string() } else { format!("ไป{}", J_NAMES[j.kind as usize]) } }
+                    else if work_hr(g.hour()) { "ว่าง".to_string() } else { "พักผ่อน".to_string() };
+                format!("{} ({})", NPC_NAMES[n.name as usize], what)
+            }).collect();
+            let line = format!("{} {} คน: {}", ROLE_N[r as usize], nr, doing.join(" · "));
+            let ws = wrap_th(font, &line, 11. * u, c.w - 24. * u);
+            let hh = ws.len() as f32 * 14. * u + 8. * u;
+            if visible(y, hh, c) { for (k, w) in ws.iter().enumerate() { text(font, w, c.x + 8. * u, y + 14. * u + k as f32 * 14. * u, 11. * u, if k == 0 { hx(0xffcc66) } else { hx(0xcccccc) }); } }
+            y += hh;
+        }
+    }
+    // โครงการของชาวบ้าน
+    if !g.rs.projects.is_empty() || !g.sites.is_empty() {
+        header(font, c, y, "โครงการ & ก่อสร้าง", u);
+        y += 28. * u;
+        let mut lines: Vec<(String, Color)> = vec![];
+        for p in &g.rs.projects {
+            let nm = g.idx(p.by).map(|i| NPC_NAMES[g.npcs[i].name as usize]).unwrap_or("");
+            let status = if p.started { "กำลังสร้าง".to_string() } else if let Some(h) = g.rs.help.get(&p.by) { h.splitn(2, "ยังขาด ").nth(1).map(|x| format!("ขาด {}", x.split(" —").next().unwrap_or(x))).unwrap_or_else(|| "รอวัสดุ".into()) } else { "รอวัสดุ".into() };
+            lines.push((format!("{}: {} — {}", nm, project_what(p.kind), status), if p.started { good } else { warn }));
+        }
+        for s2 in &g.sites { let total = prefab_time(s2.kind); lines.push((format!("ไซต์ {} — {:.0}%", prefab_name(s2.kind), (s2.prog / total * 100.).min(100.)), hx(0x99ccff))); }
+        for (l, col) in lines {
+            let ws = wrap_th(font, &l, 11. * u, c.w - 24. * u);
+            let hh = ws.len() as f32 * 14. * u + 6. * u;
+            if visible(y, hh, c) { for (k, w) in ws.iter().enumerate() { text(font, w, c.x + 8. * u, y + 14. * u + k as f32 * 14. * u, 11. * u, col); } }
+            y += hh;
+        }
+    }
+    // ระดับเมือง/เป้าหมายถัดไป
+    let goal = match tier {
+        0 => "ช่วยผู้หลงทางในโลก (เครื่องหมาย ! สีเหลือง) แล้วชวนมาอยู่ที่ฐาน — ต้องมีเตียงว่าง".to_string(),
+        1 => "ค่าย (1-3 คน) · ครบ 4 คนเป็นหมู่บ้าน".to_string(),
+        2 => format!("หมู่บ้าน · เป็นเมืองต้อง >10 คน + ปราสาท({}) + กำแพงเมือง {}/12", if g.has_castle() { "มีแล้ว" } else { "ยังไม่มี" }, g.walls()),
+        _ => if g.rs.founded { "อาณาจักรของคุณ — ดูการทูต/กฎหมายที่แท็บอาณาจักร".to_string() } else { "เมือง: เก็บภาษีได้ทุกเช้า · สถาปนาอาณาจักรได้ที่แท็บอาณาจักร".to_string() },
+    };
+    let ws = wrap_th(font, &format!("เป้าหมายถัดไป: {}", goal), 11. * u, c.w - 24. * u);
+    let hh = ws.len() as f32 * 14. * u + 10. * u;
+    if visible(y, hh, c) { for (k, w) in ws.iter().enumerate() { text(font, w, c.x + 8. * u, y + 16. * u + k as f32 * 14. * u, 11. * u, hx(0xbbbbcc)); } }
+    y += hh;
     let mut tax = false;
     if tier == 3 {
         if visible(y, 40. * u, c) {
@@ -1023,11 +1114,16 @@ fn tab_town(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
     }
     header(font, c, y, "ผู้คน", u);
     y += 28. * u;
-    let rows: Vec<(u32, String, u8, i32, u8, bool, bool, u8)> = g.npcs.iter().map(|n| (n.id, NPC_NAMES[n.name as usize].to_string(), n.state, n.mood, n.hearts, n.married, n.child, n.role)).collect();
+    let served = g.water_served();
+    let rows: Vec<(u32, String, u8, i32, u8, bool, bool, u8, String)> = g.npcs.iter().map(|n| {
+        let iss = g.npc_issues(n, &served);
+        (n.id, NPC_NAMES[n.name as usize].to_string(), n.state, n.mood, n.hearts, n.married, n.child, n.role, iss.join(" · "))
+    }).collect();
     let mut open: Option<u32> = None;
-    let rh2 = 46. * u;
-    for (id, nm, st, mood, hearts, married, child, role) in &rows {
+    let rh2 = 58. * u;
+    for (id, nm, st, mood, hearts, married, child, role, iss) in &rows {
         if visible(y, rh2, c) {
+            if !iss.is_empty() { text(font, &format!("ปัญหา: {}", iss), c.x + 8. * u, y + 52. * u, 10. * u, hx(0xff8877)); }
             let status = match *st { ST_FOLLOW => "ติดตามคุณ".to_string(), _ => if *child { "ลูก".to_string() } else { ROLE_N[*role as usize].to_string() } };
             text(font, &format!("{}{} · {}", nm, if *married { " (คู่สมรส)" } else { "" }, status), c.x + 8. * u, y + 18. * u, 14. * u, hx(0xffcc66));
             text(font, &format!("สนิท {}/10", hearts), c.x + 8. * u, y + 36. * u, 11. * u, hx(0xff9ab0));

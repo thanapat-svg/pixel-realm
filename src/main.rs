@@ -54,6 +54,8 @@ mod v19;
 use v19::*;
 mod work;
 use work::*;
+mod advisor;
+use advisor::*;
 use realm::*;
 use extra::*;
 use farm::*;
@@ -1492,6 +1494,7 @@ impl Game {
         prof::t("upd_comp", || self.upd_comp(dt));
         prof::t("v19_tick", || self.v19_tick(dt));
         prof::t("work_tick", || self.work_tick(dt));
+        prof::t("advisor", || self.advisor_tick(dt));
         self.dun_t -= dt;
         if self.dun_t <= 0. { self.dun_t = 1.; self.discover_duns(); self.discover_wps(); }
         // fx
@@ -2864,7 +2867,7 @@ async fn main() {
                     inp.potion = is_key_pressed(KeyCode::H);
                     for (k, kc) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4, KeyCode::Key5, KeyCode::Key6, KeyCode::Key7, KeyCode::Key8, KeyCode::Key9].iter().enumerate() { if is_key_pressed(*kc) { inp.hb = Some(k); } }
                     inp.cancel = is_key_pressed(KeyCode::T) || (is_key_pressed(KeyCode::Escape) && g.build_sel.is_some());
-                    inp.menu = if is_key_pressed(KeyCode::C) { Some(0) } else if is_key_pressed(KeyCode::B) { Some(1) } else if is_key_pressed(KeyCode::I) { Some(2) } else if is_key_pressed(KeyCode::P) { Some(6) } else if is_key_pressed(KeyCode::O) { Some(7) } else if is_key_pressed(KeyCode::L) && g.rs.inited { Some(11) } else { None };
+                    inp.menu = if is_key_pressed(KeyCode::C) { Some(0) } else if is_key_pressed(KeyCode::B) { Some(1) } else if is_key_pressed(KeyCode::I) { Some(2) } else if is_key_pressed(KeyCode::P) { Some(6) } else if is_key_pressed(KeyCode::O) { Some(7) } else if is_key_pressed(KeyCode::L) && g.rs.inited { Some(11) } else if is_key_pressed(KeyCode::U) { Some(10) } else { None };
                     #[cfg(debug_assertions)]
                     debug_keys(g);
                     #[cfg(debug_assertions)]
@@ -2872,6 +2875,8 @@ async fn main() {
                     // ปุ่มลัดเหนือหัวชาวบ้าน + แผนที่เล็ก (แตะเปิดแผนที่ใหญ่)
                     let qb = v19::quick_btns(g, &v0);
                     let mut block: Vec<Rect> = qb.map(|q| q.1.to_vec()).unwrap_or_default();
+                    let adv = advisor::adv_rects(g);
+                    if let Some((r, _, _)) = adv { block.push(r); }
                     if !g.big_map { block.push(minimap_rect(false)); }
                     handle_touch(&mut tu, &mut inp, g.build_sel.is_some(), g.rs.horse, &block);
                     // เมาส์ซ้าย = โจมตี/ยิงไปทางเมาส์ (เริ่มทำงานหลังปล่อยปุ่มครั้งแรก กันคลิกจากเมนูหลุดมา)
@@ -2880,7 +2885,12 @@ async fn main() {
                     let over_map = minimap_rect(g.big_map).contains(mp);
                     let mut tap_used = false;
                     let tap: Option<Vec2> = if tu.active { touches().iter().find(|t| t.phase == TouchPhase::Started).map(|t| t.position) } else if is_mouse_button_pressed(MouseButton::Left) { Some(mp) } else { None };
-                    if let (Some(tp), false) = (tap, g.big_map) {
+                    if let (Some(tp), Some((r, go, close))) = (tap, adv) {
+                        if close.contains(tp) { g.adv_dismiss(); tap_used = true; }
+                        else if go.map_or(false, |b| b.contains(tp)) { let a = g.rs.adv_show.take().map(|x| x.0.act); if let Some(a) = a { g.adv_do(a); } tap_used = true; }
+                        else if r.contains(tp) { tap_used = true; }
+                    }
+                    if let (Some(tp), false, false) = (tap, g.big_map, tap_used) {
                         if tu.active && minimap_rect(false).contains(tp) { inp.map = true; tap_used = true; }
                         else if let Some((id, rs)) = qb {
                             if rs[0].contains(tp) { g.quick_talk(id); tap_used = true; }
@@ -2943,6 +2953,7 @@ async fn main() {
                             Req::Adv => { ui.adv = true; ui.open(9); }
                             Req::Npc(id) => { ui.npc = Some(id); ui.open(10); }
                             Req::City(ci, kind) => { ui.city = Some((ci, kind)); ui.open(12); }
+                            Req::Tab(t) => { ui.open(t as usize); }
                         }
                         state = State::Menu;
                     } else if let Some(t) = inp.menu {
@@ -2991,7 +3002,7 @@ async fn main() {
                 draw_nav_world(g, &v, &font, t_now);
                 draw_siege_hud(g, &font, ui_scale());
                 prof::t("hud", || draw_hud(g, &sp, &font, tu.active));
-                if matches!(state, State::Play) { v19::draw_quick(g, &make_view(g.p.x, g.p.y), &font); }
+                if matches!(state, State::Play) { v19::draw_quick(g, &make_view(g.p.x, g.p.y), &font); advisor::draw_advice(g, &font); }
                 // บอสอยู่ใกล้ = แถบเลือดบอสใช้พื้นที่ด้านบนแทนบทเรียน/เป้าหมาย
                 if !g.bosses.iter().any(|b| (b.x - g.p.x).hypot(b.y - g.p.y) < 420.) {
                     draw_tut(g, &font, &v0, ui_scale());
