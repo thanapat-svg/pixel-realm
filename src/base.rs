@@ -9,7 +9,7 @@ pub struct Piece {
     pub icon: usize,
     pub cost: &'static [(usize, i32)],
 }
-pub const PIECES: [Piece; 30] = [
+pub const PIECES: [Piece; 32] = [
     Piece { name: "เต็นท์", desc: "ที่หลบภัยเร็วที่สุด! ผ้าใบ+เตียง 3×4 ช่อง · สร้าง 6 วินาที · กันฝน นอนดีกว่ากลางแจ้ง", obj: OBJ_TENT, icon: IC_WWALL, cost: &[(WOOD, 8)] },
     Piece { name: "กระท่อม", desc: "บ้านไม้หลังเล็ก 5×4 ช่อง มีเตียง ท่อนไม้นั่ง หน้าต่าง · สร้าง 15 วินาที", obj: OBJ_HUT, icon: IC_WWALL, cost: &[(WOOD, 22)] },
     Piece { name: "บ้านสำเร็จรูป (เล็ก)", desc: "วางทีเดียวได้ทั้งหลัง! กำแพงไม้ ประตู หน้าต่าง พื้นไม้ เตียง โคมไฟ · ประตูอยู่ช่องที่เลือก ตัวบ้านขึ้นไปด้านบน 5×5 ช่อง", obj: OBJ_HOUSE_S, icon: IC_WWALL, cost: &[(WOOD, 40), (STONE, 4)] },
@@ -25,7 +25,9 @@ pub const PIECES: [Piece; 30] = [
     Piece { name: "เตียงนอน", desc: "นอนตอนกลางคืนเพื่อข้ามไปเช้า · ฟื้นเลือดเต็ม · เป็นจุดเกิด", obj: 33, icon: IC_BED, cost: &[(WOOD, 12), (STONE, 2)] },
     Piece { name: "โต๊ะคราฟต์ขั้นสูง", desc: "สร้างอาวุธ/เกราะขั้น 2 (ต้องมีของขั้น 1 ก่อน)", obj: 34, icon: IC_ATABLE, cost: &[(STONE, 20), (WOOD, 10), (GEM, 4)] },
     Piece { name: "ปราสาท", desc: "ศูนย์กลางอาณาจักร (ต้องมี + กำแพงเมือง 12 ชิ้น + ชาวบ้าน >10 = เก็บภาษีได้)", obj: 37, icon: IC_ATABLE, cost: &[(STONE, 80), (WOOD, 40), (GEM, 10)] },
-    Piece { name: "บ่อน้ำ", desc: "น้ำดื่มสะอาด (ดื่มแล้ว +45) · ชาวบ้านในรัศมี 20 ช่องมีน้ำใช้ ไม่ต้องอยู่ริมน้ำ", obj: 39, icon: IC_POT, cost: &[(STONE, 10), (WOOD, 4)] },
+    Piece { name: "โอ่งน้ำ (ส่วนตัว)", desc: "น้ำดื่มสำหรับคนเดียว · ชาวบ้าน 1 คนที่เตียงอยู่ใกล้ (≤4 ช่อง) มีน้ำใช้ · ถูกและเล็ก", obj: O_WJAR, icon: IC_POT, cost: &[(STONE, 3), (WOOD, 1)] },
+    Piece { name: "บ่อน้ำครัวเรือน", desc: "น้ำดื่มสะอาด (ดื่ม +45) · ใช้ได้ 6 คนในรัศมี 12 ช่อง", obj: 39, icon: IC_POT, cost: &[(STONE, 10), (WOOD, 4)] },
+    Piece { name: "บ่อน้ำกลางเมือง", desc: "ศูนย์กลางเมือง · ทุกคนในรัศมี 30 ช่องมีน้ำใช้ ไม่จำกัดคน · ชาวบ้านมีความสุข +1/วัน", obj: O_BIGWELL, icon: IC_POT, cost: &[(STONE, 40), (WOOD, 12), (GEM, 1)] },
     Piece { name: "กำแพงเมือง", desc: "กำแพงหินสูง ทนทานกว่ากำแพงหิน (นับรวมเป็นกำแพงเมือง)", obj: 38, icon: IC_SWALL, cost: &[(STONE, 8)] },
     Piece { name: "ปลูกต้นกล้า", desc: "ปลูกต้นไม้ (ใช้เมล็ดจากผลไม้) · 4 วันโตเป็นต้นไม้ตามไบโอม · ฤดูหนาวไม่โต", obj: T_SAPLING, icon: WOOD, cost: &[(WOOD, 1), (BERRY, 1)] },
     Piece { name: "พื้นไม้", desc: "ปูพื้นในบ้าน (ไม้ 1/ช่อง) · วางซ้ำที่เดิม = รื้อคืนไม้", obj: OBJ_FLOOR_W, icon: IC_WWALL, cost: &[(WOOD, 1)] },
@@ -141,7 +143,7 @@ impl Game {
         for ty in pty - 2..=pty + 2 {
             for tx in ptx - 2..=ptx + 2 {
                 let o = self.w.obj_at(tx, ty);
-                if !matches!(o, 12 | 13 | 14 | 15 | 17 | 19 | 20 | 24 | 25 | 26 | 33 | 34 | 36 | 37 | 39 | 41 | 42 | O_ALTAR | O_GIANT | O_CHAIR | O_LOG | O_STALL | O_STABLE | O_COACH) {
+                if !matches!(o, 12 | 13 | 14 | 15 | 17 | 19 | 20 | 24 | 25 | 26 | 33 | 34 | 36 | 37 | 39 | O_WJAR | O_BIGWELL | 41 | 42 | O_ALTAR | O_GIANT | O_CHAIR | O_LOG | O_STALL | O_STABLE | O_COACH) {
                     continue;
                 }
                 if (o == 41 || o == 42) && !self.fruit_ready((tx, ty)) { continue; }
@@ -221,7 +223,7 @@ impl Game {
                 self.req = Some(Req::Cook);
             }
             33 => self.sleep(k),
-            39 => self.drink_well(),
+            39 | O_WJAR | O_BIGWELL => self.drink_well(),
             41 | 42 => { self.pick_fruit(k, o); }
             O_ALTAR => { self.shrine_pray(k); }
             O_GIANT => { self.giant_gather(k); }
@@ -273,7 +275,8 @@ pub fn interact_hint(o: u8, touch: bool) -> String {
         19 => format!("{}: เข้าดันเจี้ยนลับ (อันตราย!)", key),
         36 => format!("{}: เข้าถ้ำใต้ดิน (มืด · มีแร่ · มอนสเตอร์ดุ!)", key),
         33 => format!("{}: นอน (ข้ามไปเช้า)", key),
-        39 => format!("{}: ดื่มน้ำจากบ่อ", key),
+        39 | O_BIGWELL => format!("{}: ดื่มน้ำจากบ่อ", key),
+        O_WJAR => format!("{}: ดื่มน้ำจากโอ่ง", key),
         41 => format!("{}: เก็บแอปเปิล (ไม่ต้องโค่นต้น)", key),
         42 => format!("{}: ดื่มน้ำมะพร้าว", key),
         34 => format!("{}: ใช้โต๊ะคราฟต์ขั้นสูง", key),

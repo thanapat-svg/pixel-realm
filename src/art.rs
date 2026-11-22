@@ -330,6 +330,33 @@ pub fn build_extra(at: &mut Atlas, obj: &mut Vec<Rect>, icons: &mut Vec<Rect>) -
     obj[O_STALL as usize] = at.add(&spr(&["rrwwrrwwrrwwrrww", "rrwwrrwwrrwwrrww", "rrwwrrwwrrwwrrww", ".k............k.", ".k............k.", ".k..y.g.o.y...k.", ".k.yyygggooo..k.", "kkkkkkkkkkkkkkkk", "kTTTTTTTTTTTTTTk", "kTtTTTTTTTTTtTTk", "kTTTTTTTTTTTTTTk", "kTTTTTTTTTTTTTTk", "kkkkkkkkkkkkkkkk", ".kd..........dk.", ".kd..........dk.", ".kk..........kk."], cp));
     obj[O_STABLE as usize] = at.add(&spr(&["................", "..kkkkkkkkkkkk..", ".kTTTTTTTTTTTTk.", "kTTTTTTTTTTTTTTk", "kkkkkkkkkkkkkkkk", ".k............k.", ".k..yy....yy..k.", ".k.yyyy..yyyy.k.", ".kyyyyyyyyyyyyk.", "kkkkkkkkkkkkkkkk", ".kT.kT.kT.kT.kT.", "kkkkkkkkkkkkkkkk", ".kT.kT.kT.kT.kT.", ".kT.kT.kT.kT.kT.", ".kk.kk.kk.kk.kk.", "................"], cp));
     obj[O_COACH as usize] = at.add(&spr(&["......kkkk......", ".....kTTTTk.....", "....kTTTTTTk....", "....kkkkkkkk....", ".......kk.......", "..kkkkkkkkkkkk..", "..kwwwwwwwwwwk..", "..kwyyywwyyywk..", "..kwwwwwwwwwwk..", "..kkkkkkkkkkkk..", ".......kk.......", "....ksssk.......", "...ks.k.sk......", "...kskkksk......", "...ks.k.sk......", "....ksssk......."], cp));
+    // โอ่งน้ำดินเผา (ส่วนตัว)
+    let jp: &[(char, u32)] = &[('k', 0x4a2a14), ('c', 0xb0643a), ('C', 0xd88a52), ('d', 0x8a4a28), ('w', 0x4a8ad8), ('W', 0x9ac8f8)];
+    obj[O_WJAR as usize] = at.add(&spr(&["................", "................", "................", "....kkkkkkkk....", "...kwWwwwwwwk...", "...kkkkkkkkkk...", "....kcCccccdk...", "...kcCcccccdk...", "..kcCccccccddk..", "..kcCccccccddk..", "..kcCcckkcccdk..", "..kcccccccccdk..", "...kccccccddk...", "....kddddddk....", ".....kkkkkk.....", "................"], jp));
+    // บ่อน้ำกลางเมือง (หินใหญ่ หลังคา รอกตักน้ำ) กว้าง 32
+    let bp: &[(char, u32)] = &[('k', 0x2a2a30), ('s', 0x8a8e98), ('S', 0xb8bcc6), ('d', 0x5a5e68), ('r', 0xa84a32), ('R', 0xd8724a), ('t', 0x6a4022), ('w', 0x3a78c8), ('W', 0x8ac0f0), ('y', 0xd8b040)];
+    obj[O_BIGWELL as usize] = at.add(&spr(&[
+        "........kkkkkkkkkkkkkkkk........",
+        "......kkRRRRRRRRRRRRRRRRkk......",
+        "....kkRRrrRRrrRRrrRRrrRRRRkk....",
+        "...kRRrrRRrrRRrrRRrrRRrrRRRRk...",
+        "..kkkkkkkkkkkkkkkkkkkkkkkkkkkk..",
+        ".....kt.......kyk.......tk......",
+        ".....kt.......kyk.......tk......",
+        ".....kt........y........tk......",
+        ".....kt........y........tk......",
+        ".....kt.......kkk.......tk......",
+        "...kkkkkkkkkkkkkkkkkkkkkkkkkk...",
+        "..kSSsSSsSSsSSsSSsSSsSSsSSsSSk..",
+        "..ksWwwwwWwwwwwwWwwwwwwWwwwwsk..",
+        "..kswwWwwwwwWwwwwwwWwwwwwwWwsk..",
+        "..kSSsSSsSSsSSsSSsSSsSSsSSsSSk..",
+        "..ksdsdsdsdsdsdsdsdsdsdsdsdsdk..",
+        "..kSsSsSsSsSsSsSsSsSsSsSsSsSsk..",
+        "..ksdsdsdsdsdsdsdsdsdsdsdsdsdk..",
+        "..kddddddddddddddddddddddddddk..",
+        "...kkkkkkkkkkkkkkkkkkkkkkkkkk...",
+    ], bp));
     obj[O_BANNER as usize] = at.add(&spr(&["................", "................", "................", "................", "................", "................", "................", "................", "................", "................", "................", "................", "................", "................", "................", "................"], cp));
     obj[O_LOG as usize] = at.add(&spr(&["................", "................", "................", "................", "................", "..kkkkkkkkkkkk..", ".kTTTtTTTTTtTTTk", "kooOkTTTTTTTTtTk", "koOokTtTTTTTTTTk", "kOookTTTTtTTTTTk", ".kkkkddddddddddk", "..kkkkkkkkkkkkk.", "................", "................", "................", "................"], &[('k', 0x3a2410), ('T', 0x8a5a2c), ('t', 0x6a4220), ('d', 0x5a3418), ('o', 0xd8b080), ('O', 0xa87844)]));
     obj[O_TENTWALL as usize] = at.add(&{

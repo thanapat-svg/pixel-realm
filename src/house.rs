@@ -401,7 +401,7 @@ impl Game {
             let c = self.site_center(st);
             let near = (c.0 - self.p.x).hypot(c.1 - self.p.y) < 8. * 16.;
             // ช่างไม้ในเมืองช่วยสร้าง (สร้างต่อได้แม้เราไม่อยู่) · ขุนนางสถาปนิกเร่งงาน
-            let builders = self.role_count(R_BUILDER) as f32;
+            let builders = self.role_count(R_BUILDER) as f32 + self.rs.site_workers as f32 * 0.5;
             let arch = if self.perk_on(P_ARCH) { 1.5 } else { 1. };
             if !near && builders <= 0. { continue; }
             let rate = (if near { 1. + 0.4 * builders } else { 0.35 * builders }) * arch;

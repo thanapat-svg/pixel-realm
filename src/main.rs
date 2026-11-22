@@ -52,6 +52,8 @@ mod vfx;
 mod prof;
 mod v19;
 use v19::*;
+mod work;
+use work::*;
 use realm::*;
 use extra::*;
 use farm::*;
@@ -96,8 +98,8 @@ const SOLIDT: [bool; 21] = [true, true, false, false, false, false, true, false,
 //   10 กำแพงไม้,11 กำแพงหิน,12 ประตูปิด,13 ประตูเปิด,14 กล่องเก็บของ,15 พ่อค้า,16 เต็นท์
 //   37 ปราสาท,38 กำแพงเมือง,39 บ่อน้ำ
 //   17 โต๊ะตีเหล็ก,18 คบเพลิง,19 ทางเข้าดันเจี้ยน,20 ทางออกดันเจี้ยน,21 หนามหุบ,22 หนามโผล่,23 ป้อมลูกไฟ,24 หีบสมบัติหายาก
-const OSOLID: [bool; 84] = [false, true, true, false, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, false, false, false, false, true, true, true, true, false, false, false, false, false, false, true, true, false, false, true, true, true, true, true, true, true, true, true, true, true, true, true, false, true, false, true, false, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false, true, false, false, true, true, true, true, true, true, false, true, true, true, false];
-const OHP: [i32; 84] = [0, 3, 1, 0, 3, 4, 1, 2, 3, 2, 5, 8, 4, 4, 5, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 1, 1, 1, 1, 4, 8, 0, 0, 20, 8, 6, 3, 3, 3, 4, 2, 3, 6, 1, 0, 0, 1, 3, 1, 3, 1, 8, 10, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 3, 1, 1, 3, 1, 1, 5, 3, 2, 1, 99, 99, 99, 99];
+const OSOLID: [bool; 86] = [false, true, true, false, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, false, false, false, false, true, true, true, true, false, false, false, false, false, false, true, true, false, false, true, true, true, true, true, true, true, true, true, true, true, true, true, false, true, false, true, false, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false, true, false, false, true, true, true, true, true, true, false, true, true, true, false, true, true];
+const OHP: [i32; 86] = [0, 3, 1, 0, 3, 4, 1, 2, 3, 2, 5, 8, 4, 4, 5, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 1, 1, 1, 1, 4, 8, 0, 0, 20, 8, 6, 3, 3, 3, 4, 2, 3, 6, 1, 0, 0, 1, 3, 1, 3, 1, 8, 10, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 5, 1, 1, 3, 1, 1, 3, 1, 1, 5, 3, 2, 1, 99, 99, 99, 99, 99, 99];
 
 const WOOD: usize = 0;
 const STONE: usize = 1;
@@ -486,7 +488,7 @@ fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
     let fl_bat = [at.add(&art::white_of(&bat_img[0])), at.add(&art::white_of(&bat_img[1]))];
     // ---- objects
     let rp: &[(char, u32)] = &[('k', 0x3a3a40), ('L', 0x9a9aa4), ('l', 0xc8c8d0), ('D', 0x6a6a74), ('c', 0x4ef0ff), ('C', 0xb0ffff)];
-    let mut obj = vec![Rect::new(0., 0., 1., 1.); 84];
+    let mut obj = vec![Rect::new(0., 0., 1., 1.); 86];
     obj[1] = at.add(&spr(&["......gggg......", "....gGGGGGGg....", "...GGGgGGGGGG...", "..GGGGGGGgGGGG..", ".GGgGGGGGGGGGGG.", ".GGGGGGGGGGgGGG.", "GGGGGgGGGGGGGGGG", "GGGGGGGGGGGGgGGG", "GGgGGGGGGGGGGGGG", "GGGGGGGGgGGGGGGd", ".GGGGGGGGGGGGGd.", ".dGGGgGGGGGGGdd.", "..ddGGGGGGGGdd..", "...dddGGGGddd...", ".....ddTTdd.....", "......TTTT......", "......TTtT......", "......TTTT......", "......TtTT......", "......TTTT......", ".....TTTTTT.....", "....tt....tt...."],
         &[('g', 0x7cd06a), ('G', 0x3f9a3f), ('d', 0x2a6a2a), ('T', 0x7a4a24), ('t', 0x5a3418)]));
     obj[2] = at.add(&spr(&["................", "................", "................", "................", "................", "................", "......gggg......", "....gggggggg....", "...ggrgggggrg...", "..gggggggggggg..", "..ggggrggggggg..", ".gggggggggrgggg.", ".ggrgggggggggg..", "..dgggggggggd...", "...dddddddddd...", "................"], &[('g', 0x3d9440), ('r', 0xe8344a), ('d', 0x2a6a2a)]));
@@ -1489,6 +1491,7 @@ impl Game {
         prof::t("upd_drops", || self.upd_drops(dt));
         prof::t("upd_comp", || self.upd_comp(dt));
         prof::t("v19_tick", || self.v19_tick(dt));
+        prof::t("work_tick", || self.work_tick(dt));
         self.dun_t -= dt;
         if self.dun_t <= 0. { self.dun_t = 1.; self.discover_duns(); self.discover_wps(); }
         // fx
@@ -5065,12 +5068,12 @@ mod tree_tests {
     fn tree_stats_tables_and_sprites_are_consistent() {
         for o in 40..=47usize { assert!(OSOLID[o] && OHP[o] > 0, "ต้นไม้ {} ต้องชนได้และตีได้", o); }
         assert!(OHP[T_OLD as usize] > OHP[T_BIRCH as usize] && OHP[T_SAPLING as usize] == 1);
-        assert_eq!(OSOLID.len(), 84);
+        assert_eq!(OSOLID.len(), 86);
         for o in 40..=47u8 { let (a, b) = wood_range(o); assert!(a >= 1 && b >= a, "{}", o); assert!(!tree_name(o).is_empty()); }
         assert!(wood_range(T_OLD).0 >= 5 && wood_range(T_SAPLING).1 == 1 && wood_range(T_SPRUCE).1 >= 4);
         // สไปรต์ทุกชิ้นกว้าง 16 พิกเซล วางเข้าแอตลาสได้ ไม่ซ้ำกัน
         let mut at = Atlas { img: Image::gen_image_color(512, 1024, BLANK), cx: 0, cy: 0, rowh: 0 };
-        let mut obj = vec![Rect::new(0., 0., 1., 1.); 84];
+        let mut obj = vec![Rect::new(0., 0., 1., 1.); 86];
         trees::build_trees(&mut at, &mut obj);
         for o in 40..=49usize { assert!(obj[o].w == 16. && obj[o].h >= 14. && obj[o].h <= 22., "{} {:?}", o, obj[o]); }
         let mut pos: Vec<(i32, i32)> = (40..=49).map(|o| (obj[o].x as i32, obj[o].y as i32)).collect();
@@ -5388,7 +5391,7 @@ mod land_tests {
     #[test]
     fn land_sprites_fit_atlas() {
         let mut at = Atlas { img: Image::gen_image_color(512, 1024, BLANK), cx: 0, cy: 0, rowh: 0 };
-        let mut obj = vec![Rect::new(0., 0., 0., 0.); 84];
+        let mut obj = vec![Rect::new(0., 0., 0., 0.); 86];
         land::build_land(&mut at, &mut obj);
         for o in 50..70usize { assert!(obj[o].w >= 1. && obj[o].h >= 1., "{}", o); }
         assert!(obj[O_GIANT as usize].w > 40. && obj[O_HUT_LOG as usize].w == 40.);

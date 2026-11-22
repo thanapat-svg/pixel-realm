@@ -98,7 +98,7 @@ impl Game {
         let n = self.npcs[i].clone();
         let pick = ((self.time * 0.7) as usize + id as usize) % 3;
         // คำพูดตามนิสัย/อารมณ์ (ระบบเดิม) · บางครั้งบอกของที่อยากได้
-        let line: String = if pick == 0 && n.hearts >= 2 && !refuses(&n) && n.mood >= 30 { format!("ช่วงนี้อยากได้{}จัง", INAME[n.soc.love as usize]) } else { self.npc_say(&n) };
+        let line: String = if let Some(h) = self.rs.help.get(&id) { h.splitn(2, ": ").nth(1).unwrap_or(h).to_string() } else if pick == 0 && n.hearts >= 2 && !refuses(&n) && n.mood >= 30 { format!("ช่วงนี้อยากได้{}จัง", INAME[n.soc.love as usize]) } else { self.npc_say(&n) };
         self.npc_bubble(id, &line);
         if !first { play(&self.sfx.click); }
     }

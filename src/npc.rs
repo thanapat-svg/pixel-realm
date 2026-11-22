@@ -278,13 +278,15 @@ impl Game {
         let mut thirsty_n = 0;
         let mut roofless_n = 0;
         let ids: Vec<u32> = self.npcs.iter().filter(|n| n.state == ST_HOME).map(|n| n.id).collect();
+        let served = self.water_served();
         for id in &ids {
             let Some(i) = self.idx(*id) else { continue };
             let bed = self.npcs[i].bed;
+            let town_well = self.big_well_near(bed);
             let bed_ok = self.w.placed.get(&bed) == Some(&33);
             let eaten = self.take_food_for(bed, i);
             let fed = eaten.is_some();
-            let has_water = self.water_within(bed.0, bed.1, 20);
+            let has_water = served.contains(&bed);
             let room = if bed_ok { self.w.room_from(bed) } else { None };
             let house = room.is_some();
             let comfy = room.map_or(0, |r| r.comfort);
@@ -303,6 +305,7 @@ impl Game {
             if !bed_ok { n.soc.grudge = (n.soc.grudge + 3 + n.soc.tr[T_TEMPER] as i32 / 30).min(100); }
             if !fed { n.soc.grudge = (n.soc.grudge + 2 + n.soc.tr[T_TEMPER] as i32 / 40).min(100); n.soc.anger = (n.soc.anger + 8).min(100); }
             if n.married { n.mood += 4; }
+            if town_well { n.mood += 1; }
             if n.hearts >= 5 { n.mood += 2; }
             n.mood = n.mood.clamp(0, 100);
             n.talked = false;
@@ -328,7 +331,7 @@ impl Game {
         self.quest_dawn();
         self.assign_roles();
         // ชาวไร่: รดน้ำ เก็บเกี่ยว ปลูกซ้ำ
-        let farmers: Vec<(i32, i32)> = self.npcs.iter().filter(|n| n.state == ST_HOME && n.role == 1 && n.mood >= 20 && Game::willing(n)).map(|n| n.bed).collect();
+        let farmers: Vec<(i32, i32)> = self.npcs.iter().filter(|n| n.state == ST_HOME && n.role == 1 && n.mood >= 20 && Game::willing(n) && !self.rs.worked.contains(&n.id)).map(|n| n.bed).collect();
         let mut harvested = 0;
         for bed in farmers {
             let keys: Vec<(i32, i32)> = self.crops.keys().copied().filter(|k| (k.0 - bed.0).abs() <= 14 && (k.1 - bed.1).abs() <= 14).take(10).collect();
@@ -384,6 +387,7 @@ impl Game {
             guard += 1;
             self.npc_dawn();
             self.realm_dawn();
+            self.projects_dawn();
             self.season_dawn();
         }
         self.last_day = day;
@@ -416,6 +420,7 @@ impl Game {
         let mut paths = std::mem::take(&mut self.rs.npaths);
         paths.retain(|id, _| npcs.iter().any(|n| n.id == *id));
         let mut budget = PATH_BUDGET;
+        let mut work_done: Vec<(u32, Job)> = vec![];
         for n in npcs.iter_mut() {
             n.anim += dt;
             n.atk_cd = (n.atk_cd - dt).max(0.);
@@ -452,7 +457,12 @@ impl Game {
                             if d > 14. { tx = ex; ty = ey; spd = 78.; } else if n.atk_cd <= 0. { n.atk_cd = 0.9; hits.push((ei, (ex - n.x) / d.max(1.), (ey - n.y) / d.max(1.))); }
                         }
                     }
-                    if spd == 0. {
+                    // v20: เวลางาน → ไปทำงานตามอาชีพ (เห็นผลจริงในโลก)
+                    let mut busy = false;
+                    if spd == 0. && !night && !gather.contains_key(&n.id) {
+                        if let Some((p, s)) = self.work_step(n, dt, &mut work_done) { tx = p.0; ty = p.1; spd = s; busy = true; }
+                    }
+                    if spd == 0. && !busy {
                         if let Some(&(seat, fire)) = gather.get(&n.id) {
                             // ตอนเย็น: ไปนั่งล้อมกองไฟ หันหน้าเข้าหาไฟ
                             tx = seat.0; ty = seat.1;
@@ -476,7 +486,9 @@ impl Game {
                 let (vx, vy) = ((gx - n.x) / d * st, (gy - n.y) / d * st);
                 let (nx, ny) = (n.x + vx, n.y + vy);
                 // ชาวบ้านเดินผ่านประตูได้เอง (ไม่ต้องเปิดค้างไว้)
-                let blk = |x: f32, y: f32| { let (a, b) = (tfloor(x), tfloor(y - 3.)); self.w.obj_at(a, b) != 12 && self.w.solid_at(a, b) };
+                // ช่องที่ยืนอยู่ตอนนี้ไม่นับ (ยืนข้างเตียงจุดเท้าอยู่ในช่องเตียง — เดิมทำให้เดินออกไม่ได้)
+                let here = (tfloor(n.x), tfloor(n.y - 3.));
+                let blk = |x: f32, y: f32| { let (a, b) = (tfloor(x), tfloor(y - 3.)); (a, b) != here && self.w.obj_at(a, b) != 12 && self.w.solid_at(a, b) };
                 if !blk(nx, n.y) { n.x = nx; n.moving = true; }
                 if !blk(n.x, ny) { n.y = ny; n.moving = true; }
                 // กลางคืนติดกำแพงกลับบ้านไม่ได้ → เดินอ้อมเข้าบ้านไปเอง (วาร์ปไปที่เตียง)
@@ -487,6 +499,7 @@ impl Game {
         }
         self.npcs = npcs;
         self.rs.npaths = paths;
+        if !work_done.is_empty() { self.work_finish(work_done); }
         self.gather = gather;
         let bonus = self.tier() as i32;
         for (ei, dx, dy) in hits {
@@ -545,6 +558,7 @@ pub fn draw_npc(g: &Game, sp: &Sprites, v: &View, i: usize, t_now: f32) {
     } else {
         skin::draw_figure(sp, &body, role_parts(n.role), (sx - 6.) * v.s, (sy - 15. - bob) * v.s, v.s, 0, f, n.left, WHITE);
     }
+    work::draw_work(g, sp, v, n, sx, sy - bob, t_now);
     if n.married {
         prect(v, sx - 2., sy - 20. * k - bob, 2., 1., hx(0xff6688));
         prect(v, sx + 1., sy - 20. * k - bob, 2., 1., hx(0xff6688));
@@ -558,7 +572,7 @@ pub fn draw_npc(g: &Game, sp: &Sprites, v: &View, i: usize, t_now: f32) {
         prect(v, cx - 3., cy - 1., 6., 2., hx(0xff3030));
     } else if n.state == ST_HOME && n.mood < 25 {
         text_c_world(v, "!", sx, sy - 19. * k - bob, hx(0xff4444), t_now);
-    } else if !g.reqs_for(n.id).is_empty() {
+    } else if !g.reqs_for(n.id).is_empty() || g.rs.help.contains_key(&n.id) {
         // มีคำขอ/เรื่องให้จัดการ: กรอบคำพูดสีเหลือง
         let b = ((t_now * 4.).sin() * 1.).round();
         let (cx, cy) = (sx + 5., sy - 22. * k - bob + b);

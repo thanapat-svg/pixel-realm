@@ -18,6 +18,9 @@ pub const O_STALL: u8 = 80;
 pub const O_STABLE: u8 = 81;
 pub const O_COACH: u8 = 82;
 pub const O_BANNER: u8 = 83;
+/// v20 บ่อน้ำ 3 ขนาด: โอ่งน้ำ (ส่วนตัว) · 39 บ่อน้ำครัวเรือน · บ่อน้ำกลางเมือง
+pub const O_WJAR: u8 = 84;
+pub const O_BIGWELL: u8 = 85;
 pub const PLAYER_OWN: u8 = 255;
 
 pub const L_WEAPON: u8 = 0;
@@ -139,7 +142,7 @@ impl Realm {
                 (0, -4) => 37,
                 (-2, -4) | (2, -4) => O_BANNER,
                 (-3, -2) | (3, -2) | (-3, 2) | (3, 2) => O_STALL,
-                (-4, 4) => 39,
+                (-4, 4) => if c.cap { O_BIGWELL } else { 39 },
                 (4, -4) => O_STABLE,
                 (4, 4) => O_COACH,
                 _ => 0,
@@ -266,6 +269,12 @@ pub struct RealmState {
     pub drag_last: Option<(i32, i32)>,
     pub bed_t: f32,
     pub room_c: (i32, i32),
+    pub work: HashMap<u32, Job>,
+    pub work_t: f32,
+    pub site_workers: u32,
+    pub worked: HashSet<u32>,
+    pub projects: Vec<Project>,
+    pub help: HashMap<u32, String>,
     pub tick_t: f32,
     pub inited: bool,
 }
@@ -988,7 +997,8 @@ impl Game {
     }
     /// ผลผลิตอาชีพทุกเช้า
     fn jobs_day(&mut self) {
-        let list: Vec<(u8, (i32, i32), u32)> = self.residents().filter(|n| n.mood >= 20 && Game::willing(n) && !n.child).map(|n| (n.role, n.bed, n.id)).collect();
+        // v20: คนที่ทำงานให้เห็นจริงวันนี้แล้ว ไม่คิดผลซ้ำ
+        let list: Vec<(u8, (i32, i32), u32)> = self.residents().filter(|n| n.mood >= 20 && Game::willing(n) && !n.child && !self.rs.worked.contains(&n.id)).map(|n| (n.role, n.bed, n.id)).collect();
         let skilled = |g: &Game, id: u32| g.rs.origins.get(&id).map_or(false, |o| o.rank == 1);
         for (role, bed, id) in list {
             let m = if skilled(self, id) { 2 } else { 1 };
@@ -1011,6 +1021,7 @@ impl Game {
             if l & ML_CURFEW != 0 { n.mood -= 1; }
             if l & ML_NOWEAPON != 0 { n.mood = (n.mood + 1).min(100); }
         }
+        self.rs.worked.clear();
         if self.tier() >= 3 || self.rs.founded {
             let mut tax = self.pop() as i32 * 2;
             if l & ML_LOWTAX != 0 { tax = tax * 6 / 10; }
@@ -1019,6 +1030,7 @@ impl Game {
             self.tax_pool += tax;
         }
     }
+    pub fn cook_day_pub(&mut self, bed: (i32, i32)) { self.cook_day(bed); }
     fn cook_day(&mut self, bed: (i32, i32)) {
         let keys: Vec<(i32, i32)> = self.chests.keys().copied().filter(|k| (k.0 - bed.0).abs() <= 16 && (k.1 - bed.1).abs() <= 16).collect();
         for k in keys {
