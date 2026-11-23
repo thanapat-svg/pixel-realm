@@ -9,7 +9,7 @@ pub struct Piece {
     pub icon: usize,
     pub cost: &'static [(usize, i32)],
 }
-pub const PIECES: [Piece; 32] = [
+pub const PIECES: [Piece; 33] = [
     Piece { name: "เต็นท์", desc: "ที่หลบภัยเร็วที่สุด! ผ้าใบ+เตียง 3×4 ช่อง · สร้าง 6 วินาที · กันฝน นอนดีกว่ากลางแจ้ง", obj: OBJ_TENT, icon: IC_WWALL, cost: &[(WOOD, 8)] },
     Piece { name: "กระท่อม", desc: "บ้านไม้หลังเล็ก 5×4 ช่อง มีเตียง ท่อนไม้นั่ง หน้าต่าง · สร้าง 15 วินาที", obj: OBJ_HUT, icon: IC_WWALL, cost: &[(WOOD, 22)] },
     Piece { name: "บ้านสำเร็จรูป (เล็ก)", desc: "วางทีเดียวได้ทั้งหลัง! กำแพงไม้ ประตู หน้าต่าง พื้นไม้ เตียง โคมไฟ · ประตูอยู่ช่องที่เลือก ตัวบ้านขึ้นไปด้านบน 5×5 ช่อง", obj: OBJ_HOUSE_S, icon: IC_WWALL, cost: &[(WOOD, 40), (STONE, 4)] },
@@ -42,6 +42,7 @@ pub const PIECES: [Piece; 32] = [
     Piece { name: "วงกองไฟ", desc: "กองไฟ + ท่อนไม้นั่ง 4 ท่อน · ตอนเย็นชาวบ้านมานั่งคุยกัน (นั่งด้วยได้!) · สร้าง 8 วินาที", obj: OBJ_FIRERING, icon: IC_WWALL, cost: &[(WOOD, 10), (STONE, 3)] },
     Piece { name: "ท่อนไม้นั่ง", desc: "แตะเพื่อนั่ง · วางใกล้กองไฟให้ชาวบ้านมานั่งคุยกัน", obj: O_LOG, icon: IC_WWALL, cost: &[(WOOD, 2)] },
     Piece { name: "โคมไฟ", desc: "ไฟสว่างในบ้านตอนกลางคืน (เป็นเขตปลอดภัยเหมือนคบเพลิง) · +ความน่าอยู่", obj: O_LAMP, icon: IC_TORCH, cost: &[(WOOD, 1), (STONE, 2)] },
+    Piece { name: "ย้ายของ", desc: "ย้ายของที่สร้างแล้วโดยไม่ต้องรื้อ (ฟรี) · แตะของ 2 ครั้ง = ยก · แตะที่ใหม่ 2 ครั้ง = วาง · แตะผนัง/ประตู/พื้นบ้าน = ย้ายทั้งหลัง (หมุนได้) · ของในกล่องและเจ้าของเตียงตามไปด้วย", obj: OBJ_MOVE, icon: IC_BOX, cost: &[] },
 ];
 
 /// สิ่งที่ Game ขอให้ UI เปิด
@@ -83,6 +84,15 @@ impl Game {
             return;
         };
         let pc = &PIECES[sel];
+        if pc.obj == OBJ_MOVE {
+            // v28 ย้ายของ: ยังไม่ได้ยก = ยก · ยกอยู่ = วาง
+            let k = self.build_target();
+            if self.rs.carry.is_none() {
+                if !self.build_reach(k) { self.toast("ไกลเกินไป — เดินเข้าไปใกล้อีกหน่อย"); return; }
+                self.move_pick(k);
+            } else { self.move_drop(k); }
+            return;
+        }
         if !self.build_reach(self.build_target()) { self.toast("ไกลเกินไป — เดินเข้าไปใกล้อีกหน่อย"); return; }
         if pc.obj == OBJ_TILL {
             let k = self.build_target();

@@ -134,7 +134,13 @@ impl Game {
     pub fn rotate_build(&mut self) {
         let Some(sel) = self.build_sel else { return };
         let o = PIECES[sel].obj;
-        if !is_prefab(o) || o == OBJ_FIRERING { self.toast("ชิ้นนี้วางได้ทิศเดียว — หมุนได้เฉพาะบ้าน/กระท่อม/เต็นท์"); return; }
+        if o == OBJ_MOVE {
+            match &self.rs.carry {
+                Some(c) if c.building => {}
+                Some(_) => { self.toast("ของชิ้นเดียวหมุนไม่ได้ — หมุนได้ตอนย้ายทั้งหลัง"); return; }
+                None => { self.toast("ยกบ้านขึ้นก่อนแล้วค่อยหมุน"); return; }
+            }
+        } else if !is_prefab(o) || o == OBJ_FIRERING { self.toast("ชิ้นนี้วางได้ทิศเดียว — หมุนได้เฉพาะบ้าน/กระท่อม/เต็นท์"); return; }
         self.build_dir = (self.build_dir + 1) & 3;
         self.rs.build_arm = None;
         play_vol(&self.sfx.door, 0.5);
@@ -166,8 +172,13 @@ impl Game {
             }
             self.rs.drag_last = Some(t);
         } else if started {
-            if is_prefab(o) {
+            if is_prefab(o) || o == OBJ_MOVE {
                 if self.rs.build_arm == Some(t) { self.rs.build_arm = None; self.place_piece(); }
+                else if o == OBJ_MOVE {
+                    self.rs.build_arm = Some(t);
+                    let msg = match &self.rs.carry { None => match self.move_select(t) { Ok(c) => format!("จะยก: {} — แตะซ้ำที่เดิมเพื่อยก", c.name), Err(e) => e.to_string() }, Some(c) => format!("วาง{}ตรงนี้? แตะซ้ำที่เดิมเพื่อวาง{}", c.name, if c.building { " · ปุ่ม \"หมุน\" = หันบ้าน" } else { "" }) };
+                    self.toast(msg);
+                }
                 else { self.rs.build_arm = Some(t); self.toast("ดูตำแหน่งให้ดี แล้วแตะซ้ำที่เดิมเพื่อสร้าง · ปุ่ม \"หมุน\" (Y) = หันประตู"); }
             } else {
                 self.place_piece();

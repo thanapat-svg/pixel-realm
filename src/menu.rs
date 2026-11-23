@@ -93,6 +93,15 @@ fn piece_icon(sp: &Sprites, p: &Piece, x: f32, y: f32, s: f32, tint: Color) {
         let rc = if p.obj == OBJ_HOUSE_L { Color::new(0.35, 0.42, 0.53, tint.a) } else { Color::new(0.69, 0.29, 0.2, tint.a) };
         draw_triangle(vec2(bx - s * 0.06, by), vec2(bx + bs + s * 0.06, by), vec2(bx + bs / 2., by - s * 0.34), rc);
         draw_rectangle(bx + bs * 0.4, by + bs * 0.25, bs * 0.2, bs * 0.35, Color::new(0.35, 0.2, 0.08, tint.a));
+    } else if p.obj == OBJ_MOVE {
+        // ไอคอนย้ายของ: กล่อง + ลูกศร 4 ทิศ
+        icon_c(sp, p.icon, x + s * 0.2, y + s * 0.2, s * 0.6, tint);
+        let (cx, cy, r) = (x + s / 2., y + s / 2., s * 0.46);
+        let c = Color::new(0.55, 0.85, 1., tint.a);
+        for (dx, dy) in [(1., 0.), (-1., 0.), (0., 1.), (0., -1.)] {
+            let (tx, ty) = (cx + dx * r, cy + dy * r);
+            draw_triangle(vec2(tx, ty), vec2(tx - dx * s * 0.14 - dy * s * 0.1, ty - dy * s * 0.14 - dx * s * 0.1), vec2(tx - dx * s * 0.14 + dy * s * 0.1, ty - dy * s * 0.14 + dx * s * 0.1), c);
+        }
     } else {
         icon_c(sp, p.icon, x, y, s, tint);
     }
@@ -297,7 +306,7 @@ fn tab_build(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect,
     });
     if let Some(k) = hit { ui.sel_b = k; }
     if visible(y, 40. * u, c) {
-        text(font, "เลือกแล้วหันหน้าไปทางที่ต้องการ กด R / ปุ่มสร้าง เพื่อวาง · ตีเพื่อรื้อถอน", c.x + 8. * u, y + 22. * u, 12. * u, hx(0x9a9aaa));
+        text(font, "เลือกแล้วแตะพื้นตรงที่จะวาง · ตีเพื่อรื้อถอน · อยากย้ายของที่สร้างแล้ว = \"ย้ายของ\" (ช่องสุดท้าย)", c.x + 8. * u, y + 22. * u, 12. * u, hx(0x9a9aaa));
     }
     y += 40. * u;
     if cancel { g.build_sel = None; }

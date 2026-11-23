@@ -284,6 +284,8 @@ pub struct RealmState {
     /// v27 ยืนนิ่งนานเท่าไร · ชาวบ้านที่โชว์ปุ่มลัดอยู่
     pub still_t: f32,
     pub quick_id: Option<u32>,
+    /// v28 ของที่ยกอยู่ (โหมดย้ายของ)
+    pub carry: Option<Carry>,
     pub lv: Living,
     pub war: WarState,
     pub tick_t: f32,

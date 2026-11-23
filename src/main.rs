@@ -63,6 +63,8 @@ use living::*;
 mod war;
 use war::*;
 mod hud;
+mod mover;
+use mover::*;
 use realm::*;
 use extra::*;
 use farm::*;
@@ -1457,7 +1459,8 @@ impl Game {
         if inp.rot { self.rotate_build(); }
         if inp.form { self.cycle_formation(); }
         if inp.horn { self.blow_horn(); }
-        if inp.cancel && self.build_sel.is_some() { self.build_sel = None; self.toast("ยกเลิกโหมดสร้าง"); }
+        if inp.cancel && self.build_sel.is_some() && !self.move_cancel() { self.build_sel = None; self.toast("ยกเลิกโหมดสร้าง"); }
+        if self.rs.carry.is_some() && !self.moving_on() { self.rs.carry = None; }
         if self.build_sel.is_none() { self.build_cur = None; }
         if self.build_cur.is_some() && (self.p.x - self.cur_pos.0).hypot(self.p.y - self.cur_pos.1) > 20. { self.build_cur = None; }
         if self.sleep_fx > 0. { self.sleep_fx -= dt; }
@@ -1982,7 +1985,9 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
             }
         }
         let po = PIECES[sel].obj;
-        if is_prefab(po) {
+        if po == OBJ_MOVE {
+            mover::draw_move_preview(g, sp, v, font, t_now);
+        } else if is_prefab(po) {
             // พรีวิวทั้งหลัง: เขียว = วางได้ · แดง = มีของขวาง (ข้อความบอกเหตุผล)
             let bad = g.prefab_blocked(po, (tx, ty), g.build_dir).or(if can_pay(&g.p, PIECES[sel].cost) { None } else { Some("วัสดุไม่พอ") });
             let tint = if bad.is_none() { Color::new(0.75, 1., 0.75, 0.6) } else { Color::new(1., 0.55, 0.55, 0.55) };
@@ -2272,10 +2277,22 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
         draw_rectangle(0., 0., sw, sh, Color::new(0., 0., 0.05, g.sleep_fx.min(1.)));
         if g.sleep_fx > 0.5 { text_c(font, "Zzz...", sw / 2., sh / 2., 30. * u, Color::new(1., 1., 1., g.sleep_fx.min(1.))); }
     }
-    if let Some(sel) = g.build_sel {
+    if g.moving_on() {
+        let s = match &g.rs.carry { None => format!("ย้ายของ: แตะของที่จะย้าย 2 ครั้ง (ผนัง/ประตู/พื้นบ้าน = ทั้งหลัง) · {}", if touch { "ปุ่มแดง = เลิก" } else { "R = ยก · T = เลิก" }), Some(c) => format!("กำลังย้าย: {} · แตะที่ใหม่ 2 ครั้ง = วาง{} · {}", c.name, if c.building { " · หมุน = หันบ้าน" } else { "" }, if touch { "ปุ่มแดง = วางคืนที่เดิม" } else { "T = วางคืนที่เดิม" }) };
+        build_line(font, &s, hint_y - 34. * u, u, hx(0x9adcff));
+    } else if let Some(sel) = g.build_sel {
         let k = if touch { "ปุ่มสร้าง" } else { "R" };
-        text(font, &format!("โหมดสร้าง: {} · {} = วาง · {} · {}", PIECES[sel].name, k, if touch { "แตะพื้นเพื่อเลือกช่อง" } else { "คลิก/เมาส์ = เลือกช่อง" }, if touch { "ปุ่มแดง = เลิกสร้าง" } else { "T = ยกเลิก" }), x, sh - 16. * u, 13. * u, hx(0x88ff88));
+        build_line(font, &format!("โหมดสร้าง: {} · {} = วาง · {} · {}", PIECES[sel].name, k, if touch { "แตะพื้นเพื่อเลือกช่อง" } else { "คลิก/เมาส์ = เลือกช่อง" }, if touch { "ปุ่มแดง = เลิกสร้าง" } else { "T = ยกเลิก" }), hint_y - 34. * u, u, hx(0x88ff88));
     }
+    let _ = x;
+}
+/// v28 บรรทัดบอกโหมดสร้าง: กลางจอเหนือคำใบ้ "ใช้" (เดิมอยู่ชิดล่างซ้าย ทับแถบไอเทม)
+fn build_line(font: &Font, s: &str, y: f32, u: f32, c: Color) {
+    let fs = 13. * u;
+    let d = measure_text(s, Some(font), fs as u16, 1.);
+    let cx = screen_width() / 2.;
+    draw_rectangle(cx - d.width / 2. - 10. * u, y, d.width + 20. * u, 24. * u, Color::new(0., 0., 0., 0.6));
+    text_c(font, s, cx, y + 17. * u, fs, c);
 }
 
 fn minimap_rect(big: bool) -> Rect {
@@ -2605,6 +2622,7 @@ fn debug_keys(g: &mut Game) {
     let shift = is_key_down(KeyCode::LeftShift);
     if shift && is_key_pressed(KeyCode::F1) { g.p.inv[WOOD] += 60; g.p.inv[STONE] += 20; g.build_sel = PIECES.iter().position(|p| p.obj == OBJ_HOUSE_S); }
     if shift && is_key_pressed(KeyCode::F2) { g.dbg_caravan(); }
+    if shift && is_key_pressed(KeyCode::F10) { g.build_sel = PIECES.iter().position(|p| p.obj == OBJ_MOVE); }
     if shift && is_key_pressed(KeyCode::F4) { for (j, k) in [EK::Scorp, EK::Wolf, EK::Crab, EK::Imp].into_iter().enumerate() { let (x, y) = (g.p.x - 60. + j as f32 * 40., g.p.y + 50.); g.make_enemy(k, x, y, 1., 0, false); if let Some(e) = g.en.last_mut() { e.stun = 6.; } } }
     if shift && is_key_pressed(KeyCode::F5) { let r = g.w.realm.clone(); if !g.rs.inited { g.rs.init(&r); } for st in 0..3u8 { let (x, y) = (g.p.x - 70. + st as f32 * 70., g.p.y - 50.); g.spawn_champion(st as usize % r.ks.len(), x, y); if let Some(b) = g.bosses.last_mut() { b.style = st; b.cd = 99.; } } }
     if shift && is_key_pressed(KeyCode::F9) { for b in g.bosses.iter_mut() { b.hp = b.maxhp * 0.45; b.cd = 0.3; } }
@@ -2702,7 +2720,7 @@ fn debug_keys(g: &mut Game) {
             } }
         }
     }
-    if is_key_pressed(KeyCode::F10) {
+    if !shift && is_key_pressed(KeyCode::F10) {
         let (tx, ty) = (tfloor(g.p.x), tfloor(g.p.y));
         'f10: for r in 0..30i32 {
             for cy in -r..=r { for cx in -r..=r {
