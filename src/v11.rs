@@ -145,6 +145,11 @@ pub fn draw_boat(v: &View, sx: f32, sy: f32, t: f32, side: bool) {
 
 // ======================= 6) สัตว์เลี้ยง =======================
 pub const PET_MAX: usize = 2;
+pub const PET_FOLLOW: u8 = 0;
+pub const PET_GUARD: u8 = 1;
+pub const PET_ROAM: u8 = 2;
+/// ต่ำกว่านี้ = หิวจนอ่อนแอ (เดินช้า ไม่ช่วยสู้)
+pub const PET_WEAK: f32 = 25.;
 impl Game {
     /// ให้อาหารสัตว์ตรงหน้าเพื่อทำให้เชื่อง (คืน true ถ้ามีสัตว์ให้ป้อน)
     pub fn try_tame(&mut self) -> bool {
@@ -157,7 +162,7 @@ impl Game {
             self.toast(if k == A_WOLF { "หมาป่าชอบเนื้อ — ถือเนื้อแล้วกด ใช้ เพื่อป้อน" } else { "กระต่ายชอบแครอท/ผลไม้ — มีแล้วกด ใช้ เพื่อป้อน" });
             return true;
         };
-        if self.animals.iter().filter(|a| a.tame).count() >= PET_MAX { self.toast("เลี้ยงสัตว์ได้สูงสุด 2 ตัว — ปล่อยตัวเก่าที่เมนู ชุมชน → พวกของเรา"); return true; }
+        if self.animals.iter().filter(|a| a.tame).count() >= PET_MAX { self.toast("เลี้ยงสัตว์ได้สูงสุด 2 ตัว — ปล่อยตัวเก่าที่แท็บบริวาร (กด N)"); return true; }
         self.p.inv[f] -= 1;
         let (x, y) = (self.animals[i].x, self.animals[i].y);
         let chance = if k == A_WOLF { 0.35 } else { 0.5 };
@@ -177,36 +182,61 @@ impl Game {
         }
         true
     }
-    /// สัตว์เลี้ยง: เดินตาม · วาร์ปมาถ้าห่างเกิน · หมาป่ากัดมอนสเตอร์ใกล้ๆ
+    /// สัตว์เลี้ยง (v33): ตามตัว/เฝ้าจุด/พักเดินเล่น · หิว→อ่อนแอไม่ช่วยสู้ · หิวนาน/เหงา→หนีกลับป่า · หมาป่ากัดมอนสเตอร์ใกล้ๆ
     pub fn pets_tick(&mut self, dt: f32) {
         let (px, py) = (self.p.x, self.p.y);
-        let mut bite: Option<(usize, f32, f32)> = None;
+        let mut bite: Option<(usize, f32, f32, i32)> = None;
+        let mut leave: Vec<usize> = vec![];
         let n = self.animals.len();
         for i in 0..n {
             if !self.animals[i].tame { continue; }
             let k = self.animals[i].k;
             let (ax, ay) = (self.animals[i].x, self.animals[i].y);
-            // หาเป้ามอนสเตอร์ (เฉพาะหมาป่า)
+            let (role, ppx, ppy, weak) = { let a = &self.animals[i]; (a.role, a.px, a.py, a.sat < PET_WEAK) };
+            let (cx, cy, reach) = if role == PET_GUARD { (ppx, ppy, 90.) } else if role == PET_ROAM { (ppx, ppy, 40.) } else { (px, py, 140.) };
+            // หาเป้ามอนสเตอร์ (เฉพาะหมาป่าที่ไม่หิวจัด)
             let mut tgt: Option<(f32, f32, usize)> = None;
-            if k == A_WOLF {
+            if k == A_WOLF && !weak {
                 for (j, e) in self.en.iter().enumerate() {
+                    if e.dead { continue; }
                     let d = (e.x - ax).hypot(e.y - ay);
-                    if d < 90. && (e.x - px).hypot(e.y - py) < 140. && tgt.map_or(true, |t| d < (t.0 - ax).hypot(t.1 - ay)) { tgt = Some((e.x, e.y, j)); }
+                    if d < 90. && (e.x - cx).hypot(e.y - cy) < reach && tgt.map_or(true, |t| d < (t.0 - ax).hypot(t.1 - ay)) { tgt = Some((e.x, e.y, j)); }
                 }
             }
             let a = &mut self.animals[i];
             a.anim += dt;
             if a.cd > 0. { a.cd -= dt; }
             if a.flash > 0. { a.flash -= dt; }
+            if a.pat > 0. { a.pat -= dt; }
+            // ความต้องการ: อิ่ม 100→0 ใน 2.5 วัน · อิ่มพอ ภักดีค่อยๆ เพิ่ม (พักเดินเล่นเพิ่มเร็วกว่า) · อดอยาก ภักดีร่วง
+            a.sat = (a.sat - dt * 100. / (DAYLEN * 2.5)).max(0.);
+            if a.sat <= 0. { a.loy -= dt * 100. / (DAYLEN * 1.5); }
+            else if a.sat >= 60. { a.loy = (a.loy + dt * 100. / (DAYLEN * if role == PET_ROAM { 4. } else { 8. })).min(100.); }
+            if role == PET_ROAM && a.hp < AN_STAT[k as usize].0 { a.hp = (a.hp + dt * 0.5).min(AN_STAT[k as usize].0); }
+            if a.loy <= 0. { leave.push(i); continue; }
             let dp = (px - ax).hypot(py - ay);
-            if dp > 260. {
+            if role == PET_FOLLOW && dp > 260. {
                 a.x = px - 14.; a.y = py + 4.;
                 continue;
             }
+            let mul = if weak { 0.6 } else { 1. };
             let (tx, ty, spd) = if let Some((ex, ey, j)) = tgt {
-                if (ex - ax).hypot(ey - ay) < 12. && a.cd <= 0. { a.cd = 0.8; bite = Some((j, ex - ax, ey - ay)); }
-                (ex, ey, 80.)
-            } else if dp > 26. { (px - if a.flip { -12. } else { 12. }, py + 2., if dp > 80. { 95. } else { 66. }) } else { (ax, ay, 0.) };
+                if (ex - ax).hypot(ey - ay) < 12. && a.cd <= 0. { a.cd = 0.8; bite = Some((j, ex - ax, ey - ay, if a.loy >= 70. { 1 } else { 0 })); }
+                (ex, ey, 80. * mul)
+            } else if role == PET_FOLLOW {
+                if dp > 26. { (px - if a.flip { -12. } else { 12. }, py + 2., if dp > 80. { 95. * mul } else { 66. * mul }) } else { (ax, ay, 0.) }
+            } else if role == PET_GUARD {
+                if (ppx - ax).hypot(ppy - ay) > 6. { (ppx, ppy, 60. * mul) } else { (ax, ay, 0.) }
+            } else {
+                a.wt -= dt;
+                if a.wt <= 0. {
+                    a.wt = gen_range(2., 4.);
+                    let ang = gen_range(0., std::f32::consts::TAU);
+                    let r = gen_range(0., 44.);
+                    a.wx = ppx + ang.cos() * r; a.wy = ppy + ang.sin() * r;
+                }
+                if (a.wx - ax).hypot(a.wy - ay) > 3. { (a.wx, a.wy, 34. * mul) } else { (ax, ay, 0.) }
+            };
             let l = (tx - ax).hypot(ty - ay).max(1.);
             let (vx, vy) = if spd > 0. && l > 3. { ((tx - ax) / l * spd, (ty - ay) / l * spd) } else { (0., 0.) };
             a.st = if vx.abs() + vy.abs() > 1. { AS::Wander } else { AS::Idle };
@@ -216,21 +246,34 @@ impl Game {
             if !collide(&self.w, nx, ay) { self.animals[i].x = nx; }
             if !collide(&self.w, self.animals[i].x, ny) { self.animals[i].y = ny; }
         }
-        if let Some((j, dx, dy)) = bite {
+        if let Some((j, dx, dy, plus)) = bite {
             let l = dx.hypot(dy).max(1.);
-            if j < self.en.len() { self.damage_enemy(j, 2 + self.p.lvl / 4, false, dx / l, dy / l); }
+            if j < self.en.len() { self.damage_enemy(j, 2 + self.p.lvl / 4 + plus, false, dx / l, dy / l); }
+        }
+        for i in leave.into_iter().rev() {
+            let k = self.animals[i].k;
+            let a = &mut self.animals[i];
+            a.tame = false; a.st = AS::Flee; a.fed = 150.; a.t = 5.;
+            self.toast(format!("{} หิวและเหงาเกินไป หนีกลับป่าไปแล้ว… (ให้อาหาร/ลูบที่แท็บบริวารก่อนจะสายเกินไป)", AN_NAME[k as usize]));
         }
     }
     pub fn pets_save_str(&self) -> String {
         let mut s = String::new();
-        for a in self.animals.iter().filter(|a| a.tame) { s += &format!("pet {}\n", a.k); }
+        for a in self.animals.iter().filter(|a| a.tame) { s += &format!("pet {} {:.0} {:.0} {} {:.1} {:.1} {:.0}\n", a.k, a.sat, a.loy, a.role, a.px, a.py, a.bold * 100.); }
         s
     }
     pub fn pets_load_line(&mut self, rest: &[&str]) {
         let k: u8 = rest.first().and_then(|v| v.parse().ok()).unwrap_or(A_WOLF);
         if self.animals.iter().filter(|a| a.tame).count() >= PET_MAX { return; }
+        let f = |i: usize, d: f32| rest.get(i).and_then(|v| v.parse::<f32>().ok()).unwrap_or(d);
         let mut a = self.new_animal(k, self.p.x - 14., self.p.y + 4.);
         a.tame = true;
+        a.sat = f(1, 70.).clamp(0., 100.);
+        a.loy = f(2, 50.).clamp(1., 100.);
+        a.role = (f(3, 0.) as u8).min(2);
+        a.px = f(4, a.x); a.py = f(5, a.y);
+        if rest.len() > 6 { a.bold = (f(6, 50.) / 100.).clamp(0., 1.); }
+        if a.role != PET_FOLLOW { a.x = a.px; a.y = a.py; }
         self.animals.push(a);
     }
 }

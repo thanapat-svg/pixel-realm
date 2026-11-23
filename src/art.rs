@@ -452,6 +452,8 @@ pub fn build_extra(at: &mut Atlas, obj: &mut Vec<Rect>, icons: &mut Vec<Rect>) -
     ic(&["........", "..o..o..", ".oOo.oO.", "..o..o..", "oOo.oOo.", ".o...o..", "........", "........"], &[('o', 0xc8601c), ('O', 0xff9a40)]);
     ic(&["..g..g..", ".gg.gg..", "..gyyg..", ".gyYyyg.", ".gyyYyg.", ".gyYyyg.", "..gyyg..", "...gg..."], &[('g', 0x4aa84a), ('y', 0xf0c840), ('Y', 0xfff0a0)]);
     ic(&["...gg...", "..gGGg..", "...oo...", "..oOOo..", "..oOOo..", "...oo...", "...oo...", "....o..."], &[('g', 0x4aa84a), ('G', 0x8aea6a), ('o', 0xe8802a), ('O', 0xffa850)]);
+    // 25 แร่เหล็ก (ไอเทมใหม่ v33)
+    ic(&["........", "..kkkk..", ".kSSsSk.", "kSsSSbSk", "kSSbsSSk", ".kSsSbk.", "..kkkk..", "........"], &[('k', 0x2a2630), ('S', 0xb4bcc8), ('s', 0x8a92a0), ('b', 0x5a6a88)]);
     // 13 ดาบ
     ic(&[".......w", "......wW", ".....wW.", "....wW..", ".t.wW...", "..tw....", ".t.t....", "t......."], &[('w', 0xd8d8e0), ('W', 0xffffff), ('t', 0x8a5a32)]);
     // 13 ธนู

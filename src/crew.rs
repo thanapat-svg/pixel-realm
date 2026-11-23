@@ -1,27 +1,25 @@
-//! v33 "พวกของเรา" — ยาม/โกเลมเฝ้าบ้าน · บอสที่ยอมมาเป็นพวก · จัดการสัตว์เลี้ยง
+//! v33 "บริวาร" — โกเลมเฝ้าเมือง 3 แบบ · บอสที่ยอมมาเป็นพวก · จัดการสัตว์เลี้ยง/บริวาร
 //!
-//! หลักคิด (อิงจิตวิทยา/สังคมศาสตร์ ไม่ใช่แค่สุ่ม):
-//! - บอสแต่ละตัวมีบุคลิก 6 มิติ (HEXACO เหมือนชาวบ้าน): เปิดรับสิ่งใหม่ · มีวินัย · เข้าสังคม · เป็นมิตร · อ่อนไหว · ซื่อสัตย์
-//! - "ความไว้ใจ" ตั้งต้นจากบุคลิก (ความเป็นมิตรและความซื่อสัตย์ทำนายการร่วมมือได้ดีที่สุด) + ชื่อเสียงที่เคยทำกับบอสชนิดเดียวกัน (การรับรู้ทางอ้อม)
-//! - ของขวัญ = หลักตอบแทน (reciprocity): ได้ผลแต่ลดหลั่น ให้เยอะๆ ไม่ได้ซื้อใจ (กลายเป็นสินบน)
-//! - ถามซ้ำๆ = ต่อต้าน (psychological reactance): ยิ่งตื๊อยิ่งไม่อยากไป
-//! - เลือกได้เอง = ความต้องการอิสระ (self-determination): บอสที่ผูกพันถิ่น/รักหน้าที่ อยากเฝ้าบ้าน · บอสที่ช่างสังคม/อยากรู้อยากเห็น อยากไปผจญภัย
-//!   ถ้าเราบังคับให้ทำตรงข้ามกับที่อยาก ความจงรักภักดีค่อยๆ ลด
-//! - ความกลัวทำให้ "ยอม" แต่ไม่ได้ทำให้ "เป็นเพื่อน" — เกมจึงไม่มีปุ่มขู่บังคับ · ไม่ใช่ทุกตัวยอมเป็นพวก ไว้ชีวิตหรือปราบทิ้งก็ได้
-//! - หลังเป็นพวก: ดูแลดี (ของขวัญ/ได้ทำสิ่งที่ตัวเองอยากทำ) → ภักดีขึ้น · ปล่อยปละ → เหงา เสียใจ แล้วลาจากไปเอง
-//! หุ่นที่คราฟต์เองเป็นเครื่องจักร ไม่มีความรู้สึก (ไม่มีนิสัย/ความภักดี) แต่ซ่อมไม่ได้และไม่ต้องดูแล
+//! โกเลม (หิน/เหล็ก/คริสตัล) = สิ่งประดิษฐ์ ซื่อสัตย์ 100% ไม่กินอาหาร ไม่ทรยศ — มีสกิลของตัวเอง แต่ไม่ลงไปสู้บอสตัวจริง
+//! บอสที่ยอมเป็นพวก = มีใจ (บุคลิก/ความภักดี/อารมณ์) — ภักดีขึ้นหรือลดลงตามสภาพเมืองและการดูแล
+//! สัตว์เลี้ยง = ต้องให้อาหาร/ลูบ ไม่งั้นหิวจนอ่อนแอ ไม่ช่วยสู้ และหนีกลับป่าในที่สุด
 use super::*;
 
 pub const CREW_MAX: usize = 4;
 pub const K_WOODG: u8 = 0;
 pub const K_STONEG: u8 = 1;
-pub const K_SLIME: u8 = 2;
-pub const K_GOLEM: u8 = 3;
-pub const CK_N: [&str; 4] = ["หุ่นไม้ยาม", "โกเลมหินเฝ้าบ้าน", "ราชาสไลม์", "โกเลมหินยักษ์"];
+pub const K_IRONG: u8 = 2;
+pub const K_CRYSTG: u8 = 3;
+pub const K_SLIME: u8 = 4;
+pub const K_BGOLEM: u8 = 5;
+pub const K_CHAMP: u8 = 6;
+pub const CK_N: [&str; 7] = ["หุ่นไม้ยาม", "โกเลมหิน", "โกเลมเหล็ก", "โกเลมคริสตัล", "ราชาสไลม์", "โกเลมหินยักษ์", "แม่ทัพ"];
 const MNAMES: [[&str; 3]; 2] = [["วุ้นเส้น", "เจลลี่", "ปุ๊กปิ๊ก"], ["ศิลา", "ก้อนหิน", "บูรพา"]];
 pub const M_FOLLOW: u8 = 0;
 pub const M_GUARD: u8 = 1;
+pub const M_ROAM: u8 = 2;
 pub const GUARD_R: f32 = 128.;
+pub const TAUNT_R: f32 = 130.;
 /// เกณฑ์ตัดสินใจ: ต่ำกว่า NO = ปฏิเสธ · NO..YES = ขอคิดดู · ตั้งแต่ YES = ยินดีเป็นพวก
 pub const V_NO: i32 = 42;
 pub const V_YES: i32 = 62;
@@ -38,20 +36,41 @@ pub struct Member {
     pub loyalty: i32,
     pub mood: i32,
     pub t: [i32; 6],
+    /// นิสัยบอส (เฟส 2): 0 มีเกียรติ · 1 ทะเยอทะยาน · 2 หยิ่งทระนง
+    pub arch: u8,
     pub fed_day: i32,
     pub sad: i32,
+    pub hp: f32,
+    pub down: bool,
     // ไม่เซฟ
     pub cd: f32,
+    pub skill_cd: f32,
+    pub hurt_cd: f32,
+    pub taunt_t: f32,
+    pub slam_t: f32,
+    pub flash: f32,
+    pub last_hit: f32,
+    pub beam: (f32, f32, f32),
+    pub wander: (f32, f32, f32),
     pub anim: f32,
     /// ติดสิ่งกีดขวางมานานแค่ไหน (วินาที) — เกิน 1.5 วิ วาร์ปกลับจุดเฝ้า/ข้างผู้เล่น
     pub stuck: f32,
     pub left: bool,
 }
 impl Member {
-    /// มีใจ (บอสที่ยอมมา) ไม่ใช่หุ่นที่คราฟต์
+    pub fn new(id: u32, kind: u8, x: f32, y: f32) -> Member {
+        let mut m = Member { id, kind, nm: (id % 3) as u8, x, y, post: (tfloor(x), tfloor(y)), mode: M_GUARD, loyalty: 100, mood: 100, t: [50; 6], arch: 0, fed_day: 0, sad: 0, hp: 1., down: false, cd: 0., skill_cd: 0., hurt_cd: 0., taunt_t: 0., slam_t: 0., flash: 0., last_hit: 99., beam: (0., 0., 0.), wander: (x, y, 0.), anim: 0., stuck: 0., left: false };
+        m.hp = m.maxhp();
+        m
+    }
+    /// มีใจ (บอสที่ยอมมา) ไม่ใช่หุ่น/โกเลมที่คราฟต์
     pub fn mind(&self) -> bool { self.kind >= K_SLIME }
+    pub fn golem(&self) -> bool { (K_STONEG..=K_CRYSTG).contains(&self.kind) }
+    pub fn maxhp(&self) -> f32 { match self.kind { K_WOODG => 30., K_STONEG => 120., K_IRONG => 90., K_CRYSTG => 50., K_SLIME => 80., K_BGOLEM => 160., _ => 200. } }
+    /// ลดดาเมจที่รับ (ถึก = รับน้อย)
+    fn armor(&self) -> f32 { match self.kind { K_STONEG => 0.5, K_IRONG => 0.6, K_BGOLEM => 0.7, _ => 1. } }
     pub fn name(&self) -> String {
-        if self.mind() { format!("{} ({})", MNAMES[(self.kind - K_SLIME) as usize][self.nm as usize % 3], CK_N[self.kind as usize]) } else { CK_N[self.kind as usize].to_string() }
+        if self.mind() && self.kind < K_CHAMP { format!("{} ({})", MNAMES[(self.kind - K_SLIME) as usize][self.nm as usize % 3], CK_N[self.kind as usize]) } else { CK_N[self.kind as usize].to_string() }
     }
     /// บทบาทที่ตัวนี้อยากทำ (ตามบุคลิก)
     pub fn wished(&self) -> u8 {
@@ -62,15 +81,24 @@ impl Member {
     /// กำลังโจมตี: ตัวที่มีใจภักดีมากทำได้เต็ม ใจร้าวแล้วอ่อนลง
     pub fn power(&self) -> f32 { if self.mind() { 0.6 + 0.4 * self.loyalty as f32 / 100. } else { 1. } }
     fn dmg(&self, lvl: i32) -> i32 {
-        let b = match self.kind { K_WOODG => 2, K_STONEG => 4 + lvl / 6, K_SLIME => 3 + lvl / 4, _ => 5 + lvl / 4 };
+        let b = match self.kind { K_WOODG => 2, K_STONEG => 4 + lvl / 6, K_IRONG => 7 + lvl / 4, K_CRYSTG => 3 + lvl / 5, K_SLIME => 3 + lvl / 4, K_BGOLEM => 5 + lvl / 4, _ => 6 + lvl / 3 };
         ((b as f32 * self.power()).round() as i32).max(1)
     }
-    fn cool(&self) -> f32 { match self.kind { K_WOODG => 1.2, K_STONEG => 1.4, K_SLIME => 1.0, _ => 1.3 } }
-    fn speed(&self) -> f32 { match self.kind { K_WOODG => 56., K_STONEG => 46., K_SLIME => 64., _ => 50. } }
-    pub fn fav(&self) -> usize { fav_of(self.kind) }
+    fn cool(&self) -> f32 { match self.kind { K_WOODG => 1.2, K_STONEG => 1.4, K_IRONG => 1.6, K_CRYSTG => 1.5, K_SLIME => 1.0, _ => 1.3 } }
+    fn speed(&self) -> f32 { match self.kind { K_WOODG => 56., K_STONEG => 44., K_IRONG => 48., K_CRYSTG => 52., K_SLIME => 64., _ => 50. } }
+    pub fn skill_text(&self) -> &'static str {
+        match self.kind {
+            K_STONEG => "สกิลยั่วยุ: ดึงศัตรูรอบตัวให้มาตีตัวเอง — ยืนขวางประตูเมือง",
+            K_IRONG => "สกิลทุบพื้น: ศัตรูกระเด็นและสตันสั้นๆ — เฝ้าโกดัง/เดินคุ้มกัน",
+            K_CRYSTG => "สกิลลำแสงคริสตัล: ยิงไกล ศัตรูเดินช้าลง — วางแนวหลัง/บนกำแพง",
+            K_WOODG => "ยามไม้ธรรมดา ตีมอนสเตอร์ที่เข้าใกล้",
+            _ => "",
+        }
+    }
+    pub fn fav(&self) -> usize { fav_of(self.kind.saturating_sub(K_SLIME)) }
 }
-/// ของโปรด (ให้ของขวัญได้ผลเต็ม) · ของรอง (ได้ครึ่งเดียว)
-pub fn fav_of(kind: u8) -> usize { if kind == K_GOLEM || kind == 1 { GEM } else { BERRY } }
+/// ของโปรด (ให้ของขวัญได้ผลเต็ม) · ของรอง (ได้ครึ่งเดียว) — kind = ชนิดบอส 0 สไลม์ · 1 โกเลม
+pub fn fav_of(kind: u8) -> usize { if kind == 1 { GEM } else { BERRY } }
 fn fav2_of(kind: u8) -> usize { if kind == 1 { STONE } else { SHROOM } }
 
 #[derive(Clone, Debug)]
@@ -91,7 +119,7 @@ pub struct Crew {
     /// ชื่อเสียงกับบอสแต่ละชนิด (ไว้ชีวิต +, ปราบทิ้ง −)
     pub rel: [i32; 2],
     pub yld: Option<Yield>,
-    /// ปุ่มปล่อยที่กดครั้งแรกแล้ว รอกดยืนยัน (0 พวก · 1 สัตว์เลี้ยง · 2 ผู้ติดตามจ้าง)
+    /// ปุ่มปล่อยที่กดครั้งแรกแล้ว รอกดยืนยัน (0 พวก · 1 สัตว์เลี้ยง · 2 ผู้ติดตามจ้าง) + เวลาจริงที่กด
     pub confirm: Option<(u8, u32, f64)>,
 }
 
@@ -167,14 +195,14 @@ impl Game {
     /// ชวนเป็นพวก
     pub fn yield_ask(&mut self) {
         let Some(i) = self.yield_boss_idx() else { self.rs.crew.yld = None; return };
-        if self.rs.crew.m.len() >= CREW_MAX { self.toast("พวกเต็มแล้ว (4) — ปล่อยตัวเก่าที่แท็บชุมชน → พวกของเรา ก่อน"); return; }
+        if self.rs.crew.m.len() >= CREW_MAX { self.toast("พวกเต็มแล้ว (4) — ปล่อยตัวเก่าที่แท็บบริวาร (กด N) ก่อน"); return; }
         let (kind, x, y) = (self.bosses[i].kind, self.bosses[i].x, self.bosses[i].y);
         let mut yl = self.rs.crew.yld.clone().unwrap();
         yl.asks += 1;
         let s = yield_score(&yl);
         if s >= V_YES {
             let loy = s.clamp(40, 90);
-            let wish = { let tmp = Member { id: 0, kind: K_SLIME + kind, nm: 0, x, y, post: (0, 0), mode: 0, loyalty: loy, mood: 70, t: yl.t, fed_day: 0, sad: 0, cd: 0., anim: 0., stuck: 0., left: false }; tmp.wished() };
+            let wish = { let mut tmp = Member::new(0, K_SLIME + kind, x, y); tmp.t = yl.t; tmp.wished() };
             let line = if wish == M_GUARD { "ได้... ข้าจะเฝ้าบ้านให้เจ้าเอง" } else { "ได้เลย! ข้าจะไปผจญภัยกับเจ้า!" };
             self.bubble_at(x, y, line);
             self.crew_join(K_SLIME + kind, yl.t, loy, x, y);
@@ -183,7 +211,7 @@ impl Game {
             self.burst(x, y - 8., hx(0xff6aa0), 24, 70.);
             play(&self.sfx.lvl);
             self.boss_gone(i);
-            self.toast(format!("{} ยอมมาเป็นพวกแล้ว! ดูแลมันที่แท็บชุมชน → พวกของเรา", BNAME[kind as usize]));
+            self.toast(format!("{} ยอมมาเป็นพวกแล้ว! ดูแลมันที่แท็บบริวาร (กด N)", BNAME[kind as usize]));
             self.save();
             return;
         }
@@ -247,22 +275,24 @@ impl Game {
     /// ข้อความ bubble ลอยเหนือหัว (ใช้ float)
     fn bubble_at(&mut self, x: f32, y: f32, s: &str) { self.add_float_sz(x, y - 34., s.to_string(), hx(0xffe9a0), 1.0); }
 
-    // ======================= พวก =======================
+    // ======================= พวก / บริวาร =======================
     pub fn crew_join(&mut self, kind: u8, t: [i32; 6], loyalty: i32, x: f32, y: f32) {
         let id = self.rs.crew.next; self.rs.crew.next += 1;
-        let tile = (tfloor(x), tfloor(y));
-        let mut m = Member { id, kind, nm: (id % 3) as u8, x, y, post: tile, mode: M_FOLLOW, loyalty, mood: 70, t, fed_day: day_of(self), sad: 0, cd: 0., anim: 0., stuck: 0., left: false };
+        let mut m = Member::new(id, kind, x, y);
+        m.t = t; m.loyalty = loyalty; m.mood = 70; m.fed_day = day_of(self);
         // ให้เลือกบทบาทตามที่ตัวเองอยาก (ความต้องการอิสระ)
         m.mode = m.wished();
         if m.mode == M_GUARD { m.post = (tfloor(self.p.x), tfloor(self.p.y)); }
         self.rs.crew.m.push(m);
     }
-    /// คราฟต์หุ่นเฝ้าบ้าน (เรียกหลังจ่ายของแล้ว)
+    /// คราฟต์หุ่น/โกเลมเฝ้า (เรียกหลังจ่ายของแล้ว)
     pub fn crew_craft(&mut self, kind: u8) {
         let (x, y) = (self.p.x, self.p.y + 8.);
         let id = self.rs.crew.next; self.rs.crew.next += 1;
-        self.rs.crew.m.push(Member { id, kind, nm: 0, x, y, post: (tfloor(x), tfloor(y)), mode: M_GUARD, loyalty: 100, mood: 100, t: [50; 6], fed_day: day_of(self), sad: 0, cd: 0., anim: 0., stuck: 0., left: false });
-        self.toast("วางหุ่นเฝ้าแล้ว — ยืนตรงจุดไหนก็เฝ้าตรงนั้น · ย้ายจุดได้ที่แท็บชุมชน → พวกของเรา");
+        let mut m = Member::new(id, kind, x, y);
+        m.fed_day = day_of(self);
+        self.rs.crew.m.push(m);
+        self.toast("วางแล้ว — ยืนตรงจุดไหนก็เฝ้าตรงนั้น · เปลี่ยนหน้าที่/ย้ายจุดได้ที่แท็บบริวาร");
     }
     pub fn crew_release(&mut self, id: u32) {
         let Some(i) = self.rs.crew.m.iter().position(|m| m.id == id) else { return };
@@ -274,8 +304,8 @@ impl Game {
             else { self.toast(format!("{} ลาไปอยู่ป่าแล้ว", m.name())); }
             self.burst(x, y - 8., hx(0x9ad8ff), 14, 50.);
         } else {
-            // รื้อถอนหุ่น: คืนวัสดุครึ่งหนึ่ง
-            let cost: &[(usize, i32)] = RECIPES.iter().find(|r| matches!(r.eff, Eff::Guard(k) if k == m.kind)).map(|r| r.cost).unwrap_or(&[]);
+            // รื้อถอนหุ่น/โกเลม: คืนวัสดุครึ่งหนึ่ง
+            let cost: &[(usize, i32)] = RECIPES.iter().chain(ADV_RECIPES.iter()).find(|r| matches!(r.eff, Eff::Guard(k) if k == m.kind)).map(|r| r.cost).unwrap_or(&[]);
             let mut got = vec![];
             for &(it, n) in cost { let b = n / 2; if b > 0 { self.p.inv[it] += b; got.push(format!("{} {}", INAME[it], b)); } }
             self.toast(format!("รื้อ{}แล้ว คืนวัสดุ {}", m.name(), got.join(" · ")));
@@ -287,18 +317,18 @@ impl Game {
         let (px, py) = (tfloor(self.p.x), tfloor(self.p.y));
         let Some(m) = self.rs.crew.m.iter_mut().find(|m| m.id == id) else { return };
         m.mode = mode;
-        if mode == M_GUARD { m.post = (px, py); }
+        if mode != M_FOLLOW { m.post = (px, py); m.wander = (m.x, m.y, 0.); }
         let (name, against) = (m.name(), m.mind() && m.wished() != mode);
         if against { m.mood = (m.mood - 4).max(0); }
-        self.toast(if mode == M_GUARD { format!("{} จะเฝ้าตรงจุดนี้", name) } else { format!("{} จะเดินตามคุณ", name) });
+        self.toast(match mode { M_GUARD => format!("{} จะเฝ้าตรงจุดนี้", name), M_ROAM => format!("{} จะพัก/เดินเล่นแถวนี้ (ฟื้นเลือด)", name), _ => format!("{} จะเดินตามคุณ", name) });
         self.save();
     }
     /// ให้ของขวัญพวกที่มีใจ: ของโปรดเพิ่มทั้งใจและความภักดี
     pub fn crew_gift_member(&mut self, id: u32) {
         let day = day_of(self);
         let Some(i) = self.rs.crew.m.iter().position(|m| m.id == id) else { return };
-        if !self.rs.crew.m[i].mind() { self.toast("หุ่นไม่มีความรู้สึก ไม่ต้องให้ของขวัญ"); return; }
-        let kind = self.rs.crew.m[i].kind - K_SLIME;
+        if !self.rs.crew.m[i].mind() { self.toast("โกเลม/หุ่นไม่มีความรู้สึก ไม่ต้องให้ของขวัญ — ซื่อสัตย์ 100% และไม่กินอาหาร"); return; }
+        let kind = self.rs.crew.m[i].kind.saturating_sub(K_SLIME).min(1);
         let (f1, f2) = (fav_of(kind), fav2_of(kind));
         let (it, b) = if self.p.inv[f1] > 0 { (f1, 1.) } else if self.p.inv[f2] > 0 { (f2, 0.5) } else {
             self.toast(format!("ไม่มี{} — {}", INAME[f1], source::item_howto(self, f1).first().map(|s| s.how.clone()).unwrap_or_default()));
@@ -315,13 +345,21 @@ impl Game {
         self.toast(format!("{} ดีใจที่ได้{}", n, INAME[it]));
         play(&self.sfx.pickup);
     }
-    /// ป้องกันเมือง: ยามที่ประจำจุดช่วยเพิ่มค่าป้องกัน
+    /// ป้องกันเมือง: ยามที่ประจำจุดช่วยเพิ่มค่าป้องกัน (ตัวที่พังอยู่ไม่นับ)
     pub fn crew_defense(&self) -> f32 {
-        self.rs.crew.m.iter().filter(|m| m.mode == M_GUARD).map(|m| m.power() * match m.kind { K_WOODG => 2., K_STONEG => 6., K_SLIME => 5., _ => 9. }).sum()
+        self.rs.crew.m.iter().filter(|m| m.mode == M_GUARD && !m.down).map(|m| m.power() * match m.kind { K_WOODG => 2., K_STONEG => 8., K_IRONG => 7., K_CRYSTG => 6., K_SLIME => 5., K_BGOLEM => 9., _ => 12. }).sum()
     }
+    /// โซนยั่วยุที่กำลังทำงาน (ใช้ใน AI ศัตรู): (ลำดับ, x, y)
+    pub fn crew_taunts(&self) -> Vec<(usize, f32, f32)> {
+        self.rs.crew.m.iter().enumerate().filter(|(_, m)| m.kind == K_STONEG && m.taunt_t > 0. && !m.down).map(|(i, m)| (i, m.x, m.y)).collect()
+    }
+
+    // ======================= สัตว์เลี้ยง =======================
+    /// ลำดับ (ในรายการสัตว์) ของสัตว์เลี้ยงตัวที่ idx
+    fn pet_ix(&self, idx: usize) -> Option<usize> { self.animals.iter().enumerate().filter(|(_, a)| a.tame).nth(idx).map(|(i, _)| i) }
     /// ปล่อยสัตว์เลี้ยงกลับสู่ธรรมชาติ (idx = ลำดับในรายการสัตว์เลี้ยง)
     pub fn pet_release(&mut self, idx: usize) {
-        let Some(i) = self.animals.iter().enumerate().filter(|(_, a)| a.tame).nth(idx).map(|(i, _)| i) else { return };
+        let Some(i) = self.pet_ix(idx) else { return };
         let k = self.animals[i].k;
         let a = &mut self.animals[i];
         a.tame = false; a.st = AS::Flee; a.fed = 150.; a.t = 4.;
@@ -329,6 +367,48 @@ impl Game {
         self.burst(x, y - 8., hx(0xaaddff), 10, 40.);
         self.rs.crew.confirm = None;
         self.toast(format!("ปล่อย{}กลับสู่ธรรมชาติแล้ว — เลี้ยงตัวใหม่ได้เลย", AN_NAME[k as usize]));
+        self.save();
+    }
+    pub fn pet_food(k: u8) -> [usize; 2] { if k == A_WOLF { [MEAT, DISH_STEW] } else { [CARROT, BERRY] } }
+    /// ให้อาหารสัตว์เลี้ยง: อิ่มขึ้น ภักดีขึ้นเล็กน้อย
+    pub fn pet_feed(&mut self, idx: usize) {
+        let Some(i) = self.pet_ix(idx) else { return };
+        let k = self.animals[i].k;
+        if self.animals[i].sat >= 90. { self.toast(format!("{}อิ่มแล้ว", AN_NAME[k as usize])); return; }
+        let Some(&f) = Game::pet_food(k).iter().find(|&&f| self.p.inv[f] > 0) else {
+            let f = Game::pet_food(k)[0];
+            self.toast(format!("ไม่มี{} — {}", INAME[f], source::item_howto(self, f).first().map(|s| s.how.clone()).unwrap_or_default()));
+            return;
+        };
+        self.p.inv[f] -= 1;
+        let a = &mut self.animals[i];
+        a.sat = (a.sat + 45.).min(100.);
+        a.loy = (a.loy + 4.).min(100.);
+        let (x, y) = (a.x, a.y);
+        self.burst(x, y - 8., hx(0xff6aa0), 6, 30.);
+        self.toast(format!("{}กิน{}แล้ว อิ่มและไว้ใจขึ้น", AN_NAME[k as usize], INAME[f]));
+        play(&self.sfx.eat);
+    }
+    /// ลูบสัตว์เลี้ยง (ฟรี แต่ทำได้ทุก ~25 วินาที)
+    pub fn pet_pat(&mut self, idx: usize) {
+        let Some(i) = self.pet_ix(idx) else { return };
+        let k = self.animals[i].k;
+        if self.animals[i].pat > 0. { self.toast(format!("เพิ่งลูบ{}ไป — รอสักครู่", AN_NAME[k as usize])); return; }
+        let a = &mut self.animals[i];
+        a.pat = 25.;
+        a.loy = (a.loy + 3.).min(100.);
+        let (x, y) = (a.x, a.y);
+        self.burst(x, y - 10., hx(0xff6aa0), 8, 30.);
+        self.toast(format!("ลูบ{} — มันดีใจ ไว้ใจขึ้น", AN_NAME[k as usize]));
+    }
+    pub fn pet_set_role(&mut self, idx: usize, role: u8) {
+        let (px, py) = (self.p.x, self.p.y);
+        let Some(i) = self.pet_ix(idx) else { return };
+        let k = self.animals[i].k;
+        let a = &mut self.animals[i];
+        a.role = role.min(2);
+        if role != PET_FOLLOW { a.px = px; a.py = py; a.wx = px; a.wy = py; }
+        self.toast(match role { PET_GUARD => format!("{}จะเฝ้าตรงจุดนี้ (หมาป่ากัดมอนสเตอร์ที่เข้าใกล้)", AN_NAME[k as usize]), PET_ROAM => format!("{}จะพัก/เดินเล่นแถวนี้", AN_NAME[k as usize]), _ => format!("{}จะเดินตามคุณ", AN_NAME[k as usize]) });
         self.save();
     }
 
@@ -340,14 +420,35 @@ impl Game {
         let indun = self.w.dun.is_some();
         let (px, py, lvl) = (self.p.x, self.p.y, self.p.lvl);
         let mut ms = std::mem::take(&mut self.rs.crew.m);
-        let n = ms.len();
+        let mut notes: Vec<String> = vec![];
         for (mi, m) in ms.iter_mut().enumerate() {
             m.anim += dt;
-            if m.cd > 0. { m.cd -= dt; }
-            if indun && m.mode == M_GUARD { continue; }
-            let (cx, cy, reach) = if m.mode == M_GUARD { ((m.post.0 as f32 * 16. + 8.), (m.post.1 as f32 * 16. + 8.), GUARD_R) } else { (px, py, 110.) };
+            for t in [&mut m.cd, &mut m.skill_cd, &mut m.hurt_cd, &mut m.taunt_t, &mut m.slam_t, &mut m.flash] { if *t > 0. { *t -= dt; } }
+            m.beam.2 = (m.beam.2 - dt).max(0.);
+            m.last_hit += dt;
+            if m.down { continue; }
+            // ถูกมอนสเตอร์ที่ติดตัวตี (โกเลมถึกรับน้อย)
+            if m.hurt_cd <= 0. {
+                if let Some(e) = self.en.iter().find(|e| !e.dead && e.stun <= 0. && e.kb <= 0. && (e.x - m.x).hypot(e.y - m.y) < 12.) {
+                    m.hp -= (e.dmg as f32 * m.armor()).max(0.5);
+                    m.hurt_cd = 0.7; m.flash = 0.15; m.last_hit = 0.; m.taunt_t = m.taunt_t.max(0.);
+                }
+            }
+            if m.hp <= 0. {
+                m.hp = 0.; m.down = true; m.taunt_t = 0.;
+                notes.push(format!("{} ล้มลง! จะซ่อมตัวเอง/ฟื้นตอนเช้า", m.name()));
+                continue;
+            }
+            // ฟื้นเลือดเองเมื่อไม่ถูกตีสักพัก (พัก/เดินเล่นเร็วกว่า 3 เท่า)
+            if m.last_hit > 6. && m.hp < m.maxhp() { m.hp = (m.hp + m.maxhp() * 0.02 * dt * if m.mode == M_ROAM { 3. } else { 1. }).min(m.maxhp()); }
+            if indun && m.mode != M_FOLLOW { continue; }
+            let (cx, cy, reach) = match m.mode {
+                M_GUARD => (m.post.0 as f32 * 16. + 8., m.post.1 as f32 * 16. + 8., GUARD_R),
+                M_ROAM => (m.post.0 as f32 * 16. + 8., m.post.1 as f32 * 16. + 8., 46.),
+                _ => (px, py, 110.),
+            };
             if m.mode == M_FOLLOW && (px - m.x).hypot(py - m.y) > 260. { m.x = px - 12. - mi as f32 * 6.; m.y = py + 4.; }
-            // เป้า: มอนสเตอร์ในระยะที่ดูแล
+            // เป้า: มอนสเตอร์ในระยะที่ดูแล (ไม่ลงไปสู้บอส)
             let mut tgt: Option<(usize, f32, f32)> = None;
             let mut best = reach;
             for (j, e) in self.en.iter().enumerate() {
@@ -360,19 +461,65 @@ impl Game {
             if let Some((j, ex, ey)) = tgt {
                 let (dx, dy) = (ex - m.x, ey - m.y);
                 let d = dx.hypot(dy).max(0.01);
-                if d > 13. { vx = dx / d * spd * 1.3; vy = dy / d * spd * 1.3; }
+                let dm = m.dmg(lvl);
+                match m.kind {
+                    K_STONEG => {
+                        // ยั่วยุ: ดึงศัตรูรอบตัวมาตีตัวเอง
+                        if m.skill_cd <= 0. && self.en.iter().any(|e| !e.dead && (e.x - m.x).hypot(e.y - m.y) < TAUNT_R) {
+                            m.skill_cd = 9.; m.taunt_t = 4.;
+                            self.add_float_sz(m.x, m.y - 34., "ยั่วยุ!".to_string(), hx(0xff7a5a), 1.2);
+                        }
+                    }
+                    K_IRONG => {
+                        // ทุบพื้น: กระแทกศัตรูรอบตัวให้กระเด็นและสตันสั้นๆ
+                        if m.skill_cd <= 0. && d < 32. {
+                            m.skill_cd = 5.5; m.slam_t = 0.35;
+                            let near: Vec<usize> = self.en.iter().enumerate().filter(|(_, e)| !e.dead && (e.x - m.x).hypot(e.y - m.y) < 42.).map(|(i, _)| i).collect();
+                            for k in near {
+                                let (ux, uy) = { let e = &self.en[k]; let (a, b) = (e.x - m.x, e.y - m.y); let l = a.hypot(b).max(0.01); (a / l, b / l) };
+                                self.damage_enemy(k, (dm as f32 * 1.5).round() as i32, false, ux, uy);
+                                if k < self.en.len() && !self.en[k].dead { let e = &mut self.en[k]; e.kb = 0.35; e.vx = ux * 190.; e.vy = uy * 190.; e.stun = e.stun.max(1.0); }
+                            }
+                            self.burst(m.x, m.y - 4., hx(0xb0b8c8), 14, 90.);
+                            self.shake(1.6, 0.16);
+                            play_vol(&self.sfx.hit, 0.5);
+                        }
+                    }
+                    _ => {}
+                }
+                if m.kind == K_CRYSTG {
+                    // ยิงลำแสงจากระยะไกล: ถอยถ้าศัตรูประชิด เดินเข้าใกล้ถ้าไกลเกิน
+                    if d > 105. { vx = dx / d * spd; vy = dy / d * spd; } else if d < 40. { vx = -dx / d * spd * 1.2; vy = -dy / d * spd * 1.2; }
+                    if d <= 115. && m.cd <= 0. {
+                        m.cd = m.cool();
+                        self.damage_enemy(j, dm, false, dx / d, dy / d);
+                        if j < self.en.len() && !self.en[j].dead { self.en[j].slow = self.en[j].slow.max(2.5); }
+                        m.beam = (ex, ey, 0.18);
+                        self.burst(ex, ey - 6., hx(0x7af0ff), 6, 40.);
+                    }
+                } else if d > 13. { vx = dx / d * spd * 1.3; vy = dy / d * spd * 1.3; }
                 else if m.cd <= 0. {
                     m.cd = m.cool();
-                    let dm = m.dmg(lvl);
                     self.damage_enemy(j, dm, false, dx / d, dy / d);
                 }
                 if dx.abs() > 1. { m.left = dx < 0.; }
             } else {
-                // ว่าง: กลับจุดเฝ้า หรือเดินตามผู้เล่น
-                let (tx, ty) = if m.mode == M_GUARD { (cx, cy) } else { (px - 14. - (mi % 3) as f32 * 8., py + 3. + (mi / 3) as f32 * 8.) };
+                // ว่าง: กลับจุดเฝ้า · เดินเล่นแถวจุดพัก · หรือเดินตามผู้เล่น
+                let (tx, ty, slow) = match m.mode {
+                    M_GUARD => (cx, cy, 1.),
+                    M_ROAM => {
+                        m.wander.2 -= dt;
+                        if m.wander.2 <= 0. {
+                            let a = gen_range(0., std::f32::consts::TAU); let r = gen_range(0., 44.);
+                            m.wander = (cx + a.cos() * r, cy + a.sin() * r, gen_range(2., 4.));
+                        }
+                        (m.wander.0, m.wander.1, 0.5)
+                    }
+                    _ => (px - 14. - (mi % 3) as f32 * 8., py + 3. + (mi / 3) as f32 * 8., 1.),
+                };
                 let (dx, dy) = (tx - m.x, ty - m.y);
                 let d = dx.hypot(dy);
-                if d > if m.mode == M_GUARD { 4. } else { 18. } { let s = if d > 80. { spd * 1.4 } else { spd }; vx = dx / d * s; vy = dy / d * s; }
+                if d > if m.mode == M_FOLLOW { 18. } else { 4. } { let s = if d > 80. { spd * 1.4 } else { spd } * slow; vx = dx / d * s; vy = dy / d * s; }
                 if dx.abs() > 2. { m.left = dx < 0.; }
             }
             let (ox, oy) = (m.x, m.y);
@@ -382,23 +529,24 @@ impl Game {
             if (vx != 0. || vy != 0.) && (m.x - ox).hypot(m.y - oy) < 0.2 * dt * spd { m.stuck += dt; } else { m.stuck = 0.; }
             if m.stuck > 1.5 {
                 m.stuck = 0.;
-                if m.mode == M_GUARD { m.x = cx; m.y = cy; } else { m.x = px - 12. - mi as f32 * 6.; m.y = py + 4.; }
+                if m.mode != M_FOLLOW { m.x = cx; m.y = cy; } else { m.x = px - 12. - mi as f32 * 6.; m.y = py + 4.; }
             }
         }
-        let _ = n;
-        // เพิ่งมี join ระหว่าง tick? (ไม่มี) แต่กันไว้
         let added = std::mem::take(&mut self.rs.crew.m);
         ms.extend(added);
         self.rs.crew.m = ms;
+        for n in notes { self.toast(n); }
     }
-    /// เช้าวันใหม่: ตัวที่มีใจ — ดูแลดีภักดีขึ้น · ถูกปล่อยปละ/ถูกขัดใจ เหงาและเสียใจ แล้วลาจากไปเอง
+    /// เช้าวันใหม่: โกเลม/หุ่นซ่อมตัวเอง · ตัวที่มีใจ — ดูแลดีภักดีขึ้น · ถูกปล่อยปละ/ถูกขัดใจ เหงาและเสียใจ แล้วลาจากไปเอง
     pub fn crew_dawn(&mut self) {
         let day = day_of(self);
         let mut leave: Vec<u32> = vec![];
         for m in self.rs.crew.m.iter_mut() {
-            if !m.mind() { continue; }
+            if m.down { m.down = false; m.hp = (m.maxhp() * 0.6).max(m.hp); }
+            if !m.mind() { m.hp = m.maxhp(); continue; }
             if day - m.fed_day > 3 { m.mood = (m.mood - 10).max(0); } else { m.mood = (m.mood + 3).min(100); }
-            if m.mode != m.wished() { m.loyalty = (m.loyalty - 2).max(0); m.mood = (m.mood - 3).max(0); }
+            if m.mode == M_ROAM { m.mood = (m.mood + 5).min(100); m.loyalty = (m.loyalty + 1).min(100); }
+            else if m.mode != m.wished() { m.loyalty = (m.loyalty - 2).max(0); m.mood = (m.mood - 3).max(0); }
             if m.mood >= 60 { m.loyalty = (m.loyalty + 1).min(100); } else if m.mood < 30 { m.loyalty = (m.loyalty - 2).max(0); }
             if m.loyalty < 20 || m.mood < 12 { m.sad += 1; } else { m.sad = 0; }
             if m.sad >= 2 { leave.push(m.id); }
@@ -416,7 +564,7 @@ impl Game {
         let c = &self.rs.crew;
         let mut s = format!("crewrel {} {} {}\n", c.rel[0], c.rel[1], c.next);
         for m in &c.m {
-            s += &format!("crew {} {} {} {:.1} {:.1} {} {} {} {} {} {} {} {} {} {} {} {}\n", m.id, m.kind, m.nm, m.x, m.y, m.post.0, m.post.1, m.mode, m.loyalty, m.mood, m.t[0], m.t[1], m.t[2], m.t[3], m.t[4], m.t[5], m.fed_day * 10 + m.sad.min(9));
+            s += &format!("crew {} {} {} {:.1} {:.1} {} {} {} {} {} {} {} {} {} {} {} {} {:.0} {} {}\n", m.id, m.kind, m.nm, m.x, m.y, m.post.0, m.post.1, m.mode, m.loyalty, m.mood, m.t[0], m.t[1], m.t[2], m.t[3], m.t[4], m.t[5], m.fed_day * 10 + m.sad.min(9), m.hp, m.down as u8, m.arch);
         }
         s
     }
@@ -429,9 +577,16 @@ impl Game {
         let f = |i: usize| r.get(i).and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.);
         let n = |i: usize| f(i) as i32;
         if r.len() < 17 || self.rs.crew.m.len() >= CREW_MAX { return; }
-        let kind = (n(1) as u8).min(3);
+        let kind = (n(1) as u8).min(K_CHAMP);
         let fs = n(16);
-        self.rs.crew.m.push(Member { id: n(0) as u32, kind, nm: n(2) as u8, x: f(3), y: f(4), post: (n(5), n(6)), mode: (n(7) as u8).min(1), loyalty: n(8), mood: n(9), t: [n(10), n(11), n(12), n(13), n(14), n(15)], fed_day: fs.div_euclid(10), sad: fs.rem_euclid(10), cd: 0., anim: 0., stuck: 0., left: false });
+        let mut m = Member::new(n(0) as u32, kind, f(3), f(4));
+        m.nm = n(2) as u8; m.post = (n(5), n(6)); m.mode = (n(7) as u8).min(2); m.loyalty = n(8); m.mood = n(9);
+        m.t = [n(10), n(11), n(12), n(13), n(14), n(15)];
+        m.fed_day = fs.div_euclid(10); m.sad = fs.rem_euclid(10);
+        if r.len() > 17 { m.hp = f(17).clamp(0., m.maxhp()); }
+        if r.len() > 18 { m.down = n(18) != 0; }
+        if r.len() > 19 { m.arch = (n(19) as u8).min(2); }
+        self.rs.crew.m.push(m);
         let mx = self.rs.crew.m.iter().map(|m| m.id + 1).max().unwrap_or(0);
         if self.rs.crew.next < mx { self.rs.crew.next = mx; }
     }
@@ -509,27 +664,76 @@ fn fit_text_c(font: &Font, t: &str, size: f32, maxw: f32) -> String { source::fi
 pub fn draw_member(g: &Game, sp: &Sprites, v: &View, i: usize) {
     let m = &g.rs.crew.m[i];
     let (sx, sy) = ((m.x - v.cx).round(), (m.y - v.cy).round());
-    let bob = ((m.anim * 4.) as i32 % 2) as f32;
-    let tint = match m.kind { K_WOODG => Color::new(0.85, 0.66, 0.42, 1.), K_STONEG => Color::new(0.78, 0.86, 1., 1.), _ => WHITE };
+    let bob = if m.down { 0. } else { ((m.anim * 4.) as i32 % 2) as f32 };
+    let flash = m.flash > 0.;
+    let tint = match m.kind {
+        K_WOODG => Color::new(0.85, 0.66, 0.42, 1.),
+        K_STONEG => Color::new(0.78, 0.86, 1., 1.),
+        K_IRONG => Color::new(0.58, 0.62, 0.74, 1.),
+        K_CRYSTG => Color::new(0.55, 1., 1., 1.),
+        _ => WHITE,
+    };
     let sad = m.mind() && m.mood < 30;
+    let tint = if m.down { Color::new(0.45, 0.45, 0.5, 0.85) } else if flash { Color::new(1., 0.6, 0.6, 1.) } else if sad { Color::new(0.75, 0.8, 0.95, 1.) } else { tint };
+    // วงยั่วยุ (โกเลมหิน) / คลื่นกระแทก (โกเลมเหล็ก) — วาดบนพื้นก่อนตัว
+    if m.taunt_t > 0. {
+        let k = (m.taunt_t / 4.).clamp(0., 1.);
+        let ph = (1. - (m.anim * 1.5).fract()) * TAUNT_R;
+        draw_circle_lines(sx * v.s, (sy - 4.) * v.s, ph * v.s, 2., Color::new(1., 0.35, 0.25, 0.25 + 0.4 * k));
+        draw_circle_lines(sx * v.s, (sy - 4.) * v.s, 18. * v.s, 2., Color::new(1., 0.45, 0.3, 0.7));
+    }
+    if m.slam_t > 0. {
+        let k = 1. - m.slam_t / 0.35;
+        draw_circle_lines(sx * v.s, (sy - 3.) * v.s, (8. + 36. * k) * v.s, 3., Color::new(0.85, 0.88, 1., 1. - k));
+    }
     if m.kind == K_SLIME {
         let sq = (m.anim * 1.6 * std::f32::consts::TAU).sin() * 0.1;
         let (ww, hh) = ((22. * (1. + sq)).round(), (18. * (1. - sq)).round());
         prect(v, (sx - 9.).round(), sy - 2., 18., 3., Color::new(0., 0., 0., 0.28));
-        blit_sz(sp, v, sp.ex.king, (sx - ww / 2.).floor(), sy - hh, ww, hh, if sad { Color::new(0.7, 0.8, 1., 1.) } else { WHITE });
+        blit_sz(sp, v, sp.ex.king, (sx - ww / 2.).floor(), sy - hh, ww, hh, tint);
+    } else if m.kind == K_CHAMP {
+        let r = sp.ex.comp[if m.left { 2 } else { 3 }];
+        let (w, h) = ((r.w * 1.5).round(), (r.h * 1.5).round());
+        prect(v, sx - 8., sy - 2., 16., 3., Color::new(0., 0., 0., 0.28));
+        blit_sz(sp, v, r, (sx - w / 2.).floor(), sy - h - bob, w, h, tint);
     } else {
         let r = sp.ex.golem[0];
-        let k = if m.kind == K_WOODG { 0.62 } else if m.kind == K_STONEG { 0.72 } else { 0.8 };
+        let k = match m.kind { K_WOODG => 0.62, K_STONEG => 0.88, K_IRONG => 0.95, K_CRYSTG => 0.74, _ => 0.8 };
         let (w, h) = ((r.w * k).round(), (r.h * k).round());
         prect(v, sx - 9., sy - 2., 18., 3., Color::new(0., 0., 0., 0.28));
-        blit_sz(sp, v, r, (sx - w / 2.).floor(), sy - h - bob, w, h, if sad { Color::new(0.75, 0.8, 0.95, 1.) } else { tint });
+        vfx::blit_outline(sp, v, r, (sx - w / 2.).floor(), sy - h - bob, w, h, false, 0.8);
+        blit_sz(sp, v, r, (sx - w / 2.).floor(), sy - h - bob, w, h, tint);
+        if m.kind == K_CRYSTG && !m.down {
+            // เสี้ยวคริสตัลบนบ่า
+            for (dx, dy) in [(-9., 0.28), (8., 0.22)] { prect(v, sx + dx, sy - h * (1. + dy) - bob, 2., 5., hx(0xa8f8ff)); prect(v, sx + dx, sy - h * (1. + dy) - bob, 1., 3., WHITE); }
+        }
+        if m.kind == K_IRONG && !m.down { prect(v, sx - 4., sy - h * 0.55 - bob, 8., 1., hx(0xe08a40)); }
     }
+    // ลำแสงคริสตัล
+    if m.beam.2 > 0. {
+        let (bx, by) = ((m.beam.0 - v.cx) * v.s, (m.beam.1 - 6. - v.cy) * v.s);
+        draw_line(sx * v.s, (sy - 14.) * v.s, bx, by, 3. * v.s * 0.6, Color::new(0.5, 0.95, 1., (m.beam.2 / 0.18).clamp(0., 1.)));
+        draw_line(sx * v.s, (sy - 14.) * v.s, bx, by, 1.2 * v.s * 0.6, Color::new(1., 1., 1., (m.beam.2 / 0.18).clamp(0., 1.)));
+    }
+    // เครื่องหมายหน้าที่: โล่ = เฝ้าจุด · ใบไม้ = พัก
+    let top = sy - 30.;
     if m.mode == M_GUARD {
-        // เครื่องหมายยาม: โล่เล็กเหนือหัว
-        let (hx0, hy0) = (sx * v.s, (sy - 30.) * v.s);
+        let (hx0, hy0) = (sx * v.s, top * v.s);
         let s = 3. * v.s;
         draw_rectangle(hx0 - s, hy0 - s, s * 2., s * 2.4, hx(0x4a78c8));
         draw_rectangle_lines(hx0 - s, hy0 - s, s * 2., s * 2.4, 1., hx(0xe8f0ff));
+    } else if m.mode == M_ROAM {
+        draw_circle(sx * v.s, (top + 1.) * v.s, 2.6 * v.s, hx(0x6ad06a));
+    }
+    if m.down {
+        // กากบาทแดงเหนือหัว
+        let (cx0, cy0, r) = (sx * v.s, (top - 4.) * v.s, 3. * v.s);
+        draw_line(cx0 - r, cy0 - r, cx0 + r, cy0 + r, 2., hx(0xe05050));
+        draw_line(cx0 - r, cy0 + r, cx0 + r, cy0 - r, 2., hx(0xe05050));
+    } else if m.hp < m.maxhp() {
+        let f = (m.hp / m.maxhp()).clamp(0., 1.);
+        prect(v, sx - 8., top - 6., 16., 2., hx(0x2a1010));
+        prect(v, sx - 8., top - 6., 16. * f, 2., if f > 0.5 { hx(0x6ad06a) } else if f > 0.25 { hx(0xe8c84a) } else { hx(0xd05a5a) });
     }
     if sad { draw_circle((sx + 7.) * v.s, (sy - 26.) * v.s, 2. * v.s, hx(0x6ab0ff)); }
 }
@@ -710,29 +914,387 @@ mod tests_v33 {
         g.crew_tick(0.1);
         assert!(g.rs.crew.yld.is_none());
     }
+    fn adv(k: u8) -> usize { ADV_RECIPES.iter().position(|r| matches!(r.eff, Eff::Guard(x) if x == k)).unwrap() }
+    fn foe(x: f32, y: f32, hp: f32) -> Enemy {
+        Enemy { path: Path::default(), night: false, burn: 0., slow: 0., stun: 0., btick: 0., sk: 0., fl: false, k: EK::Skel, x, y, hp, spd: 0., dmg: 2, xp: 1, coin: 0, vx: 0., vy: 0., kb: 0., flash: 0., wt: 0., wdx: 0., wdy: 0., anim: 0., pal: 0, dead: false }
+    }
+    /// วางพวกที่ห่างจากผู้เล่น (dx, dy)
+    fn golem_at(g: &mut Game, kind: u8, dx: f32, dy: f32) -> usize {
+        let (x, y) = (g.p.x + dx, g.p.y + dy);
+        g.crew_craft(kind);
+        let i = g.rs.crew.m.len() - 1;
+        g.rs.crew.m[i].x = x; g.rs.crew.m[i].y = y; g.rs.crew.m[i].post = (tfloor(x), tfloor(y));
+        i
+    }
+
     #[test]
-    fn craft_guards_cost_materials_and_respect_cap() {
+    fn three_golems_have_recipes_with_the_right_materials() {
+        let st = &ADV_RECIPES[adv(1)];
+        let ir = &ADV_RECIPES[adv(2)];
+        let cr = &ADV_RECIPES[adv(3)];
+        assert_eq!((st.name, ir.name, cr.name), ("โกเลมหิน", "โกเลมเหล็ก", "โกเลมคริสตัล"));
+        for r in [st, ir, cr] { assert!(r.cost.iter().any(|&(it, n)| it == CORE && n >= 1), "{} ต้องใช้แกนโกเลม", r.name); }
+        assert!(st.cost.iter().any(|&(it, n)| it == STONE && n >= 20), "หิน = แกน + หินเยอะ");
+        assert!(ir.cost.iter().any(|&(it, _)| it == IRON), "เหล็ก = แกน + แร่เหล็ก");
+        assert!(cr.cost.iter().any(|&(it, _)| it == GEM) && cr.cost.iter().any(|&(it, _)| it == SHARD), "คริสตัล = แกน + อัญมณี/เศษคริสตัล");
+        // ทุกวัสดุต้องมีบอกที่มา (v32 guide) — คนเล่นไม่ต้องเดาว่าหาจากไหน
+        let g = game(3330);
+        for r in [st, ir, cr] { for &(it, _) in r.cost { assert!(!source::item_howto(&g, it).is_empty(), "{} ไม่มีที่มา", INAME[it]); } }
+    }
+    #[test]
+    fn craft_golems_cost_materials_and_respect_cap() {
         let mut g = game(3310);
         let ri = RECIPES.iter().position(|r| matches!(r.eff, Eff::Guard(0))).unwrap();
-        let rs = RECIPES.iter().position(|r| matches!(r.eff, Eff::Guard(1))).unwrap();
         g.p.inv[WOOD] = 14; g.p.inv[STONE] = 3;
         g.craft_from(&RECIPES, ri);
-        assert_eq!(g.rs.crew.m.len(), 1);
-        assert_eq!(g.rs.crew.m[0].kind, K_WOODG);
-        assert_eq!(g.rs.crew.m[0].mode, M_GUARD);
-        assert!(!g.rs.crew.m[0].mind());
+        assert_eq!((g.rs.crew.m.len(), g.rs.crew.m[0].kind, g.rs.crew.m[0].mode), (1, K_WOODG, M_GUARD));
         assert_eq!((g.p.inv[WOOD], g.p.inv[STONE]), (0, 0));
-        g.craft_from(&RECIPES, ri);
-        assert_eq!(g.rs.crew.m.len(), 1, "ของไม่พอ = ไม่ได้");
-        g.p.inv[STONE] = 16; g.p.inv[CORE] = 2; g.p.inv[GEM] = 2;
-        g.craft_from(&RECIPES, rs);
-        assert_eq!(g.rs.crew.m.len(), 2);
-        assert_eq!(g.rs.crew.m[1].kind, K_STONEG);
-        for _ in 0..2 { g.crew_join(K_SLIME, [50; 6], 60, 0., 0.); }
-        assert_eq!(g.rs.crew.m.len(), 4);
-        g.p.inv[WOOD] = 14; g.p.inv[STONE] = 3;
-        g.craft_from(&RECIPES, ri);
-        assert_eq!((g.rs.crew.m.len(), g.p.inv[WOOD], g.p.inv[STONE]), (4, 14, 3), "พวกเต็ม ไม่หักของ");
+        // ไม่มีแกน = คราฟต์ไม่ได้ ของไม่หาย
+        g.p.inv[CORE] = 0; g.p.inv[STONE] = 40;
+        g.craft_from(&ADV_RECIPES, adv(1));
+        assert_eq!((g.rs.crew.m.len(), g.p.inv[STONE]), (1, 40));
+        // มีครบ = ได้ตัวที่ถูกชนิด และหักวัสดุตามจริง
+        g.p.inv[CORE] = 6; g.p.inv[IRON] = 12; g.p.inv[GEM] = 6; g.p.inv[SHARD] = 4;
+        let (c0, s0) = (g.p.inv[CORE], g.p.inv[STONE]);
+        g.craft_from(&ADV_RECIPES, adv(1));
+        assert_eq!(g.rs.crew.m.last().unwrap().kind, K_STONEG);
+        assert_eq!((c0 - g.p.inv[CORE], s0 - g.p.inv[STONE]), (1, 24));
+        g.craft_from(&ADV_RECIPES, adv(2));
+        assert_eq!(g.rs.crew.m.last().unwrap().kind, K_IRONG);
+        assert_eq!(g.p.inv[IRON], 0, "โกเลมเหล็กกินแร่เหล็ก 12");
+        g.craft_from(&ADV_RECIPES, adv(3));
+        assert_eq!(g.rs.crew.m.last().unwrap().kind, K_CRYSTG);
+        assert_eq!((g.p.inv[GEM], g.p.inv[SHARD]), (0, 0));
+        assert_eq!(g.rs.crew.m.len(), CREW_MAX);
+        // พวกเต็ม ไม่หักของ
+        g.p.inv[CORE] = 3; g.p.inv[STONE] = 30;
+        g.craft_from(&ADV_RECIPES, adv(1));
+        assert_eq!((g.rs.crew.m.len(), g.p.inv[CORE], g.p.inv[STONE]), (CREW_MAX, 3, 30), "พวกเต็ม ไม่หักของ");
+    }
+    #[test]
+    fn golems_are_loyal_machines_with_distinct_stats() {
+        let ms: Vec<Member> = [K_STONEG, K_IRONG, K_CRYSTG].iter().map(|&k| Member::new(1, k, 0., 0.)).collect();
+        for m in &ms { assert!(!m.mind() && m.golem() && m.loyalty == 100 && m.mode == M_GUARD, "{}", m.name()); assert!(!m.skill_text().is_empty()); }
+        assert!(ms[0].maxhp() > ms[1].maxhp() && ms[1].maxhp() > ms[2].maxhp(), "หินถึกสุด คริสตัลบางสุด");
+        assert!(ms[1].dmg(10) > ms[0].dmg(10) && ms[1].dmg(10) > ms[2].dmg(10), "เหล็กตีหนักสุด");
+        assert!(ms[0].armor() < 1. && ms[1].armor() < 1. && ms[2].armor() == 1.);
+        let texts: Vec<_> = ms.iter().map(|m| m.skill_text()).collect();
+        assert!(texts[0].contains("ยั่วยุ") && texts[1].contains("ทุบพื้น") && texts[2].contains("ลำแสง"));
+    }
+    #[test]
+    fn stone_golem_taunt_pulls_enemies_off_the_player() {
+        // ศัตรูอยู่ระหว่างผู้เล่น (ใต้) กับโกเลม (ซ้าย): ไม่ยั่วยุ → เดินหาผู้เล่น · ยั่วยุ → เดินหาโกเลม
+        let mut moved = [(0f32, 0f32); 2];
+        for (case, taunt) in [false, true].into_iter().enumerate() {
+            let mut g = game(3331);
+            g.en.clear(); g.bosses.clear();
+            let (ex, ey) = (g.p.x, g.p.y - 50.);
+            g.p.x = ex; g.p.y = ey + 60.;
+            let gi = golem_at(&mut g, K_STONEG, -60., -60.);
+            g.rs.crew.m[gi].taunt_t = if taunt { 4. } else { 0. };
+            let mut e = foe(ex, ey, 99.); e.spd = 40.;
+            g.en.push(e);
+            assert_eq!(g.crew_taunts().len(), taunt as usize);
+            for _ in 0..20 { g.upd_enemies(1. / 30.); }
+            moved[case] = (g.en[0].x - ex, g.en[0].y - ey);
+        }
+        assert!(moved[0].1 > 1. && moved[0].0.abs() < moved[0].1, "ไม่ยั่วยุ: ศัตรูเดินหาผู้เล่น {:?}", moved[0]);
+        assert!(moved[1].0 < -1. && moved[1].0.abs() > moved[1].1.abs(), "ยั่วยุ: ศัตรูเดินหาโกเลม {:?}", moved[1]);
+    }
+    #[test]
+    fn stone_golem_triggers_taunt_with_cooldown() {
+        let mut g = game(3332);
+        g.en.clear(); g.bosses.clear();
+        let gi = golem_at(&mut g, K_STONEG, 30., 0.);
+        let (x, y) = (g.rs.crew.m[gi].x, g.rs.crew.m[gi].y);
+        g.en.push(foe(x + 60., y, 99.));
+        assert!(g.crew_taunts().is_empty());
+        g.crew_tick(1. / 30.);
+        assert_eq!(g.crew_taunts().len(), 1, "เห็นศัตรูในระยะ → ยั่วยุทันที");
+        let t = g.rs.crew.m[gi].taunt_t;
+        assert!(t > 3. && g.rs.crew.m[gi].skill_cd > 5.);
+        for _ in 0..30 * 5 { g.crew_tick(1. / 30.); }
+        assert!(g.crew_taunts().is_empty(), "ยั่วยุหมดเวลา");
+        for _ in 0..30 * 6 { g.crew_tick(1. / 30.); }
+        assert_eq!(g.crew_taunts().len(), 1, "คูลดาวน์หมดแล้วยั่วยุอีก");
+    }
+    #[test]
+    fn iron_golem_slam_knocks_back_stuns_and_hurts() {
+        let mut g = game(3333);
+        g.en.clear(); g.bosses.clear();
+        let gi = golem_at(&mut g, K_IRONG, 30., 0.);
+        let (x, y) = (g.rs.crew.m[gi].x, g.rs.crew.m[gi].y);
+        g.en.push(foe(x + 18., y, 60.));
+        let d0 = 18.;
+        g.crew_tick(1. / 30.);
+        let e = &g.en[0];
+        assert!(e.hp < 60., "ทุบแล้วเจ็บ");
+        assert!(e.stun >= 0.9 && e.kb > 0.2, "สตัน {} กระเด็น {}", e.stun, e.kb);
+        assert!(e.vx > 100., "กระเด็นออกจากโกเลม {}", e.vx);
+        assert!(g.rs.crew.m[gi].slam_t > 0. && g.rs.crew.m[gi].skill_cd > 4.);
+        let _ = d0;
+    }
+    #[test]
+    fn crystal_golem_beam_hits_from_range_and_slows() {
+        let mut g = game(3334);
+        g.en.clear(); g.bosses.clear();
+        let gi = golem_at(&mut g, K_CRYSTG, 30., 0.);
+        let (x, y) = (g.rs.crew.m[gi].x, g.rs.crew.m[gi].y);
+        g.en.push(foe(x + 90., y, 80.));
+        g.crew_tick(1. / 30.);
+        let e = &g.en[0];
+        assert!(e.hp < 80., "ลำแสงโดนจากระยะ 90");
+        assert!(e.slow >= 2., "โดนแล้วเดินช้าลง {}", e.slow);
+        assert!(g.rs.crew.m[gi].beam.2 > 0.);
+        assert!((g.rs.crew.m[gi].x - x).abs() < 3., "ยิงจากที่เดิม ไม่ต้องเข้าไปประชิด");
+        // ศัตรูเข้าประชิด: ถอยหลังรักษาระยะ
+        g.en[0].x = x + 20.;
+        let x0 = g.rs.crew.m[gi].x;
+        for _ in 0..20 { g.crew_tick(1. / 30.); }
+        assert!(g.rs.crew.m[gi].x < x0 - 1., "ถอยจากศัตรูที่ประชิด");
+    }
+    #[test]
+    fn golems_never_touch_bosses() {
+        let mut g = game(3335);
+        g.en.clear();
+        g.bosses.clear();
+        let gi = golem_at(&mut g, K_IRONG, 30., 0.);
+        let (x, y) = (g.rs.crew.m[gi].x, g.rs.crew.m[gi].y);
+        g.spawn_boss_hp(0, x + 14., y, 10.);
+        let hp = g.bosses[0].hp;
+        for _ in 0..150 { g.crew_tick(1. / 30.); }
+        assert_eq!(g.bosses[0].hp, hp, "โกเลมไม่สู้บอสตัวจริง");
+    }
+    #[test]
+    fn golem_goes_down_and_repairs_itself_without_food() {
+        let mut g = game(3336);
+        g.en.clear(); g.bosses.clear();
+        let gi = golem_at(&mut g, K_CRYSTG, 30., 0.);
+        let (x, y) = (g.rs.crew.m[gi].x, g.rs.crew.m[gi].y);
+        g.rs.crew.m[gi].hp = 1.;
+        let mut e = foe(x + 4., y, 99.); e.dmg = 20;
+        g.en.push(e);
+        for _ in 0..40 { g.crew_tick(1. / 30.); }
+        assert!(g.rs.crew.m[gi].down && g.rs.crew.m[gi].hp == 0., "เลือดหมด = ล้ม");
+        let d0 = g.defense();
+        assert!(g.crew_defense() == 0., "ตัวที่ล้มไม่นับป้องกัน {}", d0);
+        let hp = g.en[0].hp;
+        for _ in 0..60 { g.crew_tick(1. / 30.); }
+        assert_eq!(g.en[0].hp, hp, "ตัวที่ล้มไม่โจมตี");
+        // 30 วันไม่ให้อะไรเลย: ไม่หิว ไม่ทรยศ ไม่หนี ซ่อมเองตอนเช้า
+        for _ in 0..30 { g.time += DAYLEN; g.crew_dawn(); }
+        let m = &g.rs.crew.m[gi];
+        assert!(!m.down && m.hp == m.maxhp(), "ซ่อมตัวเองตอนเช้า");
+        assert_eq!((g.rs.crew.m.len(), m.loyalty, m.mood), (1, 100, 100), "โกเลมซื่อสัตย์ 100% ไม่ต้องดูแล");
+    }
+    #[test]
+    fn roles_follow_guard_roam_behave_differently() {
+        let mut g = game(3337);
+        g.en.clear(); g.bosses.clear();
+        let (x0, y0) = (g.p.x, g.p.y);
+        let gi = golem_at(&mut g, K_STONEG, 0., 0.);
+        let id = g.rs.crew.m[gi].id;
+        // เฝ้าจุด: ผู้เล่นเดินออกไปไกล โกเลมอยู่ที่เดิม
+        g.crew_set_mode(id, M_GUARD);
+        g.p.x = x0 + 150.;
+        for _ in 0..30 * 6 { g.crew_tick(1. / 30.); }
+        let m = &g.rs.crew.m[gi];
+        assert!((m.x - x0).hypot(m.y - y0) < 8., "เฝ้าจุดไม่ตามไป");
+        assert!(g.crew_defense() > 0., "ประจำจุด = นับป้องกันเมือง");
+        // ตามฉัน: ตามไปติดตัว และไม่นับป้องกันเมือง
+        g.crew_set_mode(id, M_FOLLOW);
+        for _ in 0..30 * 12 { g.crew_tick(1. / 30.); }
+        let m = &g.rs.crew.m[gi];
+        assert!((m.x - g.p.x).hypot(m.y - g.p.y) < 45., "ตามผู้เล่น {}", (m.x - g.p.x).hypot(m.y - g.p.y));
+        assert_eq!(g.crew_defense(), 0.);
+        // พัก/เดินเล่น: วนอยู่แถวจุดพัก ไม่หนีไกล และฟื้นเลือดเร็วกว่าเฝ้า (จุดพัก = ตรงที่ผู้เล่นยืนตอนสั่ง)
+        g.p.x = x0; g.p.y = y0; // กลับมายืนที่โล่งก่อนสั่ง (จุดพักต้องไม่ติดต้นไม้)
+        g.crew_set_mode(id, M_ROAM);
+        let post = g.rs.crew.m[gi].post;
+        let (px, py) = (post.0 as f32 * 16. + 8., post.1 as f32 * 16. + 8.);
+        g.rs.crew.m[gi].x = px; g.rs.crew.m[gi].y = py;
+        g.rs.crew.m[gi].hp = 10.; g.rs.crew.m[gi].last_hit = 99.;
+        g.p.x = x0 + 300.; // ผู้เล่นเดินจากไป — ต้องไม่ตามไป
+        let mut far = 0f32; let mut moved = false;
+        for _ in 0..30 * 20 { g.crew_tick(1. / 30.); let m = &g.rs.crew.m[gi]; far = far.max((m.x - px).hypot(m.y - py)); if (m.x - px).hypot(m.y - py) > 3. { moved = true; } }
+        assert!(far < 50., "เดินเล่นแถวจุดพัก {}", far);
+        assert!(moved, "เดินเล่นจริง ไม่ยืนนิ่ง");
+        let roam_hp = g.rs.crew.m[gi].hp;
+        g.p.x = px; g.p.y = py;
+        g.crew_set_mode(id, M_GUARD);
+        g.rs.crew.m[gi].hp = 10.; g.rs.crew.m[gi].last_hit = 99.;
+        for _ in 0..30 * 20 { g.crew_tick(1. / 30.); }
+        assert!(roam_hp > g.rs.crew.m[gi].hp + 5., "พักฟื้นเร็วกว่าเฝ้า {} vs {}", roam_hp, g.rs.crew.m[gi].hp);
+    }
+    #[test]
+    fn roam_raises_happiness_of_minded_member() {
+        let mut g = game(3338);
+        g.crew_join(K_SLIME, [80, 20, 80, 70, 40, 60], 60, g.p.x, g.p.y);
+        let id = g.rs.crew.m[0].id;
+        g.rs.crew.m[0].mood = 50;
+        g.crew_set_mode(id, M_ROAM);
+        let (m0, l0) = (g.rs.crew.m[0].mood, g.rs.crew.m[0].loyalty);
+        g.p.inv[BERRY] = 0;
+        for _ in 0..3 { g.time += DAYLEN; g.rs.crew.m[0].fed_day = day_of(&g); g.crew_dawn(); }
+        assert!(g.rs.crew.m[0].mood > m0 + 10 && g.rs.crew.m[0].loyalty > l0, "พักผ่อน = มีความสุขขึ้น");
+    }
+    #[test]
+    fn crew_cards_show_pets_golems_and_hired_companion() {
+        let mut g = game(3339);
+        g.animals.clear();
+        let mut a = g.new_animal(A_WOLF, g.p.x + 10., g.p.y); a.tame = true; a.sat = 10.; g.animals.push(a);
+        g.crew_craft(K_IRONG);
+        g.crew_join(K_SLIME, [60; 6], 55, g.p.x, g.p.y);
+        let cards = menu::crew_cards(&g);
+        assert_eq!(cards.iter().map(|c| c.src).collect::<Vec<_>>(), vec![1, 0, 0]);
+        let pet = &cards[0];
+        assert!(pet.sat.is_some() && pet.loy.is_some() && pet.warn.as_ref().map_or(false, |w| w.contains("หิว")), "สัตว์หิว = เตือน");
+        let gol = &cards[1];
+        assert!(gol.golem && gol.loy.is_none() && gol.sat.is_none() && gol.traits.contains("100%"), "โกเลมไม่มีแถบอารมณ์/ภักดี");
+        let sl = &cards[2];
+        assert!(sl.mind && sl.loy == Some(55.) && sl.sat.is_some());
+        assert!(!pet.wher.is_empty() && !gol.wher.is_empty());
+        // ไม่มีอะไรเลย = การ์ดว่าง (แท็บแสดงคำแนะนำแทน)
+        let mut h = game(3340); h.animals.iter_mut().for_each(|a| a.tame = false);
+        assert!(menu::crew_cards(&h).is_empty());
+    }
+
+    // ---------- สัตว์เลี้ยง ----------
+    fn pet(g: &mut Game, k: u8, dx: f32) -> usize {
+        g.animals.clear();
+        let mut a = g.new_animal(k, g.p.x + dx, g.p.y); a.tame = true; g.animals.push(a);
+        g.animals.len() - 1
+    }
+    #[test]
+    fn feeding_and_petting_keep_pets_happy() {
+        let mut g = game(3341);
+        let i = pet(&mut g, A_WOLF, 14.);
+        g.animals[i].sat = 30.; g.animals[i].loy = 40.;
+        g.p.inv[MEAT] = 2;
+        g.pet_feed(0);
+        assert_eq!(g.p.inv[MEAT], 1);
+        assert!(g.animals[i].sat >= 70. && g.animals[i].loy > 40., "อิ่มขึ้น ไว้ใจขึ้น");
+        g.animals[i].sat = 95.;
+        g.pet_feed(0);
+        assert_eq!(g.p.inv[MEAT], 1, "อิ่มแล้วไม่กินเพิ่ม (ไม่เสียของ)");
+        // ไม่มีอาหาร: บอกว่าหาจากไหน ไม่หักอะไร
+        g.animals[i].sat = 10.; g.p.inv[MEAT] = 0; g.p.inv[DISH_STEW] = 0;
+        g.toasts.clear();
+        g.pet_feed(0);
+        assert_eq!(g.animals[i].sat, 10.);
+        assert!(g.toasts.iter().any(|t| t.0.contains("ไม่มี")));
+        // ลูบ: ฟรี ภักดีขึ้น แต่มีคูลดาวน์
+        let l = g.animals[i].loy;
+        g.pet_pat(0);
+        assert!(g.animals[i].loy > l);
+        let l = g.animals[i].loy;
+        g.pet_pat(0);
+        assert_eq!(g.animals[i].loy, l, "ลูบถี่เกินไปไม่ได้ผลเพิ่ม");
+        // กระต่ายกินแครอท
+        let j = pet(&mut g, A_RABBIT, 14.);
+        g.animals[j].sat = 20.; g.p.inv[CARROT] = 1;
+        g.pet_feed(0);
+        assert!(g.animals[j].sat > 60. && g.p.inv[CARROT] == 0);
+    }
+    #[test]
+    fn hungry_pet_is_weak_and_refuses_to_fight() {
+        let mut g = game(3342);
+        g.en.clear(); g.bosses.clear();
+        let i = pet(&mut g, A_WOLF, 14.);
+        let (ax, ay) = (g.animals[i].x, g.animals[i].y);
+        g.animals[i].sat = 10.; g.animals[i].loy = 80.;
+        g.en.push(foe(ax + 16., ay, 30.));
+        for _ in 0..30 * 4 { g.pets_tick(1. / 30.); g.animals[i].sat = 10.; }
+        assert_eq!(g.en[0].hp, 30., "หิวจนอ่อนแอ ไม่ยอมสู้");
+        // กินอิ่มแล้วช่วยสู้
+        g.animals[i].sat = 100.;
+        for _ in 0..30 * 4 { g.pets_tick(1. / 30.); g.animals[i].sat = 100.; }
+        assert!(g.en[0].hp < 30. || g.en[0].dead, "อิ่มแล้วกัดมอนสเตอร์ได้");
+    }
+    #[test]
+    fn starved_neglected_pet_runs_back_to_the_wild() {
+        let mut g = game(3343);
+        let i = pet(&mut g, A_RABBIT, 14.);
+        g.animals[i].sat = 40.; g.animals[i].loy = 50.;
+        g.en.clear();
+        let mut weak_seen = false;
+        for _ in 0..(DAYLEN as i32 * 6) {
+            g.pets_tick(1.);
+            if g.animals.get(i).map_or(false, |a| a.tame && a.sat < PET_WEAK) { weak_seen = true; }
+            if !g.animals[i].tame { break; }
+        }
+        assert!(weak_seen, "ก่อนหนีต้องผ่านช่วงอ่อนแอ (ให้เวลาแก้)");
+        assert!(!g.animals[i].tame, "อดอยากนาน ๆ หนีกลับป่า");
+        assert!(g.toasts.iter().any(|t| t.0.contains("หนีกลับป่า")));
+        // ดูแลดีอยู่ได้ไม่รู้จบ
+        let j = pet(&mut g, A_RABBIT, 14.);
+        for d in 0..20 {
+            g.p.inv[CARROT] = 5;
+            g.pet_feed(0);
+            for _ in 0..(DAYLEN as i32) { g.pets_tick(1.); }
+            g.animals[j].pat = 0.; g.pet_pat(0);
+        }
+        assert!(g.animals[j].tame && g.animals[j].loy > 50., "ดูแลดี = อยู่ต่อและไว้ใจมากขึ้น");
+    }
+    #[test]
+    fn pet_roles_follow_guard_and_roam() {
+        let mut g = game(3344);
+        g.en.clear();
+        let i = pet(&mut g, A_WOLF, 14.);
+        let (x0, y0) = (g.p.x, g.p.y);
+        g.animals[i].sat = 100.; g.animals[i].loy = 100.;
+        g.pet_set_role(0, PET_GUARD);
+        g.p.x = x0 + 200.;
+        for _ in 0..30 * 6 { g.pets_tick(1. / 30.); g.animals[i].sat = 100.; }
+        assert!((g.animals[i].x - x0).hypot(g.animals[i].y - y0) < 10., "เฝ้าจุด ไม่ตามไป");
+        g.p.x = x0 + 300.; // ไกลเกิน 260 = วาร์ปมาข้างตัว
+        g.pet_set_role(0, PET_FOLLOW);
+        for _ in 0..30 * 10 { g.pets_tick(1. / 30.); g.animals[i].sat = 100.; }
+        assert!((g.animals[i].x - g.p.x).hypot(g.animals[i].y - g.p.y) < 45., "ตามฉัน");
+        g.pet_set_role(0, PET_ROAM);
+        let (rx, ry) = (g.animals[i].px, g.animals[i].py);
+        let mut far = 0f32;
+        for _ in 0..30 * 20 { g.pets_tick(1. / 30.); g.animals[i].sat = 100.; far = far.max((g.animals[i].x - rx).hypot(g.animals[i].y - ry)); }
+        assert!(far < 60., "พัก/เดินเล่นแถวจุดนี้ {}", far);
+        assert_eq!(g.animals[i].role, PET_ROAM);
+        // เฝ้าจุด: หมาป่ากัดเฉพาะที่เข้าใกล้จุดประจำ ไม่วิ่งตามศัตรูไกลจุด
+        g.pet_set_role(0, PET_GUARD);
+        let (gx, gy) = (g.animals[i].px, g.animals[i].py);
+        g.en.push(foe(gx + 200., gy, 30.));
+        for _ in 0..30 * 4 { g.pets_tick(1. / 30.); g.animals[i].sat = 100.; }
+        assert_eq!(g.en[0].hp, 30., "ศัตรูไกลจากจุดเฝ้า ไม่ไล่");
+    }
+    #[test]
+    fn pet_release_frees_slot_and_pet_does_not_return_by_itself() {
+        let mut g = game(3345);
+        g.animals.clear();
+        for k in [A_WOLF, A_RABBIT] { let mut a = g.new_animal(k, g.p.x + 20., g.p.y); a.tame = true; g.animals.push(a); }
+        g.pet_release(1);
+        assert_eq!(g.animals.iter().filter(|a| a.tame).count(), 1);
+        assert!(!g.animals[1].tame && g.animals[1].st == AS::Flee, "กระต่ายวิ่งกลับป่า");
+        for _ in 0..30 * 10 { g.pets_tick(1. / 30.); }
+        assert!(!g.animals[1].tame, "ปล่อยแล้วไม่กลับมาเอง");
+        assert!(g.animals[0].tame, "ตัวที่ยังไม่ปล่อยอยู่เหมือนเดิม");
+        // ชวนตัวใหม่เข้ามาแทนได้
+        let mut b = g.new_animal(A_RABBIT, g.p.x, g.p.y); b.tame = true; g.animals.push(b);
+        assert_eq!(g.animals.iter().filter(|a| a.tame).count(), PET_MAX);
+    }
+    #[test]
+    fn pet_state_survives_save_and_load() {
+        let mut g = game(3346);
+        g.animals.clear();
+        let mut a = g.new_animal(A_WOLF, g.p.x + 10., g.p.y); a.tame = true; a.sat = 33.; a.loy = 71.; a.role = PET_GUARD; a.px = g.p.x + 10.; a.py = g.p.y; g.animals.push(a);
+        let s = g.pets_save_str();
+        assert!(s.starts_with("pet "));
+        let mut h = game(3346);
+        h.animals.clear();
+        for l in s.lines() { let mut it = l.split_whitespace(); assert_eq!(it.next(), Some("pet")); let r: Vec<&str> = it.collect(); h.pets_load_line(&r); }
+        let b = h.animals.iter().find(|a| a.tame).expect("โหลดสัตว์เลี้ยงกลับมา");
+        assert_eq!((b.k, b.sat as i32, b.loy as i32, b.role), (A_WOLF, 33, 71, PET_GUARD));
+        // เซฟเก่าที่ไม่มีช่องใหม่ ไม่ crash
+        h.animals.clear();
+        h.pets_load_line(&["0"]);
+        assert_eq!(h.animals.iter().filter(|a| a.tame).count(), 1);
     }
     #[test]
     fn guards_raise_town_defense() {
@@ -787,7 +1349,7 @@ mod tests_v33 {
     fn forcing_against_nature_erodes_loyalty() {
         let mut g = game(3315);
         let t = boss_traits(5, 1, 100., 100.);
-        g.crew_join(K_GOLEM, t, 70, g.p.x, g.p.y);
+        g.crew_join(K_BGOLEM, t, 70, g.p.x, g.p.y);
         let id = g.rs.crew.m[0].id;
         assert_eq!(g.rs.crew.m[0].mode, M_GUARD, "โกเลมรักหน้าที่ อยากเฝ้าบ้าน");
         g.p.inv[GEM] = 99;
@@ -840,9 +1402,11 @@ mod tests_v33 {
     fn crew_save_roundtrip() {
         let mut g = game(3319);
         g.rs.crew.rel = [12, -6];
-        g.crew_craft(K_STONEG);
-        g.crew_join(K_GOLEM, [22, 85, 20, 38, 12, 72], 66, 321.5, 87.5);
-        g.rs.crew.m[1].mood = 44; g.rs.crew.m[1].sad = 1; g.rs.crew.m[1].fed_day = 9; g.rs.crew.m[1].post = (12, -3);
+        g.crew_craft(K_IRONG);
+        g.crew_craft(K_CRYSTG);
+        g.crew_join(K_BGOLEM, [22, 85, 20, 38, 12, 72], 66, 321.5, 87.5);
+        g.rs.crew.m[0].hp = 33.; g.rs.crew.m[1].hp = 0.; g.rs.crew.m[1].down = true; g.rs.crew.m[1].mode = M_ROAM;
+        g.rs.crew.m[2].mood = 44; g.rs.crew.m[2].sad = 1; g.rs.crew.m[2].fed_day = 9; g.rs.crew.m[2].post = (12, -3);
         let s = g.crew_save();
         let mut h = game(3319);
         for l in s.lines() {
@@ -852,15 +1416,16 @@ mod tests_v33 {
             match tag { "crewrel" => h.crew_load_rel(&rest), "crew" => h.crew_load(&rest), _ => panic!("แท็กแปลก {}", tag) }
         }
         assert_eq!(h.rs.crew.rel, [12, -6]);
-        assert_eq!(h.rs.crew.m.len(), 2);
+        assert_eq!(h.rs.crew.m.len(), 3);
         for (a, b) in g.rs.crew.m.iter().zip(h.rs.crew.m.iter()) {
-            assert_eq!((a.id, a.kind, a.mode, a.loyalty, a.mood, a.t, a.fed_day, a.sad, a.post), (b.id, b.kind, b.mode, b.loyalty, b.mood, b.t, b.fed_day, b.sad, b.post));
+            assert_eq!((a.id, a.kind, a.mode, a.loyalty, a.mood, a.t, a.fed_day, a.sad, a.post, a.down), (b.id, b.kind, b.mode, b.loyalty, b.mood, b.t, b.fed_day, b.sad, b.post, b.down));
+            assert!((a.hp - b.hp).abs() < 0.6, "เลือดต้องจำได้ {} {}", a.hp, b.hp);
             assert!((a.x - b.x).abs() < 0.1 && (a.y - b.y).abs() < 0.1);
         }
-        assert!(h.rs.crew.next >= 2, "ไม่ออก id ซ้ำ");
+        assert!(h.rs.crew.next >= 3, "ไม่ออก id ซ้ำ");
         // ข้อมูลเสีย/ไม่ครบ ไม่ crash
         h.crew_load(&["1", "2"]);
-        assert_eq!(h.rs.crew.m.len(), 2);
+        assert_eq!(h.rs.crew.m.len(), 3);
     }
     #[test]
     fn yield_card_fits_on_all_screens() {

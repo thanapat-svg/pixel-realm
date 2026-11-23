@@ -53,6 +53,16 @@ pub struct Animal {
     pub dead: bool,
     /// สัตว์เลี้ยง (เชื่องแล้ว)
     pub tame: bool,
+    /// v33 สัตว์เลี้ยง: ความอิ่ม 0..100 · ความภักดี 0..100 · หน้าที่ (0 ตาม · 1 เฝ้าจุด · 2 พักเดินเล่น) · จุดประจำ · คูลดาวน์ลูบ · จุดเดินเล่น
+    pub sat: f32,
+    pub loy: f32,
+    pub role: u8,
+    pub px: f32,
+    pub py: f32,
+    pub pat: f32,
+    pub wt: f32,
+    pub wx: f32,
+    pub wy: f32,
 }
 
 pub fn predator(k: u8) -> bool { matches!(k, A_WOLF | A_CROC | A_BOAR) }
@@ -61,7 +71,7 @@ pub fn prey(k: u8) -> bool { matches!(k, A_DEER | A_RABBIT | A_ANTE) }
 impl Game {
     pub fn new_animal(&self, k: u8, x: f32, y: f32) -> Animal {
         let s = AN_STAT[k as usize];
-        Animal { k, x, y, vx: 0., vy: 0., hp: s.0, st: AS::Idle, t: gen_range(0.5, 2.5), anim: 0., flip: gen_range(0., 1.) < 0.5, flash: 0., fed: 0., cd: 0., bold: gen_range(0., 1.), winter: season(self) == 3, h: 0., dead: false, tame: false }
+        Animal { k, x, y, vx: 0., vy: 0., hp: s.0, st: AS::Idle, t: gen_range(0.5, 2.5), anim: 0., flip: gen_range(0., 1.) < 0.5, flash: 0., fed: 0., cd: 0., bold: gen_range(0., 1.), winter: season(self) == 3, h: 0., dead: false, tame: false, sat: 70., loy: 50., role: 0, px: x, py: y, pat: 0., wt: 0., wx: x, wy: y }
     }
     /// สัตว์ชนิดไหนเกิดได้บนพื้นนี้ (ตามเวลา/ฤดู)
     pub fn animal_for(&self, t: u8, night: bool, roll: f32) -> Option<u8> {

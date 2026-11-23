@@ -270,7 +270,7 @@ pub struct Recipe {
     pub need: Option<usize>,
     pub eff: Eff,
 }
-pub const RECIPES: [Recipe; 30] = [
+pub const RECIPES: [Recipe; 29] = [
     Recipe { name: "ดาบไม้", desc: "พลังโจมตี 2", cost: &[(WOOD, 5)], need: None, eff: Eff::Sword(1) },
     Recipe { name: "อีเต้อหิน", desc: "ขุดภูเขาเปิดทางได้", cost: &[(WOOD, 4), (STONE, 4)], need: None, eff: Eff::Pick },
     Recipe { name: "ดาบหิน", desc: "พลังโจมตี 3 (ต้องมีดาบไม้)", cost: &[(WOOD, 3), (STONE, 6)], need: None, eff: Eff::Sword(2) },
@@ -300,16 +300,18 @@ pub const RECIPES: [Recipe; 30] = [
     Recipe { name: "เสื้อขนสัตว์", desc: "ใช้หนังสัตว์ 5 ผืน (ล่าสัตว์ได้) + ไม้ 2 · หน้าหนาว/ในหิมะไม่หิวเร็วขึ้น", cost: &[(WOOD, 2)], need: None, eff: Eff::Coat },
     Recipe { name: "ชุดนักล่า", desc: "หมวกขนนก+เสื้อหนังสีเขียว เปลี่ยนรูปตัวละคร", cost: &[(WOOD, 3), (MEAT, 3), (HERB, 2)], need: None, eff: Eff::Outfit(2) },
     Recipe { name: "หุ่นไม้ยาม", desc: "ยามไม้เฝ้าจุดที่คุณยืน ตีมอนสเตอร์ที่เข้าใกล้ (ไม่มีความรู้สึก ไม่ต้องดูแล) · พวกสูงสุด 4", cost: &[(WOOD, 14), (STONE, 3)], need: None, eff: Eff::Guard(0) },
-    Recipe { name: "โกเลมหินเฝ้าบ้าน", desc: "โกเลมหินแข็งแรง เฝ้าบ้านทั้งคืน ตีแรงกว่าหุ่นไม้ · ใช้แกนโกเลมจากบอส · พวกสูงสุด 4", cost: &[(STONE, 16), (CORE, 2), (GEM, 2)], need: None, eff: Eff::Guard(1) },
 ];
 
 /// สูตรของโต๊ะคราฟต์ขั้นสูง (ขั้น 2) — ต้องมีของขั้นก่อนหน้า
-pub const ADV_RECIPES: [Recipe; 5] = [
+pub const ADV_RECIPES: [Recipe; 8] = [
     Recipe { name: "ดาบคริสตัลดาว", desc: "พลังโจมตี 12 · ต้องมีดาบแกนโกเลม", cost: &[(CORE, 4), (SHARD, 6), (GEM, 6)], need: None, eff: Eff::Sword(5) },
     Recipe { name: "คทาดวงดาว", desc: "ยิงเวท 5 ทิศ ดาเมจสูง · ต้องมีคทาราชาสไลม์", cost: &[(SHARD, 8), (GEL, 5), (GEM, 6)], need: None, eff: Eff::Staff(3) },
     Recipe { name: "หมวกดาวตก", desc: "ลดดาเมจ 25% · เดินเร็ว +6% · ต้องมีหมวกราชา", cost: &[(SHARD, 5), (CORE, 2), (GEM, 4)], need: None, eff: Eff::Armor(0, 4) },
     Recipe { name: "เกราะอกดาวตก", desc: "ลดดาเมจ 25% · เดินเร็ว +6% · ต้องมีเกราะอกระดับ 3", cost: &[(SHARD, 8), (CORE, 3), (GEM, 6)], need: None, eff: Eff::Armor(1, 4) },
     Recipe { name: "รองเท้าดาวตก", desc: "ลดดาเมจ 25% · เดินเร็ว +16% · ต้องมีรองเท้าระดับ 3", cost: &[(SHARD, 5), (CORE, 2), (GEL, 3)], need: None, eff: Eff::Armor(2, 4) },
+    Recipe { name: "โกเลมหิน", desc: "เฝ้าเมือง: สกิลยั่วยุ ดึงศัตรูมาตีตัวเอง (ถึก เลือดเยอะ) · ซื่อสัตย์ 100% ไม่กินอาหาร · พวกสูงสุด 4", cost: &[(CORE, 1), (STONE, 24)], need: None, eff: Eff::Guard(1) },
+    Recipe { name: "โกเลมเหล็ก", desc: "เฝ้าเมือง: สกิลทุบพื้น ศัตรูกระเด็น+สตัน (ตีหนัก) · ซื่อสัตย์ 100% ไม่กินอาหาร · พวกสูงสุด 4", cost: &[(CORE, 2), (IRON, 12)], need: None, eff: Eff::Guard(2) },
+    Recipe { name: "โกเลมคริสตัล", desc: "เฝ้าเมือง: ยิงลำแสงไกล ศัตรูเดินช้า (วางแนวหลัง/กำแพง) · ซื่อสัตย์ 100% ไม่กินอาหาร · พวกสูงสุด 4", cost: &[(CORE, 2), (GEM, 6), (SHARD, 4)], need: None, eff: Eff::Guard(3) },
 ];
 
 pub fn can_pay(p: &Player, c: &[(usize, i32)]) -> bool {
@@ -350,7 +352,7 @@ impl Game {
             return;
         }
         if matches!(r.eff, Eff::Guard(_)) && self.rs.crew.m.len() >= crew::CREW_MAX {
-            self.toast("พวกเต็มแล้ว (4) — ปล่อย/รื้อตัวเก่าที่แท็บชุมชน → พวกของเรา ก่อน");
+            self.toast("พวกเต็มแล้ว (4) — ปล่อย/รื้อตัวเก่าที่แท็บบริวาร (กด N) ก่อน");
             return;
         }
         for &(it, n) in r.cost {

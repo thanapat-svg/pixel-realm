@@ -143,26 +143,27 @@ const SEED_CORN: usize = 21;
 const SEED_CARROT: usize = 22;
 const CORN: usize = 23;
 const CARROT: usize = 24;
-const NI: usize = 25;
+const IRON: usize = 25;
+const NI: usize = 26;
 // ดัชนีไอคอน (0..11 ตรงกับไอเทม)
-const ICON_SWORD: usize = 25;
-const IC_BOW: usize = 26;
-const IC_STAFF: usize = 27;
-const IC_HELM: usize = 28;
-const IC_CHEST: usize = 29;
-const IC_BOOT: usize = 30;
-const IC_WWALL: usize = 31;
-const IC_SWALL: usize = 32;
-const IC_DOOR: usize = 33;
-const IC_BOX: usize = 34;
-const IC_ANVIL: usize = 35;
-const IC_TORCH: usize = 36;
-const IC_POT: usize = 37;
-const IC_HOE: usize = 38;
-const IC_BED: usize = 39;
-const IC_ATABLE: usize = 40;
-const IC_CAN: usize = 41;
-const INAME: [&str; NI] = ["ไม้", "หิน", "ผลไม้", "อัญมณี", "เหรียญ", "กองไฟ", "ลูกธนู", "เจลราชาสไลม์", "แกนโกเลม", "ยาฟื้นฟู", "พิมพ์เขียวเกราะ", "พิมพ์เขียวอาวุธ", "เศษดาว", "เนื้อสัตว์", "เห็ด", "สมุนไพร", "สเต็กเนื้อย่าง", "ซุปเห็ดสายลม", "ชาสมุนไพรคมเขี้ยว", "ปลาย่าง", "ปลา", "เมล็ดข้าวโพด", "เมล็ดแครอท", "ข้าวโพด", "แครอท"];
+const ICON_SWORD: usize = 26;
+const IC_BOW: usize = 27;
+const IC_STAFF: usize = 28;
+const IC_HELM: usize = 29;
+const IC_CHEST: usize = 30;
+const IC_BOOT: usize = 31;
+const IC_WWALL: usize = 32;
+const IC_SWALL: usize = 33;
+const IC_DOOR: usize = 34;
+const IC_BOX: usize = 35;
+const IC_ANVIL: usize = 36;
+const IC_TORCH: usize = 37;
+const IC_POT: usize = 38;
+const IC_HOE: usize = 39;
+const IC_BED: usize = 40;
+const IC_ATABLE: usize = 41;
+const IC_CAN: usize = 42;
+const INAME: [&str; NI] = ["ไม้", "หิน", "ผลไม้", "อัญมณี", "เหรียญ", "กองไฟ", "ลูกธนู", "เจลราชาสไลม์", "แกนโกเลม", "ยาฟื้นฟู", "พิมพ์เขียวเกราะ", "พิมพ์เขียวอาวุธ", "เศษดาว", "เนื้อสัตว์", "เห็ด", "สมุนไพร", "สเต็กเนื้อย่าง", "ซุปเห็ดสายลม", "ชาสมุนไพรคมเขี้ยว", "ปลาย่าง", "ปลา", "เมล็ดข้าวโพด", "เมล็ดแครอท", "ข้าวโพด", "แครอท", "แร่เหล็ก"];
 
 const SWN: [&str; 6] = ["มือเปล่า", "ดาบไม้", "ดาบหิน", "ดาบอัญมณี", "ดาบแกนโกเลม", "ดาบคริสตัลดาว"];
 const SWD: [i32; 6] = [1, 2, 3, 5, 8, 12];
@@ -561,7 +562,7 @@ struct Float { x: f32, y: f32, t: String, c: Color, l: f32, icon: Option<usize>,
 struct Player { x: f32, y: f32, dir: usize, flip: bool, hp: i32, maxhp: i32, xp: i32, lvl: i32, sword: usize, pick: bool, rod: bool, elem: u8, elems: u8, inv: [i32; NI], invul: f32, kbx: f32, kby: f32, kbt: f32, atk_t: f32, atk_cd: f32, anim: f32, moving: bool, regen: f32, last_hit: f32, kills: i32, weapon: u8, bow: bool, staff: u8, armor: [u8; 3], outfit: u8, outfits: u8, sp: i32, st: [u8; 4], wplus: [u8; 3], aplus: [u8; 3], dash_t: f32, dash_cd: f32, dash_dir: Vec2, ghost_t: f32, buff_spd: f32, buff_crit: f32, can: bool, water: i32, hunger: f32, thirst: f32, rest: f32, sick: f32, starve: f32, body: Body, hides: i32, coat: bool, boat: bool, bare: bool }
 impl Player {
     fn new(x: f32, y: f32) -> Self {
-        Player { x, y, dir: 0, flip: false, hp: 10, maxhp: 10, xp: 0, lvl: 1, sword: 0, pick: false, rod: false, elem: 0, elems: 1, inv: [0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], invul: 0., kbx: 0., kby: 0., kbt: 0., atk_t: 0., atk_cd: 0., anim: 0., moving: false, regen: 0., last_hit: 0., kills: 0, weapon: 0, bow: false, staff: 0, armor: [0; 3], outfit: 0, outfits: 0, sp: 0, st: [0; 4], wplus: [0; 3], aplus: [0; 3], dash_t: 0., dash_cd: 0., dash_dir: Vec2::ZERO, ghost_t: 0., buff_spd: 0., buff_crit: 0., can: false, water: 0, hunger: 100., thirst: 100., rest: 100., sick: 0., starve: 0., body: Body::default(), hides: 0, coat: false, boat: false, bare: false }
+        Player { x, y, dir: 0, flip: false, hp: 10, maxhp: 10, xp: 0, lvl: 1, sword: 0, pick: false, rod: false, elem: 0, elems: 1, inv: [0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], invul: 0., kbx: 0., kby: 0., kbt: 0., atk_t: 0., atk_cd: 0., anim: 0., moving: false, regen: 0., last_hit: 0., kills: 0, weapon: 0, bow: false, staff: 0, armor: [0; 3], outfit: 0, outfits: 0, sp: 0, st: [0; 4], wplus: [0; 3], aplus: [0; 3], dash_t: 0., dash_cd: 0., dash_dir: Vec2::ZERO, ghost_t: 0., buff_spd: 0., buff_crit: 0., can: false, water: 0, hunger: 100., thirst: 100., rest: 100., sick: 0., starve: 0., body: Body::default(), hides: 0, coat: false, boat: false, bare: false }
     }
     fn facing(&self) -> (f32, f32) {
         DV[if self.dir == 2 && self.flip { 3 } else { self.dir }]
@@ -1124,6 +1125,7 @@ impl Game {
             5 => {
                 self.gain(STONE, 1, x, y);
                 self.gain(GEM, if in_dun { rnd(1, 2) } else { 1 }, x, y - 8.);
+                if gen_range(0., 1.) < 0.55 { self.gain(IRON, 1, x, y - 12.); }
                 if in_dun && gen_range(0., 1.) < 0.2 { self.gain(SHARD, 1, x, y - 16.); }
                 play(&self.sfx.gem);
             }
@@ -1287,6 +1289,7 @@ impl Game {
         for d in self.dying.iter_mut() { d.t += dt; }
         self.dying.retain(|d| d.t < war::DIE_T);
         let mut wall_hits: Vec<(i32, i32)> = vec![];
+        let taunts = self.crew_taunts();
         let mut en = std::mem::take(&mut self.en);
         for e in en.iter_mut() {
             if e.dead { continue; }
@@ -1329,6 +1332,11 @@ impl Game {
                 if d > 220. || e.sk < -6. { e.dead = true; self.burst(e.x, e.y - 6., hx(0xb8a888), 6, 30.); }
                 continue;
             }
+            // v33 โกเลมหินยั่วยุ: ศัตรู (ยกเว้นทหารศึก) หันไปไล่โกเลมแทนผู้เล่น
+            let (tdx, tdy, td) = match taunts.iter().filter(|t| e.k != EK::Soldier && (t.1 - e.x).hypot(t.2 - e.y) < crew::TAUNT_R).min_by(|a, b| (a.1 - e.x).hypot(a.2 - e.y).partial_cmp(&(b.1 - e.x).hypot(b.2 - e.y)).unwrap()) {
+                Some(t) => { let (ax, ay) = (t.1 - e.x, t.2 - e.y); (ax, ay, ax.hypot(ay).max(0.001)) }
+                None => (dx, dy, d),
+            };
             let (mut mx, mut my): (f32, f32);
             if e.kb > 0. {
                 e.kb -= dt;
@@ -1351,12 +1359,12 @@ impl Game {
                     let sp = if l < 2. { 0. } else { e.spd };
                     mx = ax / l * sp;
                     my = ay / l * sp;
-                } else if let Some((a, b)) = self.beast_ai(e, dx, dy, d, dt) {
+                } else if let Some((a, b)) = self.beast_ai(e, tdx, tdy, td, dt) {
                     mx = a;
                     my = b;
-                } else if d < 130. {
-                    mx = dx / d * e.spd;
-                    my = dy / d * e.spd;
+                } else if td < 130. {
+                    mx = tdx / td * e.spd;
+                    my = tdy / td * e.spd;
                 } else {
                     e.wt -= dt;
                     if e.wt <= 0. {
@@ -3078,7 +3086,7 @@ async fn main() {
                     inp.potion = is_key_pressed(KeyCode::H);
                     for (k, kc) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4, KeyCode::Key5, KeyCode::Key6, KeyCode::Key7, KeyCode::Key8, KeyCode::Key9].iter().enumerate() { if is_key_pressed(*kc) { inp.hb = Some(k); } }
                     inp.cancel = is_key_pressed(KeyCode::T) || (is_key_pressed(KeyCode::Escape) && g.build_sel.is_some());
-                    inp.menu = if is_key_pressed(KeyCode::C) { Some(0) } else if is_key_pressed(KeyCode::B) { Some(1) } else if is_key_pressed(KeyCode::I) { Some(2) } else if is_key_pressed(KeyCode::P) { Some(6) } else if is_key_pressed(KeyCode::O) { Some(7) } else if is_key_pressed(KeyCode::L) && g.rs.inited { Some(11) } else if is_key_pressed(KeyCode::U) { Some(10) } else { None };
+                    inp.menu = if is_key_pressed(KeyCode::C) { Some(0) } else if is_key_pressed(KeyCode::B) { Some(1) } else if is_key_pressed(KeyCode::I) { Some(2) } else if is_key_pressed(KeyCode::P) { Some(6) } else if is_key_pressed(KeyCode::O) { Some(7) } else if is_key_pressed(KeyCode::L) && g.rs.inited { Some(11) } else if is_key_pressed(KeyCode::U) { Some(10) } else if is_key_pressed(KeyCode::N) { Some(14) } else { None };
                     #[cfg(debug_assertions)]
                     debug_keys(g);
                     #[cfg(debug_assertions)]

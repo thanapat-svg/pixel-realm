@@ -163,7 +163,7 @@ fn recipe_icon(r: &Recipe) -> RIcon {
         Eff::Outfit(o) => RIcon::At(IC_CHEST, if o == 1 { hx(0xd8b85a) } else { hx(0x5a9a4a) }),
         Eff::Coat => RIcon::At(IC_CHEST, hx(0xa8784a)),
         Eff::Boat => RIcon::Boat,
-        Eff::Guard(k) => RIcon::At(IC_HELM, if k == 0 { hx(0xc8a070) } else { hx(0xa8b4c8) }),
+        Eff::Guard(k) => RIcon::At(IC_HELM, match k { 0 => hx(0xc8a070), 1 => hx(0xa8b4c8), 2 => hx(0x8a92a8), _ => hx(0x7af0ff) }),
     }
 }
 fn draw_ricon(sp: &Sprites, ic: &RIcon, x: f32, y: f32, s: f32, dim: bool) {
@@ -928,6 +928,7 @@ pub fn draw_menu(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState) -> b
     if !g.npcs.is_empty() || ui.npc.is_some() {
         tabs.push((10, "ชุมชน"));
     }
+    if g.p.lvl >= 3 || g.animals.iter().any(|a| a.tame) || g.comp.is_some() || !g.rs.crew.m.is_empty() { tabs.push((14, "บริวาร")); }
     if let Some((ci, _)) = ui.city { let _ = ci; tabs.push((12, "เมือง")); }
     if g.rs.inited { tabs.push((11, "อาณาจักร")); }
     tabs.push((7, "ตั้งค่า"));
@@ -973,6 +974,7 @@ pub fn draw_menu(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState) -> b
         10 => tab_town(g, sp, font, ui, c, u),
         11 => tab_realm(g, sp, font, ui, c, u),
         12 => tab_city(g, sp, font, ui, c, u),
+        14 => tab_crew(g, sp, font, ui, c, u),
         13 => { let top = c.y - ui.scroll; tab_saga(g, font, c, top, u) - top }
         _ => tab_shop(g, sp, font, ui, c, u),
     };
@@ -992,110 +994,171 @@ pub fn draw_menu(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState) -> b
     btn(ui, font, br, "ปิด", true, u) || ui.close
 }
 
-/// v33 พวกของเรา — จัดการสัตว์เลี้ยง (ปล่อย/เปลี่ยนตัว) · ผู้ติดตามที่จ้าง · ยามหุ่น/บอสที่มาเป็นพวก
-fn crew_section(g: &mut Game, font: &Font, ui: &mut UiState, c: Rect, u: f32, mut y: f32) -> f32 {
+/// v33 แท็บ "บริวาร": สัตว์เลี้ยง · ผู้ติดตามจ้าง · โกเลม/หุ่น · บอสที่ยอมมาเป็นพวก — เปลี่ยนหน้าที่/ดูแล/ปล่อยแตะเดียว
+pub struct CCard {
+    /// 0 พวก (โกเลม/หุ่น/บอส) · 1 สัตว์เลี้ยง · 2 ผู้ติดตามจ้าง
+    pub src: u8,
+    pub id: u32,
+    pub title: String,
+    pub role: u8,
+    pub hp: (f32, f32),
+    /// ความอิ่ม/อารมณ์ (None = ไม่ใช้)
+    pub sat: Option<(String, f32)>,
+    /// ความภักดี 0..100 (None = โกเลม/หุ่น ซื่อสัตย์ 100%)
+    pub loy: Option<f32>,
+    pub traits: String,
+    pub info: String,
+    pub wher: String,
+    pub warn: Option<String>,
+    pub down: bool,
+    pub mind: bool,
+    pub golem: bool,
+    pub can_feed: bool,
+    pub feed_lbl: String,
+    pub can_pat: bool,
+}
+fn rel_text(g: &Game, x: f32, y: f32) -> String {
+    let (dx, dy) = (((x - g.p.x) / 16.).round() as i32, ((y - g.p.y) / 16.).round() as i32);
+    if dx.abs() + dy.abs() <= 2 { "อยู่ข้างตัวคุณ".to_string() } else { source::dir_text(dx, dy) }
+}
+pub fn crew_cards(g: &Game) -> Vec<CCard> {
     use crew::*;
-    let pets: Vec<u8> = g.animals.iter().filter(|a| a.tame).map(|a| a.k).collect();
-    header(font, c, y, &format!("พวกของเรา (สัตว์เลี้ยง {}/{} · ยาม/พวก {}/{})", pets.len(), PET_MAX, g.rs.crew.m.len(), CREW_MAX), u);
+    let mut v: Vec<CCard> = vec![];
+    for (i, a) in g.animals.iter().filter(|a| a.tame).enumerate() {
+        let mx = AN_STAT[a.k as usize].0;
+        let tr = format!("{} · {}", if a.bold > 0.6 { "กล้าหาญ" } else if a.bold < 0.3 { "ขี้อาย" } else { "ร่าเริง" }, if a.k == A_WOLF { "ซื่อสัตย์ ชอบเนื้อ" } else { "ขี้อ้อน ชอบแครอท/ผลไม้" });
+        let warn = if a.sat <= 0. || a.loy < 25. { Some("ใกล้หนีกลับป่า! ให้อาหาร/ลูบด่วน".to_string()) } else if a.sat < PET_WEAK { Some("หิวมาก — อ่อนแอ เดินช้า และไม่ยอมช่วยสู้ จนกว่าจะได้กิน".to_string()) } else { None };
+        let food = Game::pet_food(a.k);
+        let fl = food.iter().find(|&&f| g.p.inv[f] > 0).copied().unwrap_or(food[0]);
+        v.push(CCard { src: 1, id: i as u32, title: format!("{} · สัตว์เลี้ยง", AN_NAME[a.k as usize]), role: a.role, hp: (a.hp.min(mx), mx), sat: Some(("อิ่ม".into(), a.sat)), loy: Some(a.loy), traits: tr,
+            info: if a.k == A_WOLF { "กัดมอนสเตอร์ใกล้ตัว (เฝ้าจุด: กัดเฉพาะที่เข้าใกล้จุดประจำ)".into() } else { "น่ารักเดินตามไปทุกที่".into() },
+            wher: rel_text(g, a.x, a.y), warn, down: false, mind: true, golem: false, can_feed: a.sat < 90., feed_lbl: format!("ให้{}", INAME[fl]), can_pat: a.pat <= 0. });
+    }
+    if let Some(cm) = g.comp.as_ref() {
+        v.push(CCard { src: 2, id: 0, title: format!("{} · ผู้ติดตามจ้าง", COMP_N[cm.kind as usize]), role: 0, hp: (0., 0.), sat: None, loy: None, traits: "รับจ้างไว้ — ไม่ต้องกินอาหาร".into(), info: COMP_D[cm.kind as usize].to_string(), wher: rel_text(g, cm.x, cm.y), warn: None, down: false, mind: false, golem: false, can_feed: false, feed_lbl: String::new(), can_pat: false });
+    }
+    let day = day_of(g);
+    for m in &g.rs.crew.m {
+        let (info, warn);
+        if m.mind() {
+            let want = if m.wished() == M_GUARD { "อยากเฝ้าบ้าน (รักถิ่น รักหน้าที่)" } else { "อยากออกผจญภัยกับคุณ (ช่างสังคม อยากรู้อยากเห็น)" };
+            if m.mode != m.wished() && m.mode != M_ROAM { info = format!("{} — ตอนนี้ไม่ได้ทำสิ่งที่อยาก ใจจะค่อยๆ ห่าง", want); } else { info = format!("{} · {}", want, if m.mode == M_ROAM { "กำลังพักผ่อน" } else { "ได้ทำสิ่งที่อยากแล้ว" }); }
+            warn = if m.loyalty < 25 || m.mood < 30 { Some("เหงา/เสียใจ — ให้ของโปรดเพื่อรั้งไว้ ไม่งั้นจะลาไป".to_string()) } else { None };
+        } else {
+            info = m.skill_text().to_string();
+            warn = if m.down { Some("ล้มอยู่ — ซ่อมตัวเองแล้วลุกขึ้นตอนเช้า (ไม่ต้องกินอาหาร)".to_string()) } else { None };
+        }
+        let fed = m.fed_day == day;
+        let _ = fed;
+        v.push(CCard { src: 0, id: m.id, title: m.name(), role: m.mode, hp: (m.hp, m.maxhp()), sat: if m.mind() { Some(("อารมณ์".into(), m.mood as f32)) } else { None }, loy: if m.mind() { Some(m.loyalty as f32) } else { None },
+            traits: if m.mind() { format!("นิสัย: {}", trait_words(&m.t)) } else { "ซื่อสัตย์ 100% · ไม่กินอาหาร · ไม่ทรยศ".into() }, info, wher: rel_text(g, m.x, m.y), warn, down: m.down, mind: m.mind(), golem: !m.mind(),
+            can_feed: m.mind() && m.fed_day != day, feed_lbl: format!("ให้{}", INAME[m.fav()]), can_pat: false });
+    }
+    v
+}
+fn tab_crew(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32 {
+    use crew::*;
+    let top = c.y - ui.scroll;
+    let mut y = top;
+    let cards = crew_cards(g);
+    let npets = cards.iter().filter(|k| k.src == 1).count();
+    header(font, c, y, &format!("บริวาร / สัตว์เลี้ยง (สัตว์ {}/{} · พวก {}/{})", npets, PET_MAX, g.rs.crew.m.len(), CREW_MAX), u);
     y += 28. * u;
     let now = get_time();
     let armed = |g: &Game, kind: u8, id: u32| g.rs.crew.confirm.map_or(false, |(k, i, t)| k == kind && i == id && now - t < 4.);
-    // (ชนิด, id, คำสั่ง) ชนิด 0 พวก · 1 สัตว์เลี้ยง · 2 ผู้ติดตามจ้าง
+    // (ชนิด, id, คำสั่ง) คำสั่ง: 0 ตามตัว · 1 เฝ้าจุด · 2 พัก/เดินเล่น · 3 ให้อาหาร/ของ · 4 ลูบ · 5 ปล่อย/รื้อ
     let mut act: Option<(u8, u32, u8)> = None;
-    for (i, &k) in pets.iter().enumerate() {
-        let hh = 46. * u;
+    let gold = hx(0xffcc66);
+    for k in &cards {
+        let hh = 194. * u;
         if visible(y, hh, c) {
-            text(font, &format!("{} · สัตว์เลี้ยง", AN_NAME[k as usize]), c.x + 8. * u, y + 20. * u, 14. * u, hx(0xffcc66));
-            text(font, &fit_line(font, "เดินตามและช่วยสู้ · ปล่อยแล้วเลี้ยงตัวใหม่แทนได้", 10.5 * u, c.w - 124. * u), c.x + 8. * u, y + 36. * u, 10.5 * u, hx(0xaaaaaa));
-            let lab = if armed(g, 1, i as u32) { "แน่ใจ?" } else { "ปล่อย" };
-            if btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 7. * u, 92. * u, 32. * u), lab, true, u) { act = Some((1, i as u32, 3)); }
-            sep(c, y + hh - 2.);
-        }
-        y += hh;
-    }
-    if pets.len() < PET_MAX {
-        let ws = wrap_th(font, "เลี้ยงเพิ่มได้: หมาป่าชอบเนื้อ · กระต่ายชอบแครอท/ผลไม้ — ยืนหน้าสัตว์ ถือของแล้วกด ใช้ (ไม่ได้ทุกครั้ง ลองป้อนซ้ำ)", 10.5 * u, c.w - 24. * u);
-        let hh = ws.len() as f32 * 13. * u + 8. * u;
-        if visible(y, hh, c) { for (k, w) in ws.iter().enumerate() { text(font, w, c.x + 8. * u, y + 13. * u + k as f32 * 13. * u, 10.5 * u, hx(0x8899aa)); } }
-        y += hh;
-    }
-    if let Some(cm) = g.comp.as_ref() {
-        let hh = 46. * u;
-        let kind = cm.kind;
-        if visible(y, hh, c) {
-            text(font, &format!("{} · ผู้ติดตามจ้าง", COMP_N[kind as usize]), c.x + 8. * u, y + 20. * u, 14. * u, hx(0xffcc66));
-            text(font, &fit_line(font, COMP_D[kind as usize], 10.5 * u, c.w - 124. * u), c.x + 8. * u, y + 36. * u, 10.5 * u, hx(0xaaaaaa));
-            let lab = if armed(g, 2, 0) { "แน่ใจ?" } else { "ไล่ออก" };
-            if btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 7. * u, 92. * u, 32. * u), lab, true, u) { act = Some((2, 0, 3)); }
-            sep(c, y + hh - 2.);
-        }
-        y += hh;
-    }
-    let cur_day = day_of(g);
-    let rows: Vec<(u32, String, bool, u8, u8, i32, i32, String, bool, u8)> = g.rs.crew.m.iter().map(|m| {
-        (m.id, m.name(), m.mind(), m.mode, m.wished(), m.loyalty, m.mood, trait_words(&m.t), m.fed_day == cur_day, m.kind)
-    }).collect();
-    for (id, name, mind, mode, wish, loy, mood, tw, fed, kind) in &rows {
-        let hh = 118. * u;
-        if visible(y, hh, c) {
-            text(font, &fit_line(font, name, 14. * u, c.w - 150. * u), c.x + 8. * u, y + 18. * u, 14. * u, hx(0xffcc66));
-            let rl = if *mode == M_GUARD { "เฝ้าจุดนี้" } else { "ตามคุณ" };
-            text(font, rl, c.x + c.w - 8. * u - measure_text(rl, Some(font), (11. * u) as u16, 1.).width, y + 18. * u, 11. * u, if *mode == M_GUARD { hx(0x8ac0ff) } else { hx(0x9ae89a) });
-            if *mind {
-                text(font, &fit_line(font, &format!("นิสัย: {}", tw), 10.5 * u, c.w - 20. * u), c.x + 8. * u, y + 34. * u, 10.5 * u, hx(0xc8b8d8));
-                let bw = (c.w - 24. * u) / 2. - 36. * u;
-                text(font, "ภักดี", c.x + 8. * u, y + 49. * u, 10.5 * u, hx(0xff9ab0));
-                bar(c.x + 44. * u, y + 41. * u, bw, 8. * u, *loy as f32 / 100., if *loy >= 50 { hx(0xff7aa0) } else if *loy >= 25 { hx(0xe8c84a) } else { hx(0xd05a5a) });
-                let mx = c.x + 44. * u + bw + 12. * u;
-                text(font, "อารมณ์", mx, y + 49. * u, 10.5 * u, hx(0x9ad8ff));
-                bar(mx + 40. * u, y + 41. * u, bw - 4. * u, 8. * u, *mood as f32 / 100., mood_col(*mood));
-                let want = if *wish == M_GUARD { "อยากเฝ้าบ้าน (รักถิ่น รักหน้าที่)" } else { "อยากออกผจญภัยกับคุณ (ช่างสังคม อยากรู้อยากเห็น)" };
-                let (msg, col) = if *mode != *wish { (format!("{} — ตอนนี้ไม่ได้ทำสิ่งที่อยาก ใจจะค่อยๆ ห่าง", want), hx(0xe8a860)) } else if *loy < 25 || *mood < 30 { ("เหงา/เสียใจ — ให้ของโปรดเพื่อรั้งไว้ ไม่งั้นจะลาไป".to_string(), hx(0xff8877)) } else { (format!("{} · ได้ทำสิ่งที่อยากแล้ว", want), hx(0x9ae89a)) };
-                for (k, l) in wrap_th(font, &msg, 10.5 * u, c.w - 20. * u).iter().take(2).enumerate() { text(font, l, c.x + 8. * u, y + 66. * u + k as f32 * 12. * u, 10.5 * u, col); }
-            } else {
-                text(font, &fit_line(font, "คราฟต์เอง — เป็นเครื่องจักร ไม่มีความรู้สึก ไม่ต้องดูแล", 10.5 * u, c.w - 20. * u), c.x + 8. * u, y + 34. * u, 10.5 * u, hx(0xaab4c8));
-                text(font, &fit_line(font, "รื้อแล้วได้วัสดุคืนครึ่งหนึ่ง", 10.5 * u, c.w - 20. * u), c.x + 8. * u, y + 50. * u, 10.5 * u, hx(0x8899aa));
+            let (lw, bw) = (c.w - 16. * u, (c.w - 16. * u - 14. * u) / 2.);
+            text(font, &fit_line(font, &k.title, 14. * u, c.w - 140. * u), c.x + 8. * u, y + 18. * u, 14. * u, if k.down { hx(0x999999) } else { gold });
+            let (rl, rc) = if k.src == 2 { ("ตามตัว", hx(0x9ae89a)) } else { match k.role { M_GUARD => ("เฝ้าจุดนี้", hx(0x8ac0ff)), M_ROAM => ("พัก/เดินเล่น", hx(0xb0e890)), _ => ("ตามตัว", hx(0x9ae89a)) } };
+            text(font, rl, c.x + c.w - 8. * u - measure_text(rl, Some(font), (11. * u) as u16, 1.).width, y + 18. * u, 11. * u, rc);
+            // แถบสถานะ: HP | อิ่ม/อารมณ์ แถวบน · ภักดี | ที่อยู่ แถวล่าง
+            let (r1, r2) = (y + 30. * u, y + 47. * u);
+            let lab = 38. * u;
+            if k.hp.1 > 0. {
+                text(font, "HP", c.x + 8. * u, r1 + 8. * u, 10.5 * u, hx(0xff8888));
+                bar(c.x + 8. * u + lab * 0.6, r1, bw - lab * 0.6 - 4. * u, 8. * u, k.hp.0 / k.hp.1, if k.hp.0 / k.hp.1 > 0.5 { hx(0x6ad06a) } else if k.hp.0 / k.hp.1 > 0.25 { hx(0xe8c84a) } else { hx(0xd05a5a) });
+                text(font, &format!("{}/{}", k.hp.0.round() as i32, k.hp.1 as i32), c.x + 8. * u + lab * 0.6 + 4. * u, r1 + 8. * u, 9. * u, WHITE);
             }
-            let (gap, by, bh) = (5. * u, y + hh - 36. * u, 30. * u);
-            let bw = (c.w - 16. * u - gap * 3.) / 4.;
-            let r = |k: usize| Rect::new(c.x + 8. * u + k as f32 * (bw + gap), by, bw, bh);
-            if btn(ui, font, r(0), "ตามฉัน", *mode != M_FOLLOW, u) { act = Some((0, *id, 0)); }
-            if btn(ui, font, r(1), if *mode == M_GUARD { "ย้ายจุดเฝ้า" } else { "เฝ้าตรงนี้" }, true, u) { act = Some((0, *id, 1)); }
-            let fav = fav_of_member(*kind);
-            let can_gift = *mind && !*fed;
-            if btn(ui, font, r(2), if *mind { "ให้ของ" } else { "-" }, can_gift, u) { act = Some((0, *id, 2)); }
-            let lab = if armed(g, 0, *id) { "แน่ใจ?" } else if *mind { "ปล่อย" } else { "รื้อ" };
-            if btn(ui, font, r(3), lab, true, u) { act = Some((0, *id, 3)); }
-            let _ = fav;
+            let rx = c.x + 8. * u + bw + 14. * u;
+            if let Some((nm, v)) = &k.sat {
+                text(font, nm, rx, r1 + 8. * u, 10.5 * u, hx(0x9ad8ff));
+                bar(rx + lab * 1.1, r1, bw - lab * 1.1, 8. * u, v / 100., if k.src == 1 { if *v >= 50. { hx(0x6ad06a) } else if *v >= PET_WEAK { hx(0xe8c84a) } else { hx(0xd05a5a) } } else { mood_col(*v as i32) });
+            }
+            match k.loy {
+                Some(l) => {
+                    text(font, "ภักดี", c.x + 8. * u, r2 + 8. * u, 10.5 * u, hx(0xff9ab0));
+                    bar(c.x + 8. * u + lab * 0.9, r2, bw - lab * 0.9 - 4. * u, 8. * u, l / 100., if l >= 50. { hx(0xff7aa0) } else if l >= 25. { hx(0xe8c84a) } else { hx(0xd05a5a) });
+                }
+                None => if k.golem { text(font, "ภักดี 100%", c.x + 8. * u, r2 + 8. * u, 10.5 * u, hx(0xffb0c0)); },
+            }
+            text(font, &fit_line(font, &format!("ที่: {}", k.wher), 10.5 * u, bw), rx, r2 + 8. * u, 10.5 * u, hx(0xaabbcc));
+            text(font, &fit_line(font, &k.traits, 10.5 * u, lw), c.x + 8. * u, y + 76. * u, 10.5 * u, hx(0xc8b8d8));
+            let mut ly = y + 90. * u;
+            let (txt, col) = match &k.warn { Some(w) => (w.clone(), hx(0xff8877)), None => (k.info.clone(), hx(0x9aa4b4)) };
+            for l in wrap_th(font, &txt, 10.5 * u, lw).iter().take(2) { text(font, l, c.x + 8. * u, ly, 10.5 * u, col); ly += 12.5 * u; }
+            // ปุ่ม: แถว 1 = หน้าที่ (อันที่ใช้อยู่เป็นสีเทา) · แถว 2 = ดูแล/ปล่อย
+            let (gap, bh) = (5. * u, 30. * u);
+            let w3 = (lw - gap * 2.) / 3.;
+            let (b1, b2) = (y + hh - 2. * bh - gap - 6. * u, y + hh - bh - 6. * u);
+            if k.src != 2 {
+                let roles = [("ตามฉัน", 0u8), ("เฝ้าจุดนี้", 1), ("พัก/เดินเล่น", 2)];
+                for (j, (lbl, r)) in roles.iter().enumerate() {
+                    if btn(ui, font, Rect::new(c.x + 8. * u + j as f32 * (w3 + gap), b1, w3, bh), lbl, k.role != *r, u) { act = Some((k.src, k.id, *r)); }
+                }
+            } else {
+                text(font, "ผู้ติดตามจ้างเดินตามอย่างเดียว", c.x + 8. * u, b1 + bh * 0.65, 11. * u, hx(0x889099));
+            }
+            let rel_lbl = if armed(g, k.src, k.id) { "แน่ใจ?" } else if k.src == 1 { "ปล่อย" } else if k.src == 2 { "ไล่ออก" } else if k.mind { "ปล่อย" } else { "รื้อ" };
+            let rel_r = Rect::new(c.x + 8. * u + 2. * (w3 + gap), b2, w3, bh);
+            if btn(ui, font, rel_r, rel_lbl, true, u) { act = Some((k.src, k.id, 5)); }
+            if k.src == 1 {
+                if btn(ui, font, Rect::new(c.x + 8. * u, b2, w3, bh), &k.feed_lbl, k.can_feed, u) { act = Some((1, k.id, 3)); }
+                if btn(ui, font, Rect::new(c.x + 8. * u + w3 + gap, b2, w3, bh), "ลูบ", k.can_pat, u) { act = Some((1, k.id, 4)); }
+            } else if k.src == 0 && k.mind {
+                if btn(ui, font, Rect::new(c.x + 8. * u, b2, w3 * 2. + gap, bh), &k.feed_lbl, k.can_feed, u) { act = Some((0, k.id, 3)); }
+            } else if k.golem {
+                text(font, "ล้มแล้วซ่อมตัวเองตอนเช้า", c.x + 8. * u, b2 + bh * 0.65, 10.5 * u, hx(0x889099));
+            }
             sep(c, y + hh - 2.);
         }
         y += hh;
     }
-    if rows.is_empty() && pets.is_empty() && g.comp.is_none() {
-        let ws = wrap_th(font, "ยังไม่มีพวก — คราฟต์ \"หุ่นไม้ยาม\"/\"โกเลมหินเฝ้าบ้าน\" เฝ้าบ้าน หรือสู้ราชาสไลม์/โกเลมจนมันยอมแพ้ แล้วเลือกชวนมาเป็นพวก (ถ้ามันสมัครใจ)", 10.5 * u, c.w - 24. * u);
-        let hh = ws.len() as f32 * 13. * u + 10. * u;
-        if visible(y, hh, c) { for (k, w) in ws.iter().enumerate() { text(font, w, c.x + 8. * u, y + 14. * u + k as f32 * 13. * u, 10.5 * u, hx(0x888899)); } }
+    if cards.is_empty() {
+        let ws = wrap_th(font, "ยังไม่มีบริวาร — เลี้ยงหมาป่า/กระต่าย (ป้อนเนื้อ/แครอทแล้วกด ใช้) · จ้างผู้ติดตามที่เมนูตั้งค่า · คราฟต์โกเลมหิน/เหล็ก/คริสตัลที่โต๊ะขั้นสูง (ต้องใช้แกนโกเลม) · หรือสู้ราชาสไลม์/โกเลมจนยอมแพ้แล้วชวนเป็นพวก (ถ้าเขาเต็มใจ)", 11. * u, c.w - 24. * u);
+        let hh = ws.len() as f32 * 14. * u + 12. * u;
+        if visible(y, hh, c) { for (k, w) in ws.iter().enumerate() { text(font, w, c.x + 8. * u, y + 16. * u + k as f32 * 14. * u, 11. * u, hx(0x9999aa)); } }
         y += hh;
+        // แกนโกเลม/แร่เหล็กหาได้จากไหน (v32)
+        y += source::draw_lack(g, _sp, font, c, y, u, &[(CORE, 1), (IRON, 1)]);
     }
-    if let Some((kind, id, a)) = act {
-        let is_release = a == 3;
-        if is_release && !armed(g, kind, id) {
-            g.rs.crew.confirm = Some((kind, id, now));
+    if let Some((src, id, a)) = act {
+        if a == 5 && !armed(g, src, id) {
+            g.rs.crew.confirm = Some((src, id, now));
         } else {
             g.rs.crew.confirm = None;
-            match (kind, a) {
+            match (src, a) {
                 (0, 0) => g.crew_set_mode(id, M_FOLLOW),
                 (0, 1) => g.crew_set_mode(id, M_GUARD),
-                (0, 2) => g.crew_gift_member(id),
+                (0, 2) => g.crew_set_mode(id, M_ROAM),
+                (0, 3) => g.crew_gift_member(id),
                 (0, _) => g.crew_release(id),
+                (1, 0) => g.pet_set_role(id as usize, PET_FOLLOW),
+                (1, 1) => g.pet_set_role(id as usize, PET_GUARD),
+                (1, 2) => g.pet_set_role(id as usize, PET_ROAM),
+                (1, 3) => g.pet_feed(id as usize),
+                (1, 4) => g.pet_pat(id as usize),
                 (1, _) => g.pet_release(id as usize),
                 _ => g.dismiss_comp(),
             }
         }
     }
-    y
+    y - top
 }
-fn fav_of_member(kind: u8) -> usize { crew::fav_of(kind.saturating_sub(crew::K_SLIME)) }
 fn fit_line(font: &Font, t: &str, size: f32, maxw: f32) -> String { source::fit_text(font, t, size, maxw) }
 
 // ======================= แท็บ "ชุมชน": ภาพรวมเมือง + บทสนทนา NPC =======================
@@ -1231,8 +1294,6 @@ fn tab_town(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
     }
     if let Some(id) = talk { g.npc_talk(id); }
     if let Some(id) = open { ui.npc = Some(id); ui.scroll = 0.; return y - top; }
-    // ===== v33 พวกของเรา: สัตว์เลี้ยง · ผู้ติดตาม · ยาม/บอสที่ยอมมาเป็นพวก =====
-    y = crew_section(g, font, ui, c, u, y);
     // งานตอนนี้: อาชีพละกี่คน กำลังทำอะไร
     if !st.roles.is_empty() {
         header(font, c, y, "อาชีพ & งานตอนนี้", u);
