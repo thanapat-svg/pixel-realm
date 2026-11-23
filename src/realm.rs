@@ -1090,6 +1090,7 @@ impl Game {
         if d >= a { self.battle_won(k); } else { self.battle_lost(k); }
     }
     fn battle_won(&mut self, k: usize) {
+        self.crew_battle(true);
         self.rs.siege_wins += 1;
         self.rs.ks[k].strength *= 0.8;
         self.rs.ks[k].army_cd = day_of(self) + 5;
@@ -1104,6 +1105,7 @@ impl Game {
         }
     }
     fn battle_lost(&mut self, k: usize) {
+        self.crew_battle(false);
         let take = self.tax_pool / 2;
         self.tax_pool -= take;
         let mut looted = take;

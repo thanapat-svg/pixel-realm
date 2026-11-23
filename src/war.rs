@@ -849,7 +849,8 @@ pub fn boss_bar_info(g: &Game) -> Option<(String, String, f32, bool)> {
         (a.x - g.p.x).hypot(a.y - g.p.y).partial_cmp(&(c.x - g.p.x).hypot(c.y - g.p.y)).unwrap()
     })?;
     let frac = (b.hp / b.maxhp).clamp(0., 1.);
-    if b.kind == CHAMP { let (t, s) = champ_title(g, b); Some((t, s, frac, b.ph2)) } else { Some((BNAME[b.kind as usize].to_string(), String::new(), frac, b.ph2)) }
+    let tag = if crew::yieldable(b.kind) { format!("นิสัย: {}", crew::AR_N[(b.arch as usize).min(3)]) } else { String::new() };
+    if b.kind == CHAMP { let (t, s) = champ_title(g, b); Some((t, if s.is_empty() { tag } else { format!("{} · {}", s, tag) }, frac, b.ph2)) } else { Some((BNAME[b.kind as usize].to_string(), tag, frac, b.ph2)) }
 }
 
 /// ตอนนี้กำลังสู้ (บอสใกล้ · ศึกป้องกันเมือง · ศึกยึดเมือง) — ซ่อนแถบเป้าหมาย/คำแนะนำ ให้จอโล่ง
@@ -1553,7 +1554,7 @@ mod tests {
     }
     #[test]
     fn ult_shapes_hit_inside_and_miss_outside() {
-        let mut b = Boss { kind: CHAMP, x: 0., y: 0., hp: 1., maxhp: 1., atk: 4, st: 1., st0: 1., cd: 0., tx: 50., ty: 0., dash: 0., dvx: 1., dvy: 0., flash: 0., anim: 0., ph2: true, dead: false, burn: 0., slow: 0., btick: 0., k: 0, roar: 2, style: CS_WARRIOR, yld: false };
+        let mut b = Boss { kind: CHAMP, x: 0., y: 0., hp: 1., maxhp: 1., atk: 4, st: 1., st0: 1., cd: 0., tx: 50., ty: 0., dash: 0., dvx: 1., dvy: 0., flash: 0., anim: 0., ph2: true, dead: false, burn: 0., slow: 0., btick: 0., k: 0, roar: 2, style: CS_WARRIOR, yld: false, arch: 0, ally: false };
         let hit = |b: &Boss, px: f32, py: f32| champ_ult_shapes(b).iter().any(|&(k, x, y, r, ux, uy)| ult_hits(k, x, y, r, ux, uy, px, py));
         assert!(hit(&b, 40., 0.) && !hit(&b, 70., 0.), "ทุบพื้นวงรัศมี 58");
         b.style = CS_DESERT;

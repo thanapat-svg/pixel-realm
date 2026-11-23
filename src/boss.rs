@@ -42,6 +42,10 @@ pub struct Boss {
     pub style: u8,
     /// v33 ยอมแพ้แล้ว: หยุดสู้ รอผู้เล่นเลือก (ชวน/ให้ของ/ปล่อย/ปราบ)
     pub yld: bool,
+    /// v33 นิสัยบอส: 0 มีเกียรติ · 1 ทะเยอทะยาน · 2 หยิ่งทระนง · 3 ดุร้ายคลั่ง (ไม่ยอมแพ้)
+    pub arch: u8,
+    /// v33 มีลูกน้อง/ทหารช่วยตีบอสตัวนี้ (ไม่นับเป็นชัยชนะอย่างมีเกียรติ)
+    pub ally: bool,
 }
 
 impl Game {
@@ -52,7 +56,7 @@ impl Game {
     }
     pub fn spawn_boss_hp(&mut self, kind: u8, x: f32, y: f32, hp: f32) {
         self.bosses.push(Boss {
-            kind, x, y, hp, maxhp: hp, atk: 0, st: 0., st0: 1., cd: 1.5, tx: x, ty: y, dash: 0., dvx: 0., dvy: 0., flash: 0., anim: 0., ph2: false, dead: false, burn: 0., slow: 0., btick: 0., k: 0, roar: 0, style: 0, yld: false,
+            kind, x, y, hp, maxhp: hp, atk: 0, st: 0., st0: 1., cd: 1.5, tx: x, ty: y, dash: 0., dvx: 0., dvy: 0., flash: 0., anim: 0., ph2: false, dead: false, burn: 0., slow: 0., btick: 0., k: 0, roar: 0, style: 0, yld: false, arch: crew::boss_arch_for(self.w.seed, kind, x, y), ally: false,
         });
         if kind == CHAMP { return; }
         self.toast(format!("{} ปรากฏตัว!", BNAME[kind as usize]));

@@ -182,6 +182,7 @@ impl Game {
             if self.boss_yield_try(i) { return; }
             self.bosses[i].dead = true;
             let b = self.bosses[i].clone();
+            self.feral_loot(&b);
             self.boss_die(&b);
         }
     }
@@ -444,6 +445,7 @@ impl Game {
                 let dmg = if c.kind == 0 { 2 + self.p.lvl / 4 } else { 4 + self.p.lvl / 3 };
                 c.atk_cd = if c.kind == 0 { 0.7 } else { 0.95 };
                 if boss {
+                    self.bosses[i].ally = true;
                     self.damage_boss(i, (dmg / 2).max(1), false);
                 } else {
                     self.damage_enemy(i, dmg, false, dx / d, dy / d);

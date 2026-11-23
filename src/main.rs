@@ -902,6 +902,7 @@ impl Game {
                 "living" => g.living_load(&rest),
                 "permit" => g.permit_load(&rest),
                 "crewrel" => g.crew_load_rel(&rest),
+                "crewst" => g.crew_load_st(&rest),
                 "crew" => g.crew_load(&rest),
                 "war" => g.war_load(&rest),
                 "v9" => g.balance_load_line(&rest),
@@ -2655,7 +2656,16 @@ fn debug_keys(g: &mut Game) {
     if shift && is_key_pressed(KeyCode::F2) { g.dbg_caravan(); }
     if shift && is_key_pressed(KeyCode::F11) { g.req = Some(Req::RolePick(R_SOLDIER)); }
     let ctrl = is_key_down(KeyCode::LeftControl);
-    if ctrl && (is_key_pressed(KeyCode::F1) || is_key_pressed(KeyCode::F2)) { let k = if is_key_pressed(KeyCode::F1) { 0 } else { 1 }; g.bosses.clear(); g.rs.crew.yld = None; let (x, y) = (g.p.x + 46., g.p.y - 6.); g.spawn_boss_hp(k, x, y, 10.); g.damage_boss(0, 999, false); g.p.inv[BERRY] += 3; g.p.inv[GEM] += 3; }
+    // debug: Ctrl+F1..F4 = บอสยอมแพ้ตามนิสัย (F1 สไลม์มีเกียรติ · F2 โกเลมทะเยอทะยาน · F3 สไลม์หยิ่ง · F4 โกเลมดุร้าย)
+    if ctrl && (is_key_pressed(KeyCode::F1) || is_key_pressed(KeyCode::F2) || is_key_pressed(KeyCode::F3) || is_key_pressed(KeyCode::F4)) {
+        let (k, a) = if is_key_pressed(KeyCode::F1) { (0, crew::AR_HONOR) } else if is_key_pressed(KeyCode::F2) { (1, crew::AR_AMBI) } else if is_key_pressed(KeyCode::F3) { (0, crew::AR_PRIDE) } else { (1, crew::AR_FERAL) };
+        g.bosses.clear(); g.rs.crew.yld = None;
+        let (x, y) = (g.p.x + 46., g.p.y - 6.);
+        g.spawn_boss_hp(k, x, y, 10.);
+        g.bosses[0].arch = a;
+        g.damage_boss(0, 999, false);
+        g.p.inv[BERRY] += 3; g.p.inv[GEM] += 3;
+    }
     if shift && is_key_pressed(KeyCode::F10) { g.build_sel = PIECES.iter().position(|p| p.obj == OBJ_MOVE); }
     if shift && is_key_pressed(KeyCode::F4) { for (j, k) in [EK::Scorp, EK::Wolf, EK::Crab, EK::Imp].into_iter().enumerate() { let (x, y) = (g.p.x - 60. + j as f32 * 40., g.p.y + 50.); g.make_enemy(k, x, y, 1., 0, false); if let Some(e) = g.en.last_mut() { e.stun = 6.; } } }
     if shift && is_key_pressed(KeyCode::F5) { let r = g.w.realm.clone(); if !g.rs.inited { g.rs.init(&r); } for st in 0..3u8 { let (x, y) = (g.p.x - 70. + st as f32 * 70., g.p.y - 50.); g.spawn_champion(st as usize % r.ks.len(), x, y); if let Some(b) = g.bosses.last_mut() { b.style = st; b.cd = 99.; } } }
@@ -3542,6 +3552,7 @@ mod tests {
             assert!(saw_proj_or_aoe);
             // ฆ่าบอส
             g.bosses[0].hp = 1.;
+            g.bosses[0].arch = crew::AR_HONOR;
             g.hit_boss(0, 5);
             // v33 หมดแรง = ยอมแพ้ก่อน (ยังไม่ตาย) แล้วผู้เล่นเลือกปราบทิ้ง → ได้ของหายากเหมือนเดิม
             assert!(g.bosses[0].yld && !g.bosses[0].dead);

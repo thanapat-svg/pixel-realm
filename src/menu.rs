@@ -1041,9 +1041,11 @@ pub fn crew_cards(g: &Game) -> Vec<CCard> {
     for m in &g.rs.crew.m {
         let (info, warn);
         if m.mind() {
-            let want = if m.wished() == M_GUARD { "อยากเฝ้าบ้าน (รักถิ่น รักหน้าที่)" } else { "อยากออกผจญภัยกับคุณ (ช่างสังคม อยากรู้อยากเห็น)" };
-            if m.mode != m.wished() && m.mode != M_ROAM { info = format!("{} — ตอนนี้ไม่ได้ทำสิ่งที่อยาก ใจจะค่อยๆ ห่าง", want); } else { info = format!("{} · {}", want, if m.mode == M_ROAM { "กำลังพักผ่อน" } else { "ได้ทำสิ่งที่อยากแล้ว" }); }
-            warn = if m.loyalty < 25 || m.mood < 30 { Some("เหงา/เสียใจ — ให้ของโปรดเพื่อรั้งไว้ ไม่งั้นจะลาไป".to_string()) } else { None };
+            let a = m.arch.min(2) as usize;
+            info = if m.mode != m.wished() && m.mode != M_ROAM { format!("{} · ตอนนี้ไม่ได้ทำสิ่งที่อยาก ใจจะค่อยๆ ห่าง", AR_D[a]) } else { AR_D[a].to_string() };
+            warn = if m.loyalty < 40 {
+                Some(format!("ใจห่าง ({}) — {}{}", cause_text(m.cause), Game::tip_text(m.cause), if m.sad > 0 { format!(" · เหลือ {} วัน ก่อนจะ{}", (2 - m.sad).max(0), if m.arch == AR_HONOR { "ลาไป" } else { "ทรยศ" }) } else { String::new() }))
+            } else { None };
         } else {
             info = m.skill_text().to_string();
             warn = if m.down { Some("ล้มอยู่ — ซ่อมตัวเองแล้วลุกขึ้นตอนเช้า (ไม่ต้องกินอาหาร)".to_string()) } else { None };
@@ -1051,7 +1053,7 @@ pub fn crew_cards(g: &Game) -> Vec<CCard> {
         let fed = m.fed_day == day;
         let _ = fed;
         v.push(CCard { src: 0, id: m.id, title: m.name(), role: m.mode, hp: (m.hp, m.maxhp()), sat: if m.mind() { Some(("อารมณ์".into(), m.mood as f32)) } else { None }, loy: if m.mind() { Some(m.loyalty as f32) } else { None },
-            traits: if m.mind() { format!("นิสัย: {}", trait_words(&m.t)) } else { "ซื่อสัตย์ 100% · ไม่กินอาหาร · ไม่ทรยศ".into() }, info, wher: rel_text(g, m.x, m.y), warn, down: m.down, mind: m.mind(), golem: !m.mind(),
+            traits: if m.mind() { format!("นิสัย{} · {}", AR_N[m.arch.min(2) as usize], if m.wished() == M_GUARD { "อยากเฝ้าบ้าน" } else { "อยากผจญภัยกับคุณ" }) } else { "ซื่อสัตย์ 100% · ไม่กินอาหาร · ไม่ทรยศ".into() }, info, wher: rel_text(g, m.x, m.y), warn, down: m.down, mind: m.mind(), golem: !m.mind(),
             can_feed: m.mind() && m.fed_day != day, feed_lbl: format!("ให้{}", INAME[m.fav()]), can_pat: false });
     }
     v
@@ -1100,7 +1102,7 @@ fn tab_crew(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect,
             text(font, &fit_line(font, &k.traits, 10.5 * u, lw), c.x + 8. * u, y + 76. * u, 10.5 * u, hx(0xc8b8d8));
             let mut ly = y + 90. * u;
             let (txt, col) = match &k.warn { Some(w) => (w.clone(), hx(0xff8877)), None => (k.info.clone(), hx(0x9aa4b4)) };
-            for l in wrap_th(font, &txt, 10.5 * u, lw).iter().take(2) { text(font, l, c.x + 8. * u, ly, 10.5 * u, col); ly += 12.5 * u; }
+            for l in wrap_th(font, &txt, 10.5 * u, lw).iter().take(3) { text(font, l, c.x + 8. * u, ly, 10.5 * u, col); ly += 12.5 * u; }
             // ปุ่ม: แถว 1 = หน้าที่ (อันที่ใช้อยู่เป็นสีเทา) · แถว 2 = ดูแล/ปล่อย
             let (gap, bh) = (5. * u, 30. * u);
             let w3 = (lw - gap * 2.) / 3.;

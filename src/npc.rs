@@ -585,6 +585,7 @@ impl Game {
         for bi in boss_hits {
             if bi < self.bosses.len() && !self.bosses[bi].dead {
                 let (bx, by) = (self.bosses[bi].x, self.bosses[bi].y - 20.);
+                self.bosses[bi].ally = true;
                 self.damage_boss(bi, 2 + bonus, false);
                 self.add_float(bx + gen_range(-8., 8.), by, "ทหาร!", hx(0x88ccff), None);
             }
