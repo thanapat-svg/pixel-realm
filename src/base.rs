@@ -102,7 +102,7 @@ impl Game {
             // v28 ย้ายของ: ยังไม่ได้ยก = ยก · ยกอยู่ = วาง
             let k = self.build_target();
             if self.rs.carry.is_none() {
-                if !self.build_reach(k) { self.toast("ไกลเกินไป — เดินเข้าไปใกล้อีกหน่อย"); return; }
+                if !self.move_reach(k) { self.toast("ไกลเกินไป — เดินเข้าไปใกล้อีกหน่อย"); return; }
                 self.move_pick(k);
             } else { self.move_drop(k); }
             return;

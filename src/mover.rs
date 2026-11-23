@@ -1,11 +1,14 @@
 // mover.rs — v28 ย้ายของที่สร้างแล้ว (ไม่ต้องรื้อแล้วสร้างใหม่)
-//  เลือก "ย้ายของ" ในเมนูสร้าง → แตะของที่สร้างแล้ว 2 ครั้ง = ยกขึ้น → แตะที่ใหม่ 2 ครั้ง = วาง
+//  v31 ใช้ง่ายขึ้น: กดที่ของค้างไว้แล้วลากไปวาง (ปล่อยนิ้ว = วาง) · หรือแตะของ 1 ที แล้วแตะที่ใหม่ 1 ที
+//  ระยะย้ายไกลกว่าระยะสร้าง (เกือบทั้งจอ) · ปุ่ม "ย้ายของ" อยู่บนสุดของเมนูสร้าง
 //  - ของชิ้นเดียว (เฟอร์นิเจอร์ กล่อง เตียง ตะเกียง บ่อน้ำ รั้ว ฯลฯ): ย้ายไปพร้อมของในกล่อง/เจ้าของเตียง
 //  - แตะผนัง/ประตู/หน้าต่าง/พื้นของบ้านที่ปิดเป็นห้อง = ย้าย "ทั้งหลัง" (ผนัง พื้น เฟอร์นิเจอร์ กล่อง เตียง) · หมุนได้ 4 ทิศ
 //  - ระหว่างยก ของยังอยู่ที่เดิม (เซฟกลางทางไม่หาย) · ย้ายจริงทีเดียวตอนวาง · ยกเลิก = อยู่ที่เดิม
 use super::*;
 
 pub const OBJ_MOVE: u8 = 245;
+/// ระยะย้ายของ (ช่อง) — ไกลกว่าระยะสร้าง จะได้ไม่ต้องเดินตามของ
+pub const MOVE_REACH: f32 = 14.;
 
 #[derive(Clone, Debug)]
 pub struct Carry {
@@ -63,7 +66,7 @@ impl Game {
     }
     /// วางที่ anchor ได้ไหม (None = ได้)
     pub fn move_blocked(&self, c: &Carry, anchor: (i32, i32), dir: u8) -> Option<&'static str> {
-        if !self.build_reach(anchor) { return Some("ไกลเกินไป"); }
+        if !self.move_reach(anchor) { return Some("ไกลเกินไป — เดินเข้าไปใกล้อีกหน่อย"); }
         let pairs = self.move_targets(c, anchor, dir);
         if pairs.iter().all(|(s, d)| s == d) { return Some("ยังอยู่ที่เดิม — เลือกที่ใหม่"); }
         let src: HashSet<(i32, i32)> = c.tiles.iter().copied().collect();
@@ -86,7 +89,7 @@ impl Game {
     pub fn move_pick(&mut self, k: (i32, i32)) -> bool {
         match self.move_select(k) {
             Ok(c) => {
-                self.toast(format!("ยกแล้ว: {} — แตะที่ใหม่ 2 ครั้งเพื่อวาง{} · เลิกสร้าง = วางคืนที่เดิม", c.name, if c.building { " · ปุ่มหมุน = หันบ้าน" } else { "" }));
+                self.toast(format!("ยกแล้ว: {} — ลากไปวาง หรือแตะที่ใหม่{}", c.name, if c.building { " · ปุ่มหมุน = หันบ้าน" } else { "" }));
                 self.build_dir = 0;
                 self.rs.carry = Some(c);
                 play(&self.sfx.click);
@@ -142,6 +145,28 @@ impl Game {
     pub fn move_cancel(&mut self) -> bool {
         if self.rs.carry.take().is_some() { self.rs.build_arm = None; self.toast("ยกเลิกการย้าย — ของอยู่ที่เดิม"); true } else { false }
     }
+    pub fn move_reach(&self, c: (i32, i32)) -> bool {
+        (c.0 as f32 * 16. + 8. - self.p.x).hypot(c.1 as f32 * 16. + 8. - (self.p.y - 3.)) <= MOVE_REACH * 16.
+    }
+    /// กดลงบนจอ (โหมดย้ายของ): ยังไม่ได้ยก = ยกของตรงนั้นทันที · ยกอยู่ = เริ่มเลือกที่วาง
+    pub fn move_press(&mut self, t: (i32, i32)) {
+        self.build_cur = Some(t);
+        if self.rs.carry.is_none() {
+            if !self.move_reach(t) { self.toast("ไกลเกินไป — เดินเข้าไปใกล้อีกหน่อย"); play(&self.sfx.deny); self.rs.move_press = None; return; }
+            let ok = self.move_pick(t);
+            self.rs.move_press = if ok { Some((t, true)) } else { None };
+        } else {
+            self.rs.move_press = Some((t, false));
+        }
+    }
+    /// ปล่อยนิ้ว/เมาส์: ลากไปที่ใหม่ = วาง · แตะเฉยๆ ตอนยก = ยกค้างไว้ (แตะที่ใหม่อีกทีเพื่อวาง)
+    pub fn move_release(&mut self, t: (i32, i32)) {
+        let Some((start, fresh)) = self.rs.move_press.take() else { return };
+        if self.rs.carry.is_none() { return; }
+        if fresh && t == start { return; }
+        self.build_cur = Some(t);
+        self.move_drop(t);
+    }
     pub fn moving_on(&self) -> bool { self.build_sel.map_or(false, |s| PIECES[s].obj == OBJ_MOVE) }
 }
 
@@ -194,6 +219,43 @@ mod tests {
         (g, c)
     }
     #[test]
+    fn v31_drag_to_move_and_tap_tap() {
+        let (mut g, c) = town();
+        g.build_sel = PIECES.iter().position(|p| p.obj == OBJ_MOVE);
+        let k = (c.0 + 3, c.1);
+        g.w.placed.insert(k, 14);
+        // กดค้าง-ลาก-ปล่อย = ย้ายทีเดียว
+        g.build_drag(k, true);
+        assert!(g.rs.carry.is_some(), "กดที่ของ = ยกทันที");
+        let to = (c.0 + 6, c.1 + 2);
+        g.build_drag((c.0 + 4, c.1 + 1), false);
+        g.build_drag(to, false);
+        g.build_release();
+        assert_eq!(g.w.placed.get(&to), Some(&14), "ปล่อย = วาง");
+        assert!(g.rs.carry.is_none() && g.w.placed.get(&k).is_none());
+        // แตะ 1 ที = ยกค้าง · แตะที่ใหม่ 1 ที = วาง
+        g.build_drag(to, true);
+        g.build_release();
+        assert!(g.rs.carry.is_some(), "แตะเฉยๆ = ยกค้างไว้");
+        let to2 = (c.0 - 5, c.1 - 3);
+        g.build_drag(to2, true);
+        g.build_release();
+        assert_eq!(g.w.placed.get(&to2), Some(&14));
+        // วางไม่ได้ = ยังถืออยู่ เลือกใหม่ได้
+        g.w.placed.insert((c.0 + 1, c.1 + 1), 14);
+        g.build_drag(to2, true);
+        g.build_release();
+        g.build_drag((c.0 + 1, c.1 + 1), true);
+        g.build_release();
+        assert!(g.rs.carry.is_some(), "มีของขวาง = ยังถืออยู่");
+        // ไกลกว่าระยะสร้างแต่อยู่ในระยะย้าย
+        let far = (c.0 + 12, c.1);
+        assert!(!g.build_reach(far) && g.move_reach(far));
+        g.build_drag(far, true);
+        g.build_release();
+        assert_eq!(g.w.placed.get(&far), Some(&14));
+    }
+    #[test]
     fn move_chest_keeps_contents_and_bed_keeps_owner() {
         let (mut g, c) = town();
         let k = (c.0 + 3, c.1);
@@ -228,7 +290,7 @@ mod tests {
         g.w.placed.insert((c.0 + 4, c.1), 14);
         assert_eq!(g.move_blocked(g.rs.carry.as_ref().unwrap(), (c.0 + 4, c.1), 0), Some("มีของขวางอยู่"));
         // ไกลเกิน
-        assert_eq!(g.move_blocked(g.rs.carry.as_ref().unwrap(), (c.0 + 30, c.1), 0), Some("ไกลเกินไป"));
+        assert_eq!(g.move_blocked(g.rs.carry.as_ref().unwrap(), (c.0 + 30, c.1), 0), Some("ไกลเกินไป — เดินเข้าไปใกล้อีกหน่อย"));
         // ที่เดิม
         assert!(g.move_blocked(g.rs.carry.as_ref().unwrap(), k, 0).is_some());
         // ยกเลิก = อยู่ที่เดิม

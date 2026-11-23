@@ -43,7 +43,7 @@ pub struct Job {
 
 /// โครงการของชาวบ้าน (คิดเอง): สร้างบ้านของตัวเอง ฯลฯ
 #[derive(Clone, Debug)]
-pub struct Project { pub by: u32, pub kind: u8, pub at: (i32, i32), pub need: Vec<(usize, i32)>, pub started: bool, pub dir: u8, /** v30 เราอนุญาตที่ดินแล้ว */ pub ok: bool }
+pub struct Project { pub by: u32, pub kind: u8, pub at: (i32, i32), pub need: Vec<(usize, i32)>, pub started: bool, pub dir: u8, /** v30 เราอนุญาตที่ดินแล้ว */ pub ok: bool, /** v31 วัสดุที่เรามอบให้ตรงๆ (ไม่ต้องใส่กล่อง) */ pub got: Vec<(usize, i32)> }
 /// ทิศประตูที่หันเข้าหาจุด c (ใจกลางเมือง) จากบ้านที่ประตูอยู่ p
 pub fn door_toward(p: (i32, i32), c: (i32, i32)) -> u8 {
     let (dx, dy) = (c.0 - p.0, c.1 - p.1);
@@ -363,7 +363,7 @@ impl Game {
             let cost = project_cost(kind);
             let nm = NPC_NAMES[n.name as usize];
             self.news_add(format!("{}อยาก{} ({})", nm, project_what(kind), prefab_name(kind)));
-            self.rs.projects.push(Project { by: id, kind, at, need: cost, started: false, dir: door_toward(at, c), ok: false });
+            self.rs.projects.push(Project { by: id, kind, at, need: cost, started: false, dir: door_toward(at, c), ok: false, got: vec![] });
             // v30 ขอที่จากเราก่อน
             self.house_ask(id, kind, at, door_toward(at, c));
         }
@@ -386,7 +386,7 @@ impl Game {
         let cost = project_cost(kind);
         let nm = self.idx(by).map(|i| NPC_NAMES[self.npcs[i].name as usize]).unwrap_or("");
         self.news_add(format!("{}เสนอ{}", nm, project_what(kind)));
-        self.rs.projects.push(Project { by, kind, at, need: cost, started: false, dir: 0, ok: true });
+        self.rs.projects.push(Project { by, kind, at, need: cost, started: false, dir: 0, ok: true, got: vec![] });
     }
     fn free_spot_near(&self, c: (i32, i32), r0: i32, r1: i32) -> Option<(i32, i32)> {
         for rr in r0..=r1 { for dy in -rr..=rr { for dx in -rr..=rr {
@@ -404,11 +404,12 @@ impl Game {
             let Some(i) = self.idx(p.by) else { continue };
             let bed = self.npcs[i].bed;
             let nm = NPC_NAMES[self.npcs[i].name as usize];
-            let have = |g: &Game, it: usize| g.chests.iter().filter(|(k, _)| (k.0 - bed.0).abs() <= 20 && (k.1 - bed.1).abs() <= 20).map(|(_, c)| c[it]).sum::<i32>();
+            let got = p.got.clone();
+            let have = |g: &Game, it: usize| got.iter().filter(|x| x.0 == it).map(|x| x.1).sum::<i32>() + g.chests.iter().filter(|(k, _)| (k.0 - bed.0).abs() <= 20 && (k.1 - bed.1).abs() <= 20).map(|(_, c)| c[it]).sum::<i32>();
             let missing: Vec<(usize, i32)> = p.need.iter().map(|&(it, n)| (it, n - have(self, it))).filter(|x| x.1 > 0).collect();
             if !missing.is_empty() {
                 let s: Vec<String> = missing.iter().map(|(it, n)| format!("{} {}", INAME[*it], n)).collect();
-                let msg = format!("{}: อยาก{} แต่ยังขาด {} — ช่วยใส่ไว้ในกล่องที่ฐานได้ไหม", nm, project_what(p.kind), s.join(" · "));
+                let msg = format!("{}: อยาก{} แต่ยังขาด {} — ช่วยมอบให้หน่อยได้ไหม", nm, project_what(p.kind), s.join(" · "));
                 self.rs.help.entry(p.by).or_insert(msg);
                 continue;
             }
@@ -417,6 +418,8 @@ impl Game {
             if !prefab && !self.can_place_at(p.at.0, p.at.1) { continue; }
             // หักวัสดุจากกล่องใกล้บ้าน
             for &(it, mut n) in &p.need {
+                // ของที่เรามอบให้ใช้ก่อน แล้วค่อยหักจากกล่อง
+                for g in p.got.iter_mut().filter(|x| x.0 == it) { let t = g.1.min(n); g.1 -= t; n -= t; }
                 let keys: Vec<(i32, i32)> = self.chests.keys().copied().filter(|k| (k.0 - bed.0).abs() <= 20 && (k.1 - bed.1).abs() <= 20).collect();
                 for k in keys { if n <= 0 { break; } let c = self.chests.get_mut(&k).unwrap(); let t = c[it].min(n); c[it] -= t; n -= t; }
             }

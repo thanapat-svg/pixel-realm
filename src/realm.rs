@@ -286,8 +286,12 @@ pub struct RealmState {
     pub quick_id: Option<u32>,
     /// v28 ของที่ยกอยู่ (โหมดย้ายของ)
     pub carry: Option<Carry>,
+    /// v31 จุดที่กดลงในโหมดย้าย (ช่อง, เพิ่งยกจากการกดนี้)
+    pub move_press: Option<((i32, i32), bool)>,
     /// v30 คำขอที่ดิน + ผืนไร่ที่อนุญาต
     pub pm: Permits,
+    /// v31 กด "ไม่ให้" ของโปรดวันไหน (วันนั้นไม่ถามซ้ำ)
+    pub want_no: HashMap<u32, i32>,
     pub lv: Living,
     pub war: WarState,
     pub tick_t: f32,

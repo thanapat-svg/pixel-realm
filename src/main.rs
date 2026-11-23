@@ -67,6 +67,8 @@ mod mover;
 use mover::*;
 mod permit;
 use permit::*;
+mod wants;
+use wants::*;
 use realm::*;
 use extra::*;
 use farm::*;
@@ -2287,7 +2289,7 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
     if let Some((s, ok)) = permit::pick_line(g, touch) {
         build_line(font, &s, hint_y - 34. * u, u, if ok { hx(0xffd84a) } else { hx(0xff8a8a) });
     } else if g.moving_on() {
-        let s = match &g.rs.carry { None => format!("ย้ายของ: แตะของที่จะย้าย 2 ครั้ง (ผนัง/ประตู/พื้นบ้าน = ทั้งหลัง) · {}", if touch { "ปุ่มแดง = เลิก" } else { "R = ยก · T = เลิก" }), Some(c) => format!("กำลังย้าย: {} · แตะที่ใหม่ 2 ครั้ง = วาง{} · {}", c.name, if c.building { " · หมุน = หันบ้าน" } else { "" }, if touch { "ปุ่มแดง = วางคืนที่เดิม" } else { "T = วางคืนที่เดิม" }) };
+        let s = match &g.rs.carry { None => format!("ย้ายของ: กดที่ของค้างไว้แล้วลากไปวาง หรือแตะของแล้วแตะที่ใหม่ (ผนัง/ประตู/พื้นบ้าน = ทั้งหลัง) · {}", if touch { "ปุ่มแดง = เลิก" } else { "T = เลิก" }), Some(c) => format!("กำลังย้าย: {} · แตะ/ลากไปที่ใหม่ = วาง{} · {}", c.name, if c.building { " · หมุน = หันบ้าน" } else { "" }, if touch { "ปุ่มแดง = วางคืนที่เดิม" } else { "T = วางคืนที่เดิม" }) };
         build_line(font, &s, hint_y - 34. * u, u, hx(0x9adcff));
     } else if let Some(sel) = g.build_sel {
         let k = if touch { "ปุ่มสร้าง" } else { "R" };
@@ -3069,6 +3071,7 @@ async fn main() {
                     // ปุ่มลัดเหนือหัวชาวบ้าน + แผนที่เล็ก (แตะเปิดแผนที่ใหญ่)
                     let qb = v19::quick_btns(g, &v0);
                     let mut block: Vec<Rect> = qb.map(|q| q.1.to_vec()).unwrap_or_default();
+                    if let Some(w) = wants::want_strip(g, &v0) { block.push(w.2); }
                     let adv = advisor::adv_rects(g);
                     if let Some((r, _, _)) = adv { block.push(r); }
                     if let Some((_, r, _)) = permit::card_rects(g) { block.push(r); }
@@ -3088,6 +3091,7 @@ async fn main() {
                     }
                     if let (Some(tp), false, false) = (tap, g.big_map, tap_used) {
                         if tu.active && minimap_rect(false).contains(tp) { inp.map = true; tap_used = true; }
+                        else if wants::want_tap(g, &v0, tp) { tap_used = true; }
                         else if let Some((id, rs)) = qb {
                             if rs[0].contains(tp) { g.quick_talk(id); tap_used = true; }
                             else if rs[1].contains(tp) { g.quick_gift_toggle(id); tap_used = true; }
@@ -3124,7 +3128,7 @@ async fn main() {
                                 if is_mouse_button_pressed(MouseButton::Left) { g.build_drag(tile_of(&v0, mp), true); }
                                 else if is_mouse_button_down(MouseButton::Left) { g.build_drag(tile_of(&v0, mp), false); }
                             }
-                            if is_mouse_button_released(MouseButton::Left) { g.rs.drag_last = None; }
+                            if is_mouse_button_released(MouseButton::Left) { if !over_map { g.build_cur = Some(tile_of(&v0, mp)); } g.build_release(); }
                         } else if !tu.active && hotbar_hit(mp).is_some() {
                             if is_mouse_button_pressed(MouseButton::Left) { inp.hb = hotbar_hit(mp); }
                         } else if mouse_armed && !over_map && is_mouse_button_down(MouseButton::Left) {
@@ -3134,7 +3138,7 @@ async fn main() {
                     }
                     if g.build_sel.is_some() {
                         if let Some(tp) = inp.build_tap { g.build_drag(tile_of(&v0, tp), inp.build_start); }
-                        if inp.build_end { g.rs.drag_last = None; }
+                        if inp.build_end { g.build_release(); }
                     }
                     if inp.map { g.big_map = !g.big_map; g.mini_t = 99.; }
                     let sdt = if g.hitstop > 0. { g.hitstop -= dt; dt * 0.08 } else { dt };
@@ -3201,7 +3205,7 @@ async fn main() {
                 war::draw_war_hud(g, &font, ui_scale());
                 hud::set_touch(tu.active || cfg!(target_os = "android"));
                 prof::t("hud", || draw_hud(g, &sp, &font, tu.active));
-                if matches!(state, State::Play) { let vq = make_view(g.p.x, g.p.y); v19::draw_quick(g, &vq, &font); advisor::draw_advice(g, &font); permit::draw_permit_card(g, &vq, &font, get_time() as f32); }
+                if matches!(state, State::Play) { let vq = make_view(g.p.x, g.p.y); v19::draw_quick(g, &vq, &font); wants::draw_want_strip(g, &vq, &font); advisor::draw_advice(g, &font); permit::draw_permit_card(g, &vq, &font, get_time() as f32); }
 
                 // บอสอยู่ใกล้ = แถบเลือดบอสใช้พื้นที่ด้านบนแทนบทเรียน/เป้าหมาย
                 if !g.bosses.iter().any(|b| (b.x - g.p.x).hypot(b.y - g.p.y) < 420.) {

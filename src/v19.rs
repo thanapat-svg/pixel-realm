@@ -173,23 +173,27 @@ impl Game {
                 self.place_quiet(o, c, sel);
             }
             self.rs.drag_last = Some(t);
+        } else if o == OBJ_MOVE {
+            // v31 ย้ายของ: กด = ยก/เริ่มเลือกที่ · ลาก = พรีวิวตามนิ้ว · ปล่อย = วาง (build_release)
+            if started { self.move_press(t); }
         } else if started {
-            if is_prefab(o) || o == OBJ_MOVE || o == OBJ_PERMIT {
+            if is_prefab(o) || o == OBJ_PERMIT {
                 if self.rs.build_arm == Some(t) { self.rs.build_arm = None; self.place_piece(); }
                 else if o == OBJ_PERMIT {
                     self.rs.build_arm = Some(t);
                     match self.permit_preview(t).and_then(|p| p.1) { Some(why) => self.toast(why), None => self.toast("ให้ตรงนี้? แตะซ้ำที่เดิมเพื่อยืนยัน") }
                 }
-                else if o == OBJ_MOVE {
-                    self.rs.build_arm = Some(t);
-                    let msg = match &self.rs.carry { None => match self.move_select(t) { Ok(c) => format!("จะยก: {} — แตะซ้ำที่เดิมเพื่อยก", c.name), Err(e) => e.to_string() }, Some(c) => format!("วาง{}ตรงนี้? แตะซ้ำที่เดิมเพื่อวาง{}", c.name, if c.building { " · ปุ่ม \"หมุน\" = หันบ้าน" } else { "" }) };
-                    self.toast(msg);
-                }
+
                 else { self.rs.build_arm = Some(t); self.toast("ดูตำแหน่งให้ดี แล้วแตะซ้ำที่เดิมเพื่อสร้าง · ปุ่ม \"หมุน\" (Y) = หันประตู"); }
             } else {
                 self.place_piece();
             }
         }
+    }
+    /// ปล่อยนิ้ว/เมาส์ในโหมดสร้าง
+    pub fn build_release(&mut self) {
+        self.rs.drag_last = None;
+        if self.moving_on() { if let Some(t) = self.build_cur { self.move_release(t); } }
     }
     fn place_quiet(&mut self, o: u8, c: (i32, i32), sel: usize) {
         if !self.build_reach(c) || self.w.dun.is_some() { return; }

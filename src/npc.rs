@@ -534,6 +534,11 @@ impl Game {
                 }
             }
             n.moving = false;
+            // v31 เรายืนคุยด้วย (ปุ่มลัดขึ้นอยู่) → เขาหยุดเดินหันมาหาเรา กดปุ่มได้ไม่ต้องไล่ตาม
+            if spd > 0. && n.state == ST_HOME && self.rs.quick_id == Some(n.id) && !self.rs.war.march {
+                spd = 0.;
+                n.left = self.p.x < n.x;
+            }
             if spd > 0. {
                 // หาทาง: อ้อมกำแพง/ต้นไม้/บ้าน (เข้าบ้านทางประตู) แทนเดินชนตรงๆ
                 let pth = paths.entry(n.id).or_default();

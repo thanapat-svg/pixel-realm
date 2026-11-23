@@ -289,6 +289,15 @@ fn tab_build(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect,
     let top = c.y - ui.scroll;
     let mut y = top;
     if ui.sel_b >= BUILD_N { ui.sel_b = g.build_sel.filter(|&k| k < BUILD_N).unwrap_or(0); }
+    // v31 ปุ่มย้ายของอยู่บนสุด หาง่าย (เดิมเป็นช่องสุดท้ายของตาราง)
+    if visible(y, 46. * u, c) {
+        let mi = PIECES.iter().position(|p| p.obj == OBJ_MOVE).unwrap();
+        let on = g.build_sel == Some(mi);
+        if btn(ui, font, Rect::new(c.x + 8. * u, y + 4. * u, c.w - 16. * u, 38. * u), if on { "กำลังใช้: ย้ายของ (แตะเพื่อเลิก)" } else { "ย้ายของที่สร้างแล้ว — กดที่ของแล้วลากไปวางได้เลย" }, true, u) {
+            if on { g.move_cancel(); g.build_sel = None; } else { g.build_sel = Some(mi); g.build_cur = None; g.rs.carry = None; g.toast("ย้ายของ: กดที่ของค้างไว้แล้วลากไปวาง"); ui.close = true; }
+        }
+    }
+    y += 50. * u;
     let pc = &PIECES[ui.sel_b];
     let dh = detail_box(font, c, y, u, pc.name, pc.desc, &|x, yy, s| piece_icon(sp, pc, x, yy, s, WHITE));
     let mut pick = false;
@@ -310,7 +319,7 @@ fn tab_build(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect,
     });
     if let Some(k) = hit { ui.sel_b = k; }
     if visible(y, 40. * u, c) {
-        text(font, "เลือกแล้วแตะพื้นตรงที่จะวาง · ตีเพื่อรื้อถอน · อยากย้ายของที่สร้างแล้ว = \"ย้ายของ\" (ช่องสุดท้าย)", c.x + 8. * u, y + 22. * u, 12. * u, hx(0x9a9aaa));
+        text(font, "เลือกแล้วแตะพื้นตรงที่จะวาง · ตีเพื่อรื้อถอน · อยากย้ายของที่สร้างแล้ว = ปุ่ม \"ย้ายของ\" ด้านบน", c.x + 8. * u, y + 22. * u, 12. * u, hx(0x9a9aaa));
     }
     y += 40. * u;
     if cancel { g.build_sel = None; }
@@ -1227,6 +1236,26 @@ fn tab_npc_dialog(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c:
     let say = g.npc_say(&n);
     if visible(y, 30. * u, c) { text(font, &format!("\"{}\"", say), c.x + 8. * u, y + 18. * u, 13. * u, hx(0xdddddd)); }
     y += 30. * u;
+    // v31 อยากได้อะไร: มอบ/ไม่ให้ ได้ทันที (ของอื่นๆ ยังให้ได้ที่ "ให้ของขวัญ" ด้านล่าง)
+    let ws = g.wants(id);
+    if !ws.is_empty() {
+        header(font, c, y, "อยากได้", u);
+        y += 28. * u;
+        let mut hit: Option<(WantK, bool)> = None;
+        for w in &ws {
+            let lines = wrap_th(font, &w.text, 12. * u, c.w - 24. * u - 2. * 104. * u);
+            let hh = (lines.len() as f32 * 15. * u + 10. * u).max(40. * u);
+            if visible(y, hh, c) {
+                for (k, l) in lines.iter().enumerate() { text(font, l, c.x + 8. * u, y + 18. * u + k as f32 * 15. * u, 12. * u, hx(0xffe9a0)); }
+                if btn(ui, font, Rect::new(c.x + c.w - 212. * u, y + 4. * u, 100. * u, 32. * u), &w.give, w.can, u) { hit = Some((w.k.clone(), true)); }
+                if btn(ui, font, Rect::new(c.x + c.w - 106. * u, y + 4. * u, 98. * u, 32. * u), "ไม่ให้", true, u) { hit = Some((w.k.clone(), false)); }
+            }
+            y += hh;
+            sep(c, y - 2.);
+        }
+        if let Some((k, give)) = hit { if give { g.want_give(id, &k); } else { g.want_no(id, &k); } }
+        y += 6. * u;
+    }
     // v30 คำขอที่ดิน: ตอบได้จากตรงนี้ด้วย
     if let Some(a) = g.ask_of(id).cloned() {
         let s = format!("ขออนุญาต: {} — {}", g.ask_what(&a), g.ask_where(&a));
@@ -1287,7 +1316,8 @@ fn tab_npc_dialog(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c:
     }
     // ---- คำขอ/ปัญหาที่เกี่ยวกับคนนี้
     let mut qdo: Option<(usize, QA)> = None;
-    let rq = g.reqs_for(id);
+    // ขอของ/ส่งของ ย้ายไปอยู่ในหัวข้อ "อยากได้" ด้านบนแล้ว
+    let rq: Vec<usize> = g.reqs_for(id).into_iter().filter(|&ri| !matches!(g.nreqs[ri].k, QK::Fetch { .. } if g.nreqs[ri].from == id) && !matches!(g.nreqs[ri].k, QK::Deliver { to, .. } if to == id)).collect();
     if !rq.is_empty() {
         header(font, c, y, "เรื่องที่ขอให้ช่วย", u);
         y += 28. * u;
