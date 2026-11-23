@@ -60,6 +60,8 @@ mod saga;
 use saga::*;
 mod living;
 use living::*;
+mod war;
+use war::*;
 use realm::*;
 use extra::*;
 use farm::*;
@@ -541,10 +543,10 @@ fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
 }
 
 // ======================= entities =======================
-#[derive(Clone, Copy, PartialEq)]
-enum EK { Slime, Skel, Bat, Soldier }
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum EK { Slime, Skel, Bat, Soldier, Scorp, Wolf, Crab, Imp }
 #[derive(Clone)]
-struct Enemy { path: Path, k: EK, x: f32, y: f32, hp: f32, spd: f32, dmg: i32, xp: i32, coin: i32, vx: f32, vy: f32, kb: f32, flash: f32, wt: f32, wdx: f32, wdy: f32, anim: f32, pal: usize, dead: bool, night: bool, burn: f32, slow: f32, stun: f32, btick: f32 }
+struct Enemy { path: Path, k: EK, x: f32, y: f32, hp: f32, spd: f32, dmg: i32, xp: i32, coin: i32, vx: f32, vy: f32, kb: f32, flash: f32, wt: f32, wdx: f32, wdy: f32, anim: f32, pal: usize, dead: bool, night: bool, burn: f32, slow: f32, stun: f32, btick: f32, sk: f32 }
 struct Particle { x: f32, y: f32, vx: f32, vy: f32, l: f32, c: Color }
 struct Float { x: f32, y: f32, t: String, c: Color, l: f32, icon: Option<usize>, sz: f32 }
 struct Player { x: f32, y: f32, dir: usize, flip: bool, hp: i32, maxhp: i32, xp: i32, lvl: i32, sword: usize, pick: bool, rod: bool, elem: u8, elems: u8, inv: [i32; NI], invul: f32, kbx: f32, kby: f32, kbt: f32, atk_t: f32, atk_cd: f32, anim: f32, moving: bool, regen: f32, last_hit: f32, kills: i32, weapon: u8, bow: bool, staff: u8, armor: [u8; 3], outfit: u8, outfits: u8, sp: i32, st: [u8; 4], wplus: [u8; 3], aplus: [u8; 3], dash_t: f32, dash_cd: f32, dash_dir: Vec2, ghost_t: f32, buff_spd: f32, buff_crit: f32, can: bool, water: i32, hunger: f32, thirst: f32, rest: f32, sick: f32, starve: f32, body: Body, hides: i32, coat: bool, boat: bool, bare: bool }
@@ -584,6 +586,8 @@ struct Game {
     sfx: Sfx,
     proj: Vec<Proj>,
     bosses: Vec<Boss>,
+    /// v24 ท่าตายของมอนที่เพิ่งล้ม (ไม่เซฟ)
+    dying: Vec<war::Dying>,
     boss_cd: f32,
     boss_t: f32,
     chests: HashMap<(i32, i32), [i32; NI]>,
@@ -732,7 +736,7 @@ impl Game {
             w, p: Player::new(0., 0.), en: vec![], parts: vec![], floats: vec![], toasts: vec![], time: 0., spawn: (0., 0.),
             seen: HashSet::new(), obj_dmg: HashMap::new(), shake: ((0, 0), 0.), hurt_flash: 0., darkv: 0., last_biome: -1,
             spawn_t: 0., save_t: 0., mini_t: 99., died: false, big_map: false, sfx,
-            proj: vec![], bosses: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, rooms: vec![], room_of: HashMap::new(), room_t: 0., paint_last: None, auto_doors: HashSet::new(), sites: vec![], rs: RealmState::default(), saga: Saga::default(), pins: vec![], pin_on: None, home_cd: 0., step_d: 0., step_last: 0, step_tracks: vec![], step_budget: 4., amb: [0.; AMB_N], amb_t: 0., hammer_t: 0., aim_last: None, aim_last_t: 0., site_wait_t: 0., sit: None, sit_t: 0., psy: HashMap::new(), psy_t: 0., gather: HashMap::new(), an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
+            proj: vec![], bosses: vec![], dying: vec![], boss_cd: 0., boss_t: 2., chests: HashMap::new(), camps_found: HashSet::new(), marks_found: HashMap::new(), blessed: HashMap::new(), lava_t: 0., lava_told: false, felled: HashMap::new(), planted: HashMap::new(), animals: vec![], an_spawn_t: 2., an_told: HashSet::new(), nreqs: vec![], tips: vec![], tips_seen: 0, rooms: vec![], room_of: HashMap::new(), room_t: 0., paint_last: None, auto_doors: HashSet::new(), sites: vec![], rs: RealmState::default(), saga: Saga::default(), pins: vec![], pin_on: None, home_cd: 0., step_d: 0., step_last: 0, step_tracks: vec![], step_budget: 4., amb: [0.; AMB_N], amb_t: 0., hammer_t: 0., aim_last: None, aim_last_t: 0., site_wait_t: 0., sit: None, sit_t: 0., psy: HashMap::new(), psy_t: 0., gather: HashMap::new(), an_hunted: 0, codex_done: 0, adv_done: 0, boated: false, final_won: false, ending: 0., camp_t: 0.,
             build_sel: None, build_dir: 0, req: None,
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
@@ -782,6 +786,7 @@ impl Game {
         s += &self.realm_save();
         s += &self.saga_save();
         s += &self.living_save();
+        s += &self.war_save();
         if let Some(b) = self.bed { s += &format!("bed {} {}\n", b.0, b.1); }
         s += "crops";
         for ((x, y), c) in &self.crops { s += &format!(" {},{},{},{:.1},{:.1}", x, y, c.kind, c.grown, c.wet); }
@@ -883,6 +888,7 @@ impl Game {
                 "nreq" => g.quests_load_line(&rest),
                 "saga" => g.saga_load(&rest),
                 "living" => g.living_load(&rest),
+                "war" => g.war_load(&rest),
                 "v9" => g.balance_load_line(&rest),
                 "pet" => g.pets_load_line(&rest),
                 "farm" => { g.p.can = f(0) > 0.; g.p.water = (f(1) as i32).clamp(0, WATER_MAX); g.seed_sel = (f(2) as u8).min(1); }
@@ -1132,8 +1138,10 @@ impl Game {
         true
     }
     fn kill(&mut self, e: &Enemy) {
-        let c = match e.k { EK::Slime => hx(self_slime_col(e.pal)), EK::Bat => hx(0x5a4670), EK::Skel => hx(0xe8e8d8), EK::Soldier => hx(0xc8c8d0) };
-        self.burst(e.x, e.y - 6., c, 14, 80.);
+        let c = match e.k { EK::Slime => hx(self_slime_col(e.pal)), EK::Bat => hx(0x5a4670), EK::Skel => hx(0xe8e8d8), EK::Soldier => hx(0xc8c8d0), EK::Scorp => hx(0xc8823a), EK::Wolf => hx(0xc8ccd8), EK::Crab => hx(0xd8483a), EK::Imp => hx(0xff7a30) };
+        self.burst(e.x, e.y - 6., c, 8, 60.);
+        self.dying.push(war::Dying { k: e.k, x: e.x, y: e.y, pal: e.pal, t: 0., left: e.vx < 0., seed: (e.anim * 1000.) as u32 });
+        self.beast_loot(e);
         self.p.xp += e.xp;
         self.p.kills += 1;
         self.ev[2] += 1;
@@ -1241,11 +1249,18 @@ impl Game {
         let mul = 1. + (x - self.spawn.0).hypot(y - self.spawn.1) / 16. / 250.;
         let elite = night && !self.in_grace() && gen_range(0., 1.) < 0.4;
         let pal = match t { 8 => 1, 7 => 2, 4 => 3, _ => 0 };
+        // v24 ศัตรูประจำภูมิประเทศ: แมงป่อง (ทะเลทราย) · หมาป่า (หิมะ เป็นฝูง) · ปู (ชายหาด) · ปีศาจเถ้า (ภูเขาไฟ)
+        let k = match (t, gen_range(0., 1.) < 0.65) { (8, true) => EK::Scorp, (7, true) => EK::Wolf, (2, true) => EK::Crab, (17, true) => EK::Imp, _ => k };
         self.make_enemy(k, x, y, mul, pal, elite);
+        if k == EK::Wolf { for j in 0..rnd(1, 2) { let (wx, wy) = (x + 14. + j as f32 * 12., y + 10.); if !collide(&self.w, wx, wy) { self.make_enemy(EK::Wolf, wx, wy, mul, pal, elite); } } }
     }
     fn upd_enemies(&mut self, dt: f32) {
         let siege_c = self.rs.siege.as_ref().map(|s| s.center);
+        let assault_on = self.rs.war.assault.is_some();
+        let allies: Vec<(f32, f32)> = if assault_on { self.army_pos() } else { vec![] };
         let mut path_budget = PATH_BUDGET + 1;
+        for d in self.dying.iter_mut() { d.t += dt; }
+        self.dying.retain(|d| d.t < war::DIE_T);
         let mut wall_hits: Vec<(i32, i32)> = vec![];
         let mut en = std::mem::take(&mut self.en);
         for e in en.iter_mut() {
@@ -1273,7 +1288,7 @@ impl Game {
             }
             let (dx, dy) = (self.p.x - e.x, self.p.y - e.y);
             let d = dx.hypot(dy).max(0.001);
-            if d > 440. && self.w.dun.is_none() && !(e.k == EK::Soldier && siege_c.is_some()) { e.dead = true; continue; }
+            if d > 440. && self.w.dun.is_none() && !(e.k == EK::Soldier && (siege_c.is_some() || assault_on)) { e.dead = true; continue; }
             let (mut mx, mut my): (f32, f32);
             if e.kb > 0. {
                 e.kb -= dt;
@@ -1288,7 +1303,7 @@ impl Game {
                     my = -ay / fd * e.spd;
                 } else if e.k == EK::Soldier {
                     // ทัพบุก: มุ่งลานกลางเมือง (ถ้าเราเข้าใกล้ค่อยหันมาสู้) · ยามเมือง: ไล่จับเรา — หาทางอ้อมสิ่งกีดขวาง
-                    let goal = match siege_c { Some(c) if d > 90. => c, _ => (self.p.x, self.p.y) };
+                    let goal = match siege_c { Some(c) if d > 90. => c, _ => allies.iter().copied().chain(std::iter::once((self.p.x, self.p.y))).min_by(|a, b| (a.0 - e.x).hypot(a.1 - e.y).partial_cmp(&(b.0 - e.x).hypot(b.1 - e.y)).unwrap()).unwrap_or((self.p.x, self.p.y)) };
                     let mode = if siege_c.is_some() { Pass::Breach } else { Pass::Walk };
                     let (gx, gy) = e.path.steer(&self.w, e.x, e.y, goal, mode, dt, &mut path_budget);
                     let (ax, ay) = (gx - e.x, gy - e.y);
@@ -1296,6 +1311,9 @@ impl Game {
                     let sp = if l < 2. { 0. } else { e.spd };
                     mx = ax / l * sp;
                     my = ay / l * sp;
+                } else if let Some((a, b)) = self.beast_ai(e, dx, dy, d, dt) {
+                    mx = a;
+                    my = b;
                 } else if d < 130. {
                     mx = dx / d * e.spd;
                     my = dy / d * e.spd;
@@ -1331,7 +1349,7 @@ impl Game {
             if e.kb <= 0. {
                 if e.stun > 0. { mx = 0.; my = 0.; } else if e.slow > 0. { mx *= 0.45; my *= 0.45; }
             }
-            if e.k == EK::Bat {
+            if e.k == EK::Bat || e.k == EK::Imp {
                 e.x += mx * dt;
                 e.y += my * dt;
             } else {
@@ -1361,7 +1379,8 @@ impl Game {
                 }
             }
             if e.k == EK::Bat && self.darkv < 0.15 && gen_range(0., 1.) < dt * 0.3 { e.dead = true; }
-            if d < 11. && self.p.invul <= 0. && e.kb <= 0. && e.stun <= 0. && !e.dead {
+            let lunge = matches!(e.k, EK::Scorp | EK::Wolf) && e.kb > 0. && e.flash <= 0.;
+            if d < 11. && self.p.invul <= 0. && (e.kb <= 0. || lunge) && e.stun <= 0. && !e.dead {
                 self.hurt(e.dmg, dx / d, dy / d);
             }
         }
@@ -1521,6 +1540,7 @@ impl Game {
         self.rs.saga_t -= dt;
         if self.rs.saga_t <= 0. { self.rs.saga_t = 2.; prof::t("saga", || self.saga_tick()); }
         prof::t("living", || self.living_tick(dt));
+        prof::t("war", || self.war_tick(dt));
         self.dun_t -= dt;
         if self.dun_t <= 0. { self.dun_t = 1.; self.discover_duns(); self.discover_wps(); }
         // fx
@@ -1561,7 +1581,7 @@ fn make_view(cam_x: f32, cam_y: f32) -> View {
     View { s, vw, vh, cx: (cam_x - vw / 2.).round(), cy: (cam_y - vh / 2. - 6.).round() }
 }
 
-enum Draw { Obj(u8, i32, i32), Enemy(usize), Animal(usize), Boss(usize), Player, Loot(usize), Comp, Npc(usize), Lost(f32, f32, u8, u8), Citizen(usize), Caravan(usize) }
+enum Draw { Obj(u8, i32, i32), Enemy(usize), Animal(usize), Boss(usize), Player, Loot(usize), Comp, Npc(usize), Lost(f32, f32, u8, u8), Citizen(usize), Caravan(usize), Dying(usize) }
 
 fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     let w = &g.w;
@@ -1654,6 +1674,10 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         if sx < -20. || sx > v.vw + 20. || sy < -30. || sy > v.vh + 30. { continue; }
         list.push((e.y, Draw::Enemy(i)));
         if e.k == EK::Skel && g.darkv > 0.3 { lights.push((sx, sy - 11., 12., 0)); }
+        if e.k == EK::Imp && g.darkv > 0.2 { lights.push((sx, sy - 14., 18., 1)); }
+    }
+    for (i, d) in g.dying.iter().enumerate() {
+        if (d.x - g.p.x).abs() < 440. && (d.y - g.p.y).abs() < 320. { list.push((d.y - 0.5, Draw::Dying(i))); }
     }
     list.push((g.p.y, Draw::Player));
     for (i, a) in g.animals.iter().enumerate() {
@@ -1792,6 +1816,10 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                         prect(v, sx - 3., sy - 9., 6., 1., kc);
                         prect(v, sx - 1., sy - 18., 2., 2., kc);
                     }
+                    EK::Scorp | EK::Wolf | EK::Crab | EK::Imp => {
+                        let tint = if white { Color::new(1., 1., 1., 1.) } else { c };
+                        war::draw_beast(v, e.k, sx, sy, e.anim, e.vx < 0., tint, white, false, 1., e.sk);
+                    }
                     EK::Bat => {
                         prect(v, sx - 3., sy - 1., 6., 2., Color::new(0., 0., 0., 0.2));
                         if e.night { prect(v, sx - 7., sy - 19., 14., 12., Color::new(0.7, 0.3, 1., 0.28)); }
@@ -1808,6 +1836,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
             Draw::Npc(i) => draw_npc(g, sp, v, i, t_now),
             Draw::Citizen(i) => draw_citizen(g, sp, v, i),
             Draw::Caravan(i) => living::draw_caravan(g, sp, v, i, t_now),
+            Draw::Dying(i) => war::draw_dying(g, sp, v, i),
             Draw::Lost(x, y, name, look) => draw_lost(g, sp, v, x, y, name, look, t_now),
             Draw::Player => {
                 let p = &g.p;
@@ -2504,6 +2533,10 @@ fn debug_keys(g: &mut Game) {
     let shift = is_key_down(KeyCode::LeftShift);
     if shift && is_key_pressed(KeyCode::F1) { g.p.inv[WOOD] += 60; g.p.inv[STONE] += 20; g.build_sel = PIECES.iter().position(|p| p.obj == OBJ_HOUSE_S); }
     if shift && is_key_pressed(KeyCode::F2) { g.dbg_caravan(); }
+    if shift && is_key_pressed(KeyCode::F4) { for (j, k) in [EK::Scorp, EK::Wolf, EK::Crab, EK::Imp].into_iter().enumerate() { let (x, y) = (g.p.x - 60. + j as f32 * 40., g.p.y + 50.); g.make_enemy(k, x, y, 1., 0, false); if let Some(e) = g.en.last_mut() { e.stun = 6.; } } }
+    if shift && is_key_pressed(KeyCode::F5) { let r = g.w.realm.clone(); if !g.rs.inited { g.rs.init(&r); } let (x, y) = (g.p.x + 50., g.p.y - 10.); g.spawn_champion(0, x, y); }
+    if shift && is_key_pressed(KeyCode::F6) { for n in g.npcs.iter_mut() { n.role = R_SOLDIER; n.mood = 80; } g.army_call(None); }
+    if shift && is_key_pressed(KeyCode::F7) { let n = g.en.len(); for i in (0..n).rev() { g.damage_enemy(i, 999, false, 1., 0.); } }
     if shift && is_key_pressed(KeyCode::F3) { let d = day_of(g); let e = (d % 4) as u8; g.start_event(e, d); }
     if shift && is_key_pressed(KeyCode::F12) { g.saga.end_day = day_of(g); g.rs.ending = Some(0.); }
     if !shift && is_key_pressed(KeyCode::F1) {
@@ -2574,10 +2607,10 @@ fn debug_keys(g: &mut Game) {
         g.toast(format!("[debug] หมู่บ้านทดสอบ: {} คน", n));
     }
     if !shift && is_key_pressed(KeyCode::F3) { let (x, y) = (g.p.x + 90., g.p.y); g.spawn_boss(0, x, y); }
-    if is_key_pressed(KeyCode::F4) { let (x, y) = (g.p.x + 90., g.p.y); g.spawn_boss(1, x, y); }
+    if !shift && is_key_pressed(KeyCode::F4) { let (x, y) = (g.p.x + 90., g.p.y); g.spawn_boss(1, x, y); }
     if is_key_pressed(KeyCode::F11) { let (x, y) = (g.p.x + 90., g.p.y); g.spawn_boss_hp(FINAL_KIND, x, y, FINAL_HP); }
-    if is_key_pressed(KeyCode::F5) { g.time = DAYLEN * 0.7; }
-    if is_key_pressed(KeyCode::F7) {
+    if !shift && is_key_pressed(KeyCode::F5) { g.time = DAYLEN * 0.7; }
+    if !shift && is_key_pressed(KeyCode::F7) {
         g.p.inv[SHARD] += 30; g.p.sp += 6; g.p.elems = 7; g.p.rod = true; if g.p.staff == 0 { g.p.staff = 1; } for i in [MEAT, SHROOM, HERB] { g.p.inv[i] += 10; } g.p.inv[COIN] += 500;
         for i in [WOOD, STONE, GEM, GEL, CORE] { g.p.inv[i] += 50; }
         g.toast("[debug] เศษดาว+แต้ม");
@@ -2609,7 +2642,7 @@ fn debug_keys(g: &mut Game) {
         }
     }
     if is_key_pressed(KeyCode::F9) { g.rain_on = !g.rain_on; g.rain_t = 90.; }
-    if is_key_pressed(KeyCode::F6) { g.p.maxhp = 400; g.p.hp = 400; g.toast("[debug] เลือด 400"); }
+    if !shift && is_key_pressed(KeyCode::F6) { g.p.maxhp = 400; g.p.hp = 400; g.toast("[debug] เลือด 400"); }
 }
 
 #[macroquad::main(window_conf)]
@@ -3058,6 +3091,7 @@ async fn main() {
                 prof::lap("L:pre_world");
                 draw_nav_world(g, &v, &font, t_now);
                 draw_siege_hud(g, &font, ui_scale());
+                war::draw_war_hud(g, &font, ui_scale());
                 prof::t("hud", || draw_hud(g, &sp, &font, tu.active));
                 if matches!(state, State::Play) { v19::draw_quick(g, &make_view(g.p.x, g.p.y), &font); advisor::draw_advice(g, &font); }
 
@@ -3387,7 +3421,7 @@ mod tests {
         g.p.inv[ARROW] = 2;
         g.p.x = 0.; g.p.y = 0.;
         // ศัตรูทางขวา
-        g.en.push(Enemy { path: Path::default(), night: false, burn: 0., slow: 0., stun: 0., btick: 0., k: EK::Skel, x: 60., y: 6., hp: 4., spd: 0., dmg: 1, xp: 1, coin: 2, vx: 0., vy: 0., kb: 0., flash: 0., wt: 0., wdx: 0., wdy: 0., anim: 0., pal: 0, dead: false });
+        g.en.push(Enemy { path: Path::default(), night: false, burn: 0., slow: 0., stun: 0., btick: 0., sk: 0., k: EK::Skel, x: 60., y: 6., hp: 4., spd: 0., dmg: 1, xp: 1, coin: 2, vx: 0., vy: 0., kb: 0., flash: 0., wt: 0., wdx: 0., wdy: 0., anim: 0., pal: 0, dead: false });
         // กันกำแพง: ล้างวัตถุในแนวยิง
         for tx in -2..8 { for ty in -2..2 { g.w.removed.insert((tx, ty)); } }
         for _ in 0..5 { g.w.tmod.insert((0, 0), 3); }

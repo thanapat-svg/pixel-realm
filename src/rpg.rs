@@ -224,13 +224,17 @@ impl Game {
             EK::Skel => (6., 34., 2., 7., 3.),
             EK::Bat => (2., 46., 1., 4., 1.),
             EK::Soldier => (10., 36., 2., 8., 4.),
+            EK::Scorp => (8., 22., 2., 8., 3.),
+            EK::Wolf => (5., 50., 2., 6., 2.),
+            EK::Crab => (6., 30., 1., 4., 2.),
+            EK::Imp => (4., 40., 2., 7., 3.),
         };
         let (hm, dm, sm, xm) = if night { (1.6, 1.3, 1.12, 1.5) } else { (1., 1., 1., 1.) };
         self.en.push(Enemy {
             path: Path::default(),
             k, x, y, hp: (hp * mul * hm).ceil(), spd: spd * (0.9 + mul * 0.1).min(1.5) * sm, dmg: (dmg * mul.min(3.) * dm).ceil() as i32,
             xp: (xp * mul * xm).ceil() as i32, coin: (coin * mul).ceil() as i32, vx: 0., vy: 0., kb: 0., flash: 0., wt: 0., wdx: 0., wdy: 0.,
-            anim: gen_range(0., 5.), pal, dead: false, night, burn: 0., slow: 0., stun: 0., btick: 0.,
+            anim: gen_range(0., 5.), pal, dead: false, night, burn: 0., slow: 0., stun: 0., btick: 0., sk: gen_range(0.5, 2.),
         });
     }
 }

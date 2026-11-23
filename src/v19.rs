@@ -210,7 +210,7 @@ pub fn trail_back(tr: &[(f32, f32)], dist: f32) -> Option<(f32, f32)> {
 // ---------------------------------------------------------------- ปุ่มลัดเหนือหัวชาวบ้าน
 /// (id, [คุย, ให้ของ, อื่นๆ]) ในพิกัดจอ
 pub fn quick_btns(g: &Game, v: &View) -> Option<(u32, [Rect; 3])> {
-    if g.build_sel.is_some() || g.big_map || g.w.dun.is_some() { return None; }
+    if g.build_sel.is_some() || g.big_map || g.w.dun.is_some() || g.rs.war.march { return None; }
     let id = g.npc_near_r(QUICK_R)?;
     let n = g.npcs.iter().find(|n| n.id == id)?;
     let u = ui_scale();

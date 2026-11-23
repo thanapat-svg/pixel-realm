@@ -1390,6 +1390,19 @@ fn kingdom_card(g: &mut Game, ui: &UiState, font: &Font, c: Rect, y: &mut f32, k
     para(font, c, y, &format!("กำลังทหาร {} · ความมั่งคั่ง {} · กฎ: {}", st.strength as i32, st.wealth as i32, laws.join(" / ")), hx(0xb0b8cc), u);
     para(font, c, y, &format!("กับเรา: {} · ชื่อเสียงของเรา {}{}{}", stance_word(st.stance), st.rep, if wars.is_empty() { String::new() } else { format!(" · รบกับ {}", wars.join(", ")) }, if allies.is_empty() { String::new() } else { format!(" · พันธมิตร {}", allies.join(", ")) }), if st.stance == 3 { hx(0xff8080) } else { hx(0xffe0a0) }, u);
     if let Some(a) = &st.army { para(font, c, y, &format!("ทัพ {} นาย กำลังเดินทัพ ห่างเมืองเรา ~{} ช่อง", a.n, g.town_center().map_or(0, |t| ((a.x - t.0 as f32).hypot(a.y - t.1 as f32)) as i32)), hx(0xff6060), u); }
+    // v24 ยกทัพไปตีเมืองของอาณาจักรที่รบกับเรา
+    if st.stance == 3 && !peaceful() {
+        if let Some(ci) = g.nearest_city_of(k) {
+            let n = g.army_candidates().len();
+            let marching = g.rs.war.march;
+            let lab = if marching { "ถอยทัพกลับเมือง".to_string() } else { format!("ยกทัพไปตีเมือง{} ({} นาย)", g.w.realm.cities[ci].name, n) };
+            if visible(*y, 30. * u, c) && btn_row(ui, font, c, *y, &[(lab.as_str(), true)], u).is_some() {
+                if marching { g.army_home("ทัพกลับเข้าเมืองแล้ว"); } else { g.army_call(Some(ci)); }
+            }
+            *y += 32. * u;
+            para(font, c, y, "ทหาร/ยาม/แม่ทัพในเมืองจะเดินตามคุณ · เข้าเมืองศัตรู = ศึกยึดเมือง · ล้มทหารตั้งรับหมด (เมืองหลวงต้องล้มแม่ทัพด้วย) = ยึดได้ · ทหารบาดเจ็บจะกลับไปพักที่บ้าน 1 วัน", hx(0x8890a8), u);
+        }
+    }
     kingdom_actions(g, ui, font, c, y, k, u);
     sep(c, *y);
     *y += 6. * u;

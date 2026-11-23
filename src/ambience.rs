@@ -157,7 +157,7 @@ impl Game {
         for n in &self.npcs { list.push((0, n.x, n.y, -1, 17., 0.55, false)); }
         for e in &self.en {
             if e.dead { list.push((1, f32::NAN, 0., 0, 1., 0., false)); continue; }
-            let (m, stride, v, fly) = match e.k { EK::Slime => (M_SLIME, 20., 0.6, false), EK::Skel => (M_BONE, 15., 0.6, false), EK::Bat => (M_FLAP, 0., 0.45, true), EK::Soldier => (M_HOOF, 18., 0.5, false) };
+            let (m, stride, v, fly) = match e.k { EK::Slime => (M_SLIME, 20., 0.6, false), EK::Skel => (M_BONE, 15., 0.6, false), EK::Bat => (M_FLAP, 0., 0.45, true), EK::Soldier => (M_HOOF, 18., 0.5, false), EK::Scorp | EK::Crab => (M_BONE, 12., 0.4, false), EK::Wolf => (M_PAW, 14., 0.45, false), EK::Imp => (M_FLAP, 0., 0.4, true) };
             list.push((1, e.x, e.y, m as i32, stride, v, fly));
         }
         for a in &self.animals {

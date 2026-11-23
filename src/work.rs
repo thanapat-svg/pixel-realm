@@ -225,7 +225,7 @@ impl Game {
     /// เรียกจาก npc_tick (ต่อคน): คืนจุดที่ควรเดินไป + ความเร็ว ถ้ามีงาน · ทำงานจนเสร็จแล้วส่งผลไปที่ done
     pub fn work_step(&mut self, n: &mut npc::Npc, dt: f32, done: &mut Vec<(u32, Job)>) -> Option<((f32, f32), f32)> {
         // v23 ป่วย = พักอยู่บ้าน ไม่ทำงาน
-        if self.is_sick(n.id) { self.rs.work.remove(&n.id); return None; }
+        if self.is_sick(n.id) || self.rs.war.wounded.contains_key(&n.id) || (self.rs.war.march && self.rs.war.army.contains(&n.id)) { self.rs.work.remove(&n.id); return None; }
         let j = self.rs.work.get_mut(&n.id)?;
         if j.kind == J_HUNT && j.stage == 0 {
             // ตามสัตว์ (มันวิ่งหนี) จนเข้าระยะยิง แล้วเล็งธนู

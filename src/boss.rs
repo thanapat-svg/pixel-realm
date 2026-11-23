@@ -4,8 +4,10 @@
 use super::*;
 
 pub const BOSS_R: f32 = 15.;
-pub const BNAME: [&str; 3] = ["ราชาสไลม์", "โกเลมหินยักษ์", "ราชันย์เงา"];
-pub const BHP: [f32; 3] = [70., 110., 900.];
+pub const BNAME: [&str; 4] = ["ราชาสไลม์", "โกเลมหินยักษ์", "ราชันย์เงา", "แม่ทัพผู้พิทักษ์"];
+pub const BHP: [f32; 4] = [70., 110., 900., 200.];
+/// v24 แม่ทัพประจำเมืองหลวง (เฝ้าปราสาทตอนเราบุก)
+pub const CHAMP: u8 = 3;
 const DIR8: [(i32, i32); 8] = [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)];
 
 #[derive(Clone)]
@@ -32,6 +34,8 @@ pub struct Boss {
     pub burn: f32,
     pub slow: f32,
     pub btick: f32,
+    /// อาณาจักรของแม่ทัพ (CHAMP)
+    pub k: usize,
 }
 
 impl Game {
@@ -42,8 +46,9 @@ impl Game {
     }
     pub fn spawn_boss_hp(&mut self, kind: u8, x: f32, y: f32, hp: f32) {
         self.bosses.push(Boss {
-            kind, x, y, hp, maxhp: hp, atk: 0, st: 0., st0: 1., cd: 1.5, tx: x, ty: y, dash: 0., dvx: 0., dvy: 0., flash: 0., anim: 0., ph2: false, dead: false, burn: 0., slow: 0., btick: 0.,
+            kind, x, y, hp, maxhp: hp, atk: 0, st: 0., st0: 1., cd: 1.5, tx: x, ty: y, dash: 0., dvx: 0., dvy: 0., flash: 0., anim: 0., ph2: false, dead: false, burn: 0., slow: 0., btick: 0., k: 0,
         });
+        if kind == CHAMP { return; }
         self.toast(format!("{} ปรากฏตัว!", BNAME[kind as usize]));
         play(&self.sfx.roar);
         self.shake(2.0, 0.35);
@@ -85,17 +90,17 @@ impl Game {
         self.en.push(Enemy {
             path: Path::default(),
             k: EK::Slime, x, y, hp: 3., spd: 26., dmg: 1, xp: 1, coin: 0, vx: 0., vy: 0., kb: 0., flash: 0., wt: 0., wdx: 0., wdy: 0.,
-            anim: gen_range(0., 5.), pal: 0, dead: false, night: false, burn: 0., slow: 0., stun: 0., btick: 0.,
+            anim: gen_range(0., 5.), pal: 0, dead: false, night: false, burn: 0., slow: 0., stun: 0., btick: 0., sk: 0.,
         });
     }
-    fn aoe(&mut self, x: f32, y: f32, r: f32, dmg: i32) {
+    pub fn aoe(&mut self, x: f32, y: f32, r: f32, dmg: i32) {
         let (dx, dy) = (self.p.x - x, self.p.y - y);
         let d = dx.hypot(dy).max(0.001);
         if d < r && self.p.invul <= 0. {
             self.hurt(dmg, dx / d, dy / d);
         }
     }
-    fn walkable(&self, x: f32, y: f32) -> bool {
+    pub fn walkable(&self, x: f32, y: f32) -> bool {
         !SOLIDT[self.w.tile_at(tfloor(x), tfloor(y)) as usize]
     }
 
@@ -131,8 +136,9 @@ impl Game {
         }
         if !b.ph2 && b.hp < b.maxhp * 0.5 {
             b.ph2 = true;
-            self.toast(format!("{} โกรธจัด!", BNAME[b.kind as usize]));
+            self.toast(format!("{} โกรธจัด!", boss_name(self, b)));
         }
+        if b.kind == CHAMP { self.champ_ai(b, dt, dx, dy, d); return; }
         let king = b.kind == 0;
         if b.slow > 0. { b.slow -= dt; }
         if b.burn > 0. {
@@ -287,6 +293,7 @@ impl Game {
     }
 
     pub fn boss_die(&mut self, b: &Boss) {
+        if b.kind == CHAMP { self.champion_down(b); return; }
         let (x, y) = (b.x, b.y - 12.);
         let col = match b.kind { 0 => hx(0x6cd06c), FINAL_KIND => hx(0x8a4ae8), _ => hx(0x9a9aa6) };
         if b.kind == FINAL_KIND {
@@ -344,6 +351,11 @@ pub fn draw_telegraphs(g: &Game, v: &View) {
         };
         match (b.kind, b.atk) {
             (0, 1) => ring(b.tx, b.ty, 30.),
+            (CHAMP, 1) => ring(b.x, b.y, CHAMP_R),
+            (CHAMP, 2) => {
+                let (x0, y0) = ((b.x - v.cx) * v.s, (b.y - v.cy) * v.s);
+                draw_line(x0, y0, x0 + b.dvx * 120. * v.s, y0 + b.dvy * 120. * v.s, 14. * v.s, red);
+            }
             (1, 2) => ring(b.x, b.y, 46.),
             (1, 3) => {
                 let (x0, y0) = ((b.x - v.cx) * v.s, (b.y - v.cy) * v.s);
@@ -358,6 +370,7 @@ pub fn draw_boss(g: &Game, sp: &Sprites, v: &View, i: usize) {
     let b = &g.bosses[i];
     let (sx, sy) = ((b.x - v.cx).round(), (b.y - v.cy).round());
     let c = if b.flash > 0. { Color::new(1., 0.55, 0.55, 1.) } else { WHITE };
+    if b.kind == CHAMP { war::draw_champion(g, sp, v, b); return; }
     if b.kind == 0 {
         let lift = if b.atk == 1 && b.st < 0.35 { (std::f32::consts::PI * (1. - b.st / 0.35)).sin() * 26. } else { 0. };
         let sq = if b.atk == 1 && b.st >= 0.35 { 0.2 } else if b.atk == 2 { 0.12 } else { (b.anim * 1.3 * std::f32::consts::TAU).sin() * 0.1 };
@@ -397,7 +410,7 @@ pub fn draw_boss_bar(g: &Game, font: &Font) {
     let sw = screen_width();
     let (w, h) = ((sw * 0.4).min(380. * u), 18. * u);
     let (x, y) = (sw / 2. - w / 2., 16. * u);
-    text_c(font, BNAME[b.kind as usize], sw / 2., y + 4. * u, 17. * u, hx(0xffcc66));
+    text_c(font, &boss_name(g, b), sw / 2., y + 4. * u, 17. * u, hx(0xffcc66));
     let y = y + 10. * u;
     draw_rectangle(x, y, w, h, hx(0x2a0e0e));
     draw_rectangle(x, y, w * (b.hp / b.maxhp).clamp(0., 1.), h, if b.ph2 { hx(0xff5a1a) } else { hx(0xcc2222) });

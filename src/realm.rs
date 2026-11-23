@@ -282,6 +282,7 @@ pub struct RealmState {
     pub ending: Option<f32>,
     pub saga_t: f32,
     pub lv: Living,
+    pub war: WarState,
     pub tick_t: f32,
     pub inited: bool,
 }
@@ -478,6 +479,7 @@ impl Game {
         let k = o as usize;
         let laws: Vec<&str> = self.w.realm.ks[k].laws.iter().map(|&l| LAW_N[l as usize]).collect();
         self.toast(format!("ยินดีต้อนรับสู่{}{} · {} · กฎ: {}", if c.cap { "เมืองหลวง" } else { "เมือง" }, c.name, self.kname(k), laws.join(" / ")));
+        if self.rs.ks[k].stance == 3 && self.assault_begin(ci) { return; }
         if self.rs.ks[k].rep <= -60 || self.rs.ks[k].stance == 3 { self.city_guards_attack(ci); return; }
         let day = day_of(self);
         if self.law_on(ci, L_TOLL) && self.rs.toll_day.get(&ci) != Some(&day) {

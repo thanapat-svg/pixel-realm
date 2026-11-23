@@ -391,6 +391,7 @@ impl Game {
             self.projects_dawn();
             self.season_dawn();
             self.living_dawn();
+            self.war_dawn();
         }
         self.last_day = day;
         // ได้ยินเสียงขอความช่วยเหลือ (ครั้งเดียวต่อคน)
@@ -417,20 +418,27 @@ impl Game {
         let (px, py) = (self.p.x, self.p.y);
         let enemies: Vec<(usize, f32, f32)> = self.en.iter().enumerate().filter(|(_, e)| !e.dead).map(|(i, e)| (i, e.x, e.y)).collect();
         let mut hits: Vec<(usize, f32, f32)> = vec![];
+        let bosses: Vec<(usize, f32, f32)> = self.bosses.iter().enumerate().filter(|(_, b)| !b.dead).map(|(i, b)| (i, b.x, b.y)).collect();
+        let mut boss_hits: Vec<usize> = vec![];
         let gather = std::mem::take(&mut self.gather);
         let mut npcs = std::mem::take(&mut self.npcs);
         let mut paths = std::mem::take(&mut self.rs.npaths);
         paths.retain(|id, _| npcs.iter().any(|n| n.id == *id));
         let mut budget = PATH_BUDGET;
         let mut work_done: Vec<(u32, Job)> = vec![];
+        // v24 ทัพของเรา: ทหารที่ตามเราออกรบ
+        let army: Vec<u32> = if self.rs.war.march { self.rs.war.army.clone() } else { vec![] };
+        let wounded: HashSet<u32> = self.rs.war.wounded.keys().copied().collect();
+        let pf = self.p.facing();
         for n in npcs.iter_mut() {
+            let marching = army.iter().position(|&a| a == n.id);
             n.anim += dt;
             n.atk_cd = (n.atk_cd - dt).max(0.);
             n.wt -= dt;
             let (mut tx, mut ty, mut spd) = (n.x, n.y, 0.);
             let home = (n.bed.0 as f32 * 16. + 8., n.bed.1 as f32 * 16. + 18.);
             // v19: ดึกแล้วขึ้นนอนบนเตียงจริง (มอนเข้าใกล้ = ตื่น) · เช้าลุกมายืนข้างเตียง
-            if n.state == ST_HOME {
+            if n.state == ST_HOME && marching.is_none() {
                 let bed_ok = self.w.placed.get(&n.bed) == Some(&33);
                 let danger = enemies.iter().any(|e| (e.1 - n.x).hypot(e.2 - n.y) < 70.);
                 if sleep_hr(hr_now) && bed_ok && !gather.contains_key(&n.id) && !danger {
@@ -450,8 +458,33 @@ impl Game {
                     if d > 240. { n.x = px - 12.; n.y = py; }
                     if d > 26. { tx = px; ty = py; spd = 70.; }
                 }
+                _ if marching.is_some() => {
+                    // เดินแถวตามหลังเรา · เจอศัตรูใกล้ตัวเรา = เข้าตี
+                    let slot = marching.unwrap();
+                    let (row, col) = ((slot / 4) as f32, (slot % 4) as f32 - 1.5);
+                    let (fx, fy) = if pf.0.abs() + pf.1.abs() < 0.1 { (0., 1.) } else { pf };
+                    let (sx, sy) = (px - fx * (22. + row * 14.) - fy * col * 13., py - fy * (22. + row * 14.) + fx * col * 13.);
+                    let tgt = enemies.iter().filter(|e| (e.1 - px).hypot(e.2 - py) < 190. && (e.1 - n.x).hypot(e.2 - n.y) < 130.).min_by(|a, b| ((a.1 - n.x).hypot(a.2 - n.y)).partial_cmp(&((b.1 - n.x).hypot(b.2 - n.y))).unwrap());
+                    let btgt = bosses.iter().filter(|b| (b.1 - px).hypot(b.2 - py) < 220.).min_by(|a, b| ((a.1 - n.x).hypot(a.2 - n.y)).partial_cmp(&((b.1 - n.x).hypot(b.2 - n.y))).unwrap());
+                    if let Some(&(ei, ex, ey)) = tgt {
+                        let d = (ex - n.x).hypot(ey - n.y);
+                        if d > 13. { tx = ex; ty = ey; spd = 82.; } else if n.atk_cd <= 0. { n.atk_cd = 0.8; hits.push((ei, (ex - n.x) / d.max(1.), (ey - n.y) / d.max(1.))); }
+                    } else if let Some(&(bi, bx, by)) = btgt {
+                        // ล้อมตีบอส/แม่ทัพ (ยืนรอบตัว)
+                        let a = slot as f32 * 1.7;
+                        let (gx, gy) = (bx + a.cos() * (BOSS_R + 6.), by + a.sin() * (BOSS_R + 2.));
+                        let d = (gx - n.x).hypot(gy - n.y);
+                        if d > 5. { tx = gx; ty = gy; spd = 82.; } else if n.atk_cd <= 0. { n.atk_cd = 1.0; boss_hits.push(bi); n.left = bx < n.x; }
+                    } else {
+                        tx = sx; ty = sy;
+                        let d = (n.x - sx).hypot(n.y - sy);
+                        if d > 6. { spd = if d > 60. { 95. } else { 72. }; }
+                    }
+                    if (n.x - px).hypot(n.y - py) > 320. { n.x = px - fx * 20.; n.y = py - fy * 20.; }
+                    self.rs.sleeping.remove(&n.id);
+                }
                 _ => {
-                    if matches!(n.role, 2 | R_SOLDIER | R_GENERAL) && n.mood >= 20 && Game::willing(n) {
+                    if matches!(n.role, 2 | R_SOLDIER | R_GENERAL) && n.mood >= 20 && Game::willing(n) && !wounded.contains(&n.id) {
                         // ทหารยาม: เข้าหามอนสเตอร์ใกล้บ้าน ฟันให้
                         let tgt = enemies.iter().filter(|e| (e.1 - home.0).hypot(e.2 - home.1) < 170.).min_by(|a, b| ((a.1 - n.x).hypot(a.2 - n.y)).partial_cmp(&((b.1 - n.x).hypot(b.2 - n.y))).unwrap());
                         if let Some(&(ei, ex, ey)) = tgt {
@@ -504,13 +537,24 @@ impl Game {
         if !work_done.is_empty() { self.work_finish(work_done); }
         self.gather = gather;
         let bonus = self.tier() as i32;
+        // ทหาร/ยามตี ไม่ต้องหยุดเฟรม (hitstop) — สงวนไว้ให้การตีของเรา
+        let hs = self.hitstop;
+        for bi in boss_hits {
+            if bi < self.bosses.len() && !self.bosses[bi].dead {
+                let (bx, by) = (self.bosses[bi].x, self.bosses[bi].y - 20.);
+                self.damage_boss(bi, 2 + bonus, false);
+                self.add_float(bx + gen_range(-8., 8.), by, "ทหาร!", hx(0x88ccff), None);
+            }
+        }
         for (ei, dx, dy) in hits {
             if ei < self.en.len() && !self.en[ei].dead {
                 let (ex, ey) = (self.en[ei].x, self.en[ei].y - 8.);
-                self.damage_enemy(ei, 2 + bonus, false, dx, dy);
-                self.add_float(ex, ey - 6., "ยาม!", hx(0x88ccff), None);
+                let gen = if self.npcs.iter().any(|n| n.role == R_GENERAL && n.state == ST_HOME) { 1 } else { 0 };
+                self.damage_enemy(ei, 2 + bonus + gen, false, dx, dy);
+                self.add_float(ex, ey - 6., if self.rs.war.march { "ทหาร!" } else { "ยาม!" }, hx(0x88ccff), None);
             }
         }
+        self.hitstop = hs;
     }
 }
 
