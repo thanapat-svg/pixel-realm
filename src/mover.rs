@@ -32,8 +32,9 @@ impl Game {
         let is_struct = placed.map_or(false, structural) || (floor && placed.is_none());
         if is_struct {
             // ผนัง/ประตู/พื้นของห้องที่ปิดสนิท = ย้ายทั้งหลัง
-            let starts = [k, (k.0, k.1 - 1), (k.0, k.1 + 1), (k.0 - 1, k.1), (k.0 + 1, k.1)];
-            let room = starts.iter().filter(|s| !OSOLID[self.w.obj_at(s.0, s.1) as usize] || self.w.placed.get(s).map_or(false, |o| *o == 12 || *o == 13)).find_map(|s| self.w.room_from(*s));
+            // รวมแนวทแยงด้วย: ผนังมุมบ้านติดกับช่องในบ้านแค่ทางทแยง
+            let starts = [k, (k.0, k.1 - 1), (k.0, k.1 + 1), (k.0 - 1, k.1), (k.0 + 1, k.1), (k.0 - 1, k.1 - 1), (k.0 + 1, k.1 - 1), (k.0 - 1, k.1 + 1), (k.0 + 1, k.1 + 1)];
+            let room = starts.iter().find_map(|s| self.w.room_from(*s));
             if let Some(r) = room {
                 let mut tiles: Vec<(i32, i32)> = r.tiles.iter().chain(r.walls.iter()).chain(r.doors.iter()).copied().collect();
                 tiles.sort(); tiles.dedup();
@@ -257,9 +258,8 @@ mod tests {
         g.npcs.push(Npc { id: 5, name: 1, look: 0, x: 0., y: 0., state: ST_HOME, hearts: 3, mood: 60, married: false, child: false, role: 0, bed: bed0, anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false, soc: Soc::generate(5, 1) });
         let n_before = g.w.placed.len();
         // แตะผนัง = ยกทั้งหลัง
-        let wall = r0.walls[0];
-        let sel = g.move_select(wall).unwrap();
-        assert!(sel.building, "แตะผนัง = ทั้งหลัง");
+        // ทุกผนัง รวมผนังมุม แตะแล้วได้ทั้งหลัง
+        for &wall in &r0.walls { let sel = g.move_select(wall).unwrap(); assert!(sel.building, "แตะผนัง {:?} = ทั้งหลัง", wall); }
         // แตะเฟอร์นิเจอร์ในบ้าน = ชิ้นเดียว
         assert!(!g.move_select(bed0).unwrap().building);
         assert!(g.move_pick(k));

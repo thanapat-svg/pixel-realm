@@ -3,7 +3,7 @@
 use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum AdvAct { Build(u8), Tab(u8), Npc(u32), Tax, None }
+pub enum AdvAct { Build(u8), Tab(u8), Npc(u32), Role(u8), Tax, None }
 
 #[derive(Clone, Debug)]
 pub struct Advice {
@@ -123,8 +123,8 @@ impl Game {
             add("water".into(), 0, format!("{} คนไม่มีน้ำดื่มใกล้บ้าน (ความสุขลดทุกวัน) — สร้าง{}ใกล้เตียงพวกเขา", s.no_water.len(), what), AdvAct::Build(obj), "สร้างเลย");
         }
         if s.chests == 0 { add("chest".into(), 1, "ยังไม่มีกล่องเก็บของในเมือง — ชาวบ้านเอาผลงานไปเก็บไม่ได้ และหาอาหารไม่เจอ".into(), AdvAct::Build(14), "วางกล่อง"); }
-        if !s.hungry.is_empty() { add("food".into(), 0, format!("{} คนไม่มีอาหารในกล่องใกล้บ้าน — ใส่อาหารในกล่อง หรือให้คนเป็นชาวไร่/นักล่า", s.hungry.len()), AdvAct::Tab(10), "ดูเมือง"); }
-        else if s.food_days < 2. { add("foodlow".into(), 1, format!("อาหารในกล่องพออีกราว {:.0} วัน — เพิ่มชาวไร่ หรือใส่อาหารเพิ่ม", s.food_days.max(0.)), AdvAct::Tab(10), "ดูเมือง"); }
+        if !s.hungry.is_empty() { add("food".into(), 0, format!("{} คนไม่มีอาหารในกล่องใกล้บ้าน — ใส่อาหารในกล่อง หรือให้คนเป็นชาวไร่/นักล่า", s.hungry.len()), AdvAct::Role(1), "หาชาวไร่"); }
+        else if s.food_days < 2. { add("foodlow".into(), 1, format!("อาหารในกล่องพออีกราว {:.0} วัน — เพิ่มชาวไร่ หรือใส่อาหารเพิ่ม", s.food_days.max(0.)), AdvAct::Role(1), "หาชาวไร่"); }
         if !s.outdoor.is_empty() { add("roof".into(), 2, format!("{} คนนอนกลางแจ้ง — ล้อมเตียงด้วยกำแพง+ประตู หรือวางบ้านสำเร็จรูป จะมีความสุขขึ้น", s.outdoor.len()), AdvAct::Build(OBJ_HOUSE_S), "วางบ้าน"); }
         let served = self.water_served();
         for &id in s.unhappy.iter().take(2) {
@@ -140,8 +140,8 @@ impl Game {
         if self.rs.lv.waiting > 0 { add("refugee".into(), 1, format!("ผู้ลี้ภัย {} คนรอเตียงว่าง — วางเตียงหรือสร้างบ้านให้ จะย้ายเข้าตอนเช้า", self.rs.lv.waiting), AdvAct::Build(33), "วางเตียง"); }
         // ---- งาน/การเติบโต
         let has = |r: u8| s.roles.iter().any(|x| x.0 == r && x.1 > 0);
-        if s.pop >= 3 && !has(1) { add("farmer".into(), 2, "ยังไม่มีชาวไร่ — เปลี่ยนอาชีพใครสักคนเป็น \"ชาวไร่\" (กดที่คน → เปลี่ยนอาชีพ) เขาจะทำไร่ให้เอง".into(), AdvAct::Tab(10), "เลือกคน"); }
-        if !self.sites.is_empty() && !has(R_BUILDER) { add("builder".into(), 3, "มีไซต์ก่อสร้างค้างอยู่แต่ไม่มีช่างไม้ — ให้ใครสักคนเป็นช่างไม้ จะสร้างเร็วขึ้นแม้คุณไม่อยู่".into(), AdvAct::Tab(10), "เลือกคน"); }
+        if s.pop >= 3 && !has(1) { add("farmer".into(), 2, "ยังไม่มีชาวไร่ — เปลี่ยนอาชีพใครสักคนเป็น \"ชาวไร่\" (กดที่คน → เปลี่ยนอาชีพ) เขาจะทำไร่ให้เอง".into(), AdvAct::Role(1), "เลือกคน"); }
+        if !self.sites.is_empty() && !has(R_BUILDER) { add("builder".into(), 3, "มีไซต์ก่อสร้างค้างอยู่แต่ไม่มีช่างไม้ — ให้ใครสักคนเป็นช่างไม้ จะสร้างเร็วขึ้นแม้คุณไม่อยู่".into(), AdvAct::Role(R_BUILDER), "เลือกคน"); }
         if s.free_beds == 0 && s.pop >= 2 && !self.rs.petitions.is_empty() { add("beds".into(), 2, format!("มี {} คนยื่นขอย้ายเข้าเมือง แต่ไม่มีเตียงว่าง", self.rs.petitions.len()), AdvAct::Build(33), "วางเตียง"); }
         else if !self.rs.petitions.is_empty() { add("petition".into(), 2, format!("มี {} คน (ขุนนาง/ทหารผ่านศึก) ขอย้ายเข้าเมือง — ดูได้ที่แท็บอาณาจักร", self.rs.petitions.len()), AdvAct::Tab(11), "ดูคำขอ"); }
         if s.ripe >= 6 && !has(1) { add("ripe".into(), 3, format!("ผักสุกรอเก็บ {} แปลง", s.ripe), AdvAct::None, ""); }
@@ -189,6 +189,7 @@ impl Game {
             }
             AdvAct::Tab(t) => self.req = Some(Req::Tab(t)),
             AdvAct::Npc(id) => self.req = Some(Req::Npc(id)),
+            AdvAct::Role(r) => self.req = Some(Req::RolePick(r)),
             AdvAct::Tax => self.collect_tax(),
             AdvAct::None => {}
         }

@@ -13,6 +13,8 @@ pub struct UiState {
     pub cook: bool,
     pub adv: bool,
     pub npc: Option<u32>,
+    /// v29 กำลังเลือกคนให้ทำอาชีพนี้ (แท็บชุมชน)
+    pub role_pick: Option<u8>,
     /// เมืองที่กำลังใช้บริการ (ดัชนี, 0 ตลาด 1 ปราสาท 2 คอกม้า 3 รถม้า)
     pub city: Option<(usize, u8)>,
     pub gift_open: bool,
@@ -30,7 +32,7 @@ pub struct UiState {
 }
 impl UiState {
     pub fn new() -> Self {
-        UiState { tab: 0, scroll: 0., max_scroll: 0., chest: None, shop: false, forge: false, cook: false, adv: false, npc: None, city: None, gift_open: false, greet: 0, sel_r: usize::MAX, sel_b: usize::MAX, sel_i: usize::MAX, press: None, last: Vec2::ZERO, drag: 0., click: None, clip: Rect::new(0., 0., 1., 1.), close: false }
+        UiState { tab: 0, scroll: 0., max_scroll: 0., chest: None, shop: false, forge: false, cook: false, adv: false, npc: None, role_pick: None, city: None, gift_open: false, greet: 0, sel_r: usize::MAX, sel_b: usize::MAX, sel_i: usize::MAX, press: None, last: Vec2::ZERO, drag: 0., click: None, clip: Rect::new(0., 0., 1., 1.), close: false }
     }
     pub fn open(&mut self, tab: usize) {
         self.tab = tab;
@@ -45,6 +47,8 @@ impl UiState {
         self.cook = false;
         self.adv = false;
         self.npc = None;
+        self.role_pick = None;
+        self.gift_open = false;
         self.city = None;
         self.close = false;
     }
@@ -910,9 +914,13 @@ pub fn draw_menu(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState) -> b
         let fs = (tfs * u) as u16;
         let d = measure_text(label, Some(font), fs, 1.);
         draw_text_ex(label, r.x + r.w / 2. - d.width / 2., r.y + r.h / 2. + 5. * u, TextParams { font: Some(font), font_size: fs, color: if on { hx(0x222222) } else { hx(0xdddddd) }, ..Default::default() });
-        if ui.click.map_or(false, |p| r.contains(p)) && !on {
+        // v29 กดแท็บ = ออกจากหน้าคน/หน้าเลือกคนเสมอ (เดิมกลับมาแท็บชุมชนแล้วค้างอยู่ที่หน้าคนเดิม)
+        if ui.click.map_or(false, |p| r.contains(p)) && (!on || ui.npc.is_some() || ui.role_pick.is_some()) {
             ui.tab = id;
             ui.scroll = 0.;
+            ui.npc = None;
+            ui.role_pick = None;
+            ui.gift_open = false;
         }
     }
 
@@ -982,6 +990,9 @@ fn tab_town(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
     if let Some(id) = ui.npc {
         return tab_npc_dialog(g, sp, font, ui, c, u, id);
     }
+    if let Some(r) = ui.role_pick {
+        return tab_role_pick(g, font, ui, c, u, r);
+    }
     let tier = g.tier();
     // ===== v21 ภาพรวมเมือง =====
     let st = g.town_stats();
@@ -1042,10 +1053,46 @@ fn tab_town(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
         match a {
             AdvAct::Tab(t) => { ui.open(t as usize); return y; }
             AdvAct::Npc(id) => { ui.npc = Some(id); ui.scroll = 0.; return y; }
+            AdvAct::Role(r) => { ui.role_pick = Some(r); ui.scroll = 0.; return y; }
             AdvAct::Build(_) => { g.adv_do(a); ui.close = true; }
             _ => g.adv_do(a),
         }
     }
+    // ===== v29 ผู้คน (ขึ้นมาไว้ใกล้ด้านบน: ใช้บ่อยสุด) · คุยได้ทันทีจากรายชื่อ ไม่ต้องเข้าหน้าคน =====
+    header(font, c, y, &format!("ผู้คน ({} คน)", g.npcs.len()), u);
+    y += 28. * u;
+    let served = g.water_served();
+    let rows: Vec<(u32, String, u8, i32, u8, bool, bool, u8, String, bool, String)> = g.npcs.iter().map(|n| {
+        let iss = g.npc_issues(n, &served);
+        let doing = if g.rs.sleeping.contains(&n.id) { "นอน".to_string() }
+            else if let Some(j) = g.rs.work.get(&n.id) { if j.stage == 1 { "ขนของเข้ากล่อง".to_string() } else if j.working { J_NAMES[j.kind as usize].to_string() } else { format!("ไป{}", J_NAMES[j.kind as usize]) } }
+            else if n.child { "เล่น".to_string() } else if work_hr(g.hour()) { "ว่าง".to_string() } else { "พักผ่อน".to_string() };
+        (n.id, NPC_NAMES[n.name as usize].to_string(), n.state, n.mood, n.hearts, n.married, n.child, n.role, iss.join(" · "), n.talked, doing)
+    }).collect();
+    let mut open: Option<u32> = None;
+    let mut talk: Option<u32> = None;
+    let rh2 = 54. * u;
+    for (id, nm, st, mood, hearts, married, child, role, iss, talked, doing) in &rows {
+        let hh = if iss.is_empty() { rh2 } else { rh2 + 12. * u };
+        if visible(y, hh, c) {
+            let status = match *st { ST_FOLLOW => "ติดตามคุณ".to_string(), _ => if *child { "ลูก".to_string() } else { ROLE_N[*role as usize].to_string() } };
+            text(font, &format!("{}{} · {}", nm, if *married { " (คู่สมรส)" } else { "" }, status), c.x + 8. * u, y + 18. * u, 14. * u, hx(0xffcc66));
+            text(font, &format!("สนิท {}/10 · กำลัง{}", hearts, doing), c.x + 8. * u, y + 36. * u, 11. * u, hx(0xff9ab0));
+            bar(c.x + 8. * u, y + 42. * u, 120. * u, 5. * u, *mood as f32 / 100., mood_col(*mood));
+            if !iss.is_empty() { text(font, &format!("ปัญหา: {}", iss), c.x + 8. * u, y + 60. * u, 10. * u, hx(0xff8877)); }
+            let bw = 84. * u;
+            if btn(ui, font, Rect::new(c.x + c.w - bw * 2. - 16. * u, y + 10. * u, bw, 32. * u), if *talked { "คุยแล้ว" } else { "คุย" }, !*talked, u) { talk = Some(*id); }
+            if btn(ui, font, Rect::new(c.x + c.w - bw - 8. * u, y + 10. * u, bw, 32. * u), "จัดการ", true, u) { open = Some(*id); }
+            sep(c, y + hh - 2.);
+        }
+        y += hh;
+    }
+    if rows.is_empty() && visible(y, 30. * u, c) {
+        text(font, "ยังไม่มีใคร — ออกสำรวจแล้วช่วยผู้หลงทาง!", c.x + 8. * u, y + 20. * u, 13. * u, hx(0x888899));
+        y += 30. * u;
+    }
+    if let Some(id) = talk { g.npc_talk(id); }
+    if let Some(id) = open { ui.npc = Some(id); ui.scroll = 0.; return y - top; }
     // งานตอนนี้: อาชีพละกี่คน กำลังทำอะไร
     if !st.roles.is_empty() {
         header(font, c, y, "อาชีพ & งานตอนนี้", u);
@@ -1116,41 +1163,55 @@ fn tab_town(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
     if !g.news.is_empty() {
         header(font, c, y, "ข่าวหมู่บ้าน", u);
         y += 28. * u;
-        for (d, t) in g.news.iter().rev().take(8) {
-            let ws = wrap_th(font, &format!("วันที่ {}: {}", d + 1, t), 11. * u, c.w - 24. * u);
+        // v29 ข่าวเรื่องเดิมซ้ำหลายวัน รวมเป็นบรรทัดเดียว ("วันที่ 14–16: …")
+        let mut merged: Vec<(i32, i32, String)> = vec![];
+        for (d, t) in g.news.iter().rev() {
+            if let Some(last) = merged.iter_mut().find(|m| &m.2 == t) { last.0 = last.0.min(*d); continue; }
+            merged.push((*d, *d, t.clone()));
+            if merged.len() >= 6 { break; }
+        }
+        for (d0, d1, t) in merged.iter() {
+            let when = if d0 == d1 { format!("วันที่ {}", d1 + 1) } else { format!("วันที่ {}–{}", d0 + 1, d1 + 1) };
+            let ws = wrap_th(font, &format!("{}: {}", when, t), 11. * u, c.w - 24. * u);
             let hh = ws.len() as f32 * 14. * u + 6. * u;
             if visible(y, hh, c) { for (k, w) in ws.iter().enumerate() { text(font, w, c.x + 8. * u, y + 13. * u + k as f32 * 14. * u, 11. * u, hx(0xc9d1e6)); } }
             y += hh;
         }
     }
-    header(font, c, y, "ผู้คน", u);
-    y += 28. * u;
-    let served = g.water_served();
-    let rows: Vec<(u32, String, u8, i32, u8, bool, bool, u8, String)> = g.npcs.iter().map(|n| {
-        let iss = g.npc_issues(n, &served);
-        (n.id, NPC_NAMES[n.name as usize].to_string(), n.state, n.mood, n.hearts, n.married, n.child, n.role, iss.join(" · "))
-    }).collect();
-    let mut open: Option<u32> = None;
-    let rh2 = 58. * u;
-    for (id, nm, st, mood, hearts, married, child, role, iss) in &rows {
-        if visible(y, rh2, c) {
-            if !iss.is_empty() { text(font, &format!("ปัญหา: {}", iss), c.x + 8. * u, y + 52. * u, 10. * u, hx(0xff8877)); }
-            let status = match *st { ST_FOLLOW => "ติดตามคุณ".to_string(), _ => if *child { "ลูก".to_string() } else { ROLE_N[*role as usize].to_string() } };
-            text(font, &format!("{}{} · {}", nm, if *married { " (คู่สมรส)" } else { "" }, status), c.x + 8. * u, y + 18. * u, 14. * u, hx(0xffcc66));
-            text(font, &format!("สนิท {}/10", hearts), c.x + 8. * u, y + 36. * u, 11. * u, hx(0xff9ab0));
-            bar(c.x + 100. * u, y + 28. * u, 90. * u, 8. * u, *mood as f32 / 100., mood_col(*mood));
-            text(font, "สุข", c.x + 196. * u, y + 36. * u, 11. * u, hx(0xaaaaaa));
-            if btn(ui, font, Rect::new(c.x + c.w - 104. * u, y + 7. * u, 92. * u, 32. * u), "คุย/จัดการ", !*child, u) { open = Some(*id); }
-            sep(c, y + rh2 - 2.);
-        }
-        y += rh2;
-    }
-    if rows.is_empty() && visible(y, 30. * u, c) {
-        text(font, "ยังไม่มีใคร — ออกสำรวจแล้วช่วยผู้หลงทาง!", c.x + 8. * u, y + 20. * u, 13. * u, hx(0x888899));
-        y += 30. * u;
-    }
     if tax { g.collect_tax(); }
-    if let Some(id) = open { ui.npc = Some(id); ui.scroll = 0.; }
+    y - top
+}
+
+/// v29 หน้าเลือกคนให้ทำอาชีพ (จากปุ่ม "เลือกคน" ของที่ปรึกษา)
+fn tab_role_pick(g: &mut Game, font: &Font, ui: &mut UiState, c: Rect, u: f32, r: u8) -> f32 {
+    let top = c.y - ui.scroll;
+    let mut y = top;
+    if btn(ui, font, Rect::new(c.x + 6. * u, y + 4. * u, 90. * u, 30. * u), "< กลับ", true, u) { ui.role_pick = None; ui.scroll = 0.; return 0.; }
+    text(font, &format!("เลือกคนเป็น{}", ROLE_N[r as usize]), c.x + 108. * u, y + 25. * u, 16. * u, hx(0xffcc66));
+    y += 40. * u;
+    let ws = wrap_th(font, &format!("งาน: {}", ROLE_DESC[(r as usize).min(13)]), 11. * u, c.w - 24. * u);
+    for (k, w) in ws.iter().enumerate() { if visible(y, 14. * u, c) { text(font, w, c.x + 8. * u, y + 13. * u + k as f32 * 14. * u, 11. * u, hx(0x9fe0ff)); } }
+    y += ws.len() as f32 * 14. * u + 8. * u;
+    let cands = g.role_candidates(r);
+    let mut pick: Option<u32> = None;
+    let rh = 50. * u;
+    for (id, ok) in &cands {
+        let Some(i) = g.idx(*id) else { continue };
+        let n = &g.npcs[i];
+        if visible(y, rh, c) {
+            let cur = if n.role == r { " (ทำอยู่แล้ว)".to_string() } else { format!(" · ตอนนี้: {}", ROLE_N[n.role as usize]) };
+            text(font, &format!("{}{}", NPC_NAMES[n.name as usize], cur), c.x + 8. * u, y + 20. * u, 14. * u, if ok.is_ok() { hx(0xffcc66) } else { hx(0x888899) });
+            let sub = match ok { Ok(()) => n.soc.traits_ranked().into_iter().take(2).map(|(k, hi)| Soc::trait_name(k, hi)).collect::<Vec<_>>().join(" · "), Err(e) => format!("ทำไม่ได้: {}", e) };
+            text(font, &sub, c.x + 8. * u, y + 38. * u, 11. * u, if ok.is_ok() { hx(0xaaaaaa) } else { hx(0xff8877) });
+            if btn(ui, font, Rect::new(c.x + c.w - 112. * u, y + 9. * u, 100. * u, 32. * u), "เลือก", ok.is_ok() && n.role != r, u) { pick = Some(*id); }
+            sep(c, y + rh - 2.);
+        }
+        y += rh;
+    }
+    if cands.is_empty() && visible(y, 30. * u, c) { text(font, "ยังไม่มีผู้ใหญ่ในเมือง", c.x + 8. * u, y + 20. * u, 13. * u, hx(0x888899)); y += 30. * u; }
+    if let Some(id) = pick {
+        match g.set_role(id, r) { Ok(m) => { g.toast(m); ui.role_pick = None; ui.scroll = 0.; } Err(e) => g.toast(e) }
+    }
     y - top
 }
 
@@ -1159,8 +1220,10 @@ fn tab_npc_dialog(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c:
     let mut y = top;
     let Some(n) = g.npcs.iter().find(|n| n.id == id).cloned() else { ui.npc = None; return 0.; };
     let nm = NPC_NAMES[n.name as usize];
-    header(font, c, y, &format!("{} — {}{}", nm, if n.state == ST_FOLLOW { "ผู้ติดตาม" } else { ROLE_N[n.role as usize] }, if n.married { " · คู่สมรส" } else { "" }), u);
-    y += 30. * u;
+    // v29 ปุ่มกลับอยู่บนสุด (เดิมอยู่ล่างสุดของหน้ายาว เลยเหมือนติดค้างอยู่กับคนนี้)
+    if btn(ui, font, Rect::new(c.x + 6. * u, y + 4. * u, 90. * u, 30. * u), "< กลับ", true, u) { ui.npc = None; ui.scroll = 0.; ui.gift_open = false; return 0.; }
+    text(font, &format!("{} — {}{}", nm, if n.state == ST_FOLLOW { "ผู้ติดตาม" } else if n.child { "ลูก" } else { ROLE_N[n.role as usize] }, if n.married { " · คู่สมรส" } else { "" }), c.x + 108. * u, y + 25. * u, 16. * u, hx(0xffcc66));
+    y += 40. * u;
     let say = g.npc_say(&n);
     if visible(y, 30. * u, c) { text(font, &format!("\"{}\"", say), c.x + 8. * u, y + 18. * u, 13. * u, hx(0xdddddd)); }
     y += 30. * u;
@@ -1172,68 +1235,39 @@ fn tab_npc_dialog(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c:
         bar(c.x + 190. * u, y + 20. * u, 160. * u, 9. * u, n.mood as f32 / 100., mood_col(n.mood));
     }
     y += 40. * u;
-    // อาชีพ: เลือกเองได้ (มีเงื่อนไขตามนิสัย)
+    // v29 อาชีพ: กดเลือกจากปุ่มได้เลย (เดิมต้องกด "เปลี่ยนอาชีพ" วนทีละอาชีพ) · ทำไม่ได้ = ปุ่มจาง กดแล้วบอกเหตุผล
     if n.state == ST_HOME && !n.child {
         let manual = g.rs.manual.contains_key(&n.id);
         let desc = format!("อาชีพ: {}{} — {}", ROLE_N[n.role as usize], if manual { " (เลือกเอง)" } else { " (เกมจัดให้)" }, ROLE_DESC[(n.role as usize).min(13)]);
-        let ws = wrap_th(font, &desc, 11. * u, c.w - 150. * u);
-        let hh = (ws.len() as f32 * 14. * u + 12. * u).max(44. * u);
-        if visible(y, hh, c) {
-            for (k, w) in ws.iter().enumerate() { text(font, w, c.x + 8. * u, y + 16. * u + k as f32 * 14. * u, 11. * u, hx(0x9fe0ff)); }
-            if btn(ui, font, Rect::new(c.x + c.w - 136. * u, y + 4. * u, 128. * u, 18. * u), "เปลี่ยนอาชีพ", true, u) {
-                // วนไปอาชีพถัดไปที่ทำได้
-                let mut r = n.role;
-                let mut msg = String::new();
-                for _ in 0..14 {
-                    r = (r + 1) % 14;
-                    if r == 0 || r == 3 { continue; }
-                    match role_ok(&n, r, &g.rs) { Ok(()) => { msg.clear(); break; } Err(e) => { if msg.is_empty() { msg = format!("{}: {}", ROLE_N[r as usize], e); } } }
-                }
-                if r == 2 && g.npcs.iter().filter(|m| m.role == R_GENERAL).count() > 0 && false { }
-                if r == R_GENERAL && g.npcs.iter().any(|m| m.role == R_GENERAL && m.id != n.id) { g.toast("มีแม่ทัพแล้ว 1 คน (มีได้คนเดียว)"); r = R_SOLDIER; }
-                g.rs.manual.insert(n.id, r);
-                if let Some(i) = g.idx(n.id) { g.npcs[i].role = r; }
-                if !msg.is_empty() { g.toast(format!("ข้ามบางอาชีพ — {}", msg)); }
-            }
-            if manual && btn(ui, font, Rect::new(c.x + c.w - 136. * u, y + 24. * u, 128. * u, 18. * u), "ให้เกมเลือกให้", true, u) {
-                g.rs.manual.remove(&n.id);
-                g.assign_roles_pub();
-            }
+        let ws = wrap_th(font, &desc, 11. * u, c.w - 24. * u);
+        for (k, w) in ws.iter().enumerate() { if visible(y, 14. * u, c) { text(font, w, c.x + 8. * u, y + 13. * u + k as f32 * 14. * u, 11. * u, hx(0x9fe0ff)); } }
+        y += ws.len() as f32 * 14. * u + 6. * u;
+        let cols = if c.w > 520. * u { 5 } else { 3 };
+        let gap = 6. * u;
+        let bw = (c.w - 16. * u - gap * (cols as f32 - 1.)) / cols as f32;
+        let bh = 30. * u;
+        let mut chosen: Option<u8> = None;
+        let mut list: Vec<u8> = PICK_ROLES.to_vec();
+        if n.role == 3 { list.insert(0, 3); }
+        for (k, &r) in list.iter().enumerate() {
+            let (bx, by) = (c.x + 8. * u + (k % cols) as f32 * (bw + gap), y + (k / cols) as f32 * (bh + gap));
+            if !visible(by, bh, c) { continue; }
+            let ok = role_ok(&n, r, &g.rs).is_ok();
+            let on = n.role == r;
+            let rr = Rect::new(bx, by, bw, bh);
+            draw_rectangle(rr.x, rr.y, rr.w, rr.h, if on { hx(0xffcc66) } else if ok { hx(0x2e3a52) } else { hx(0x22242e) });
+            draw_rectangle_lines(rr.x, rr.y, rr.w, rr.h, 2., if on { BLACK } else { hx(0x4a5068) });
+            text_c(font, ROLE_N[r as usize], rr.x + rr.w / 2., rr.y + rr.h * 0.66, 11.5 * u, if on { hx(0x222222) } else if ok { WHITE } else { hx(0x777788) });
+            if ui.click.map_or(false, |p| rr.contains(p) && ui.clip.contains(p)) && !on { chosen = Some(r); }
         }
-        y += hh;
-    }
-    // นิสัย/ของโปรด: ยิ่งสนิทยิ่งรู้จักมากขึ้น (เหมือนรู้จักคนจริงๆ)
-    {
-        let known = (n.hearts as usize / 2 + 1).min(5);
-        let trs: Vec<&str> = n.soc.traits_ranked().into_iter().take(known).map(|(k, hi)| Soc::trait_name(k, hi)).collect();
-        let body = g.npc_body(&n);
-        let mut info = vec![format!("รูปร่าง: {} · {}", body.describe(), body.look_words())];
-        for l in g.psy_info(n.id) { info.push(l); }
-        if n.state == ST_HOME {
-            let bed_ok = g.w.placed.get(&n.bed) == Some(&33);
-            info.push(if !bed_ok { "บ้าน: ไม่มีเตียง (ความสุขลดทุกวัน)".to_string() } else if let Some(r) = g.w.room_from(n.bed) { format!("บ้าน: มีบ้านมีหลังคา {} (ความสุข +{}/วัน{})", stars(r.comfort), if r.comfort >= 3 { 6 } else { 4 }, if r.comfort >= 3 { "" } else { " · บ้าน 3 ดาวขึ้นไป = +6" }) } else { "บ้าน: นอนกลางแจ้ง — ล้อมเตียงด้วยกำแพง+ประตู (ความสุข -3/วัน)".to_string() });
+        y += ((list.len() + cols - 1) / cols) as f32 * (bh + gap) + 4. * u;
+        if let Some(r) = chosen {
+            match g.set_role(n.id, r) { Ok(m) => g.toast(m), Err(e) => g.toast(format!("{}: {}", ROLE_N[r as usize], e)) }
         }
-        info.push(format!("ความรู้สึกต่อคุณ: {}", if n.married { "คู่สมรส" } else { opinion_label(op) }));
-        info.push(format!("นิสัย: {}{}", trs.join(" · "), if known < 5 { " · (ยังรู้จักไม่หมด)" } else { "" }));
-        info.push(format!("ของที่ชอบ: {}", if n.hearts >= 4 { INAME[n.soc.love as usize] } else { "ยังไม่รู้ (สนิท 4 ขึ้นไปถึงจะรู้)" }));
-        info.push(format!("ของที่ไม่ชอบ: {}", if n.hearts >= 6 { INAME[n.soc.hate as usize] } else { "ยังไม่รู้ (สนิท 6 ขึ้นไปถึงจะรู้)" }));
-        if n.soc.anger >= 20 { info.push("กำลังโกรธคุณอยู่ — ให้เวลาหรือขอโทษ".to_string()); }
-        if n.soc.grudge >= 30 { info.push("ยังแค้นเรื่องเก่าที่คุณทำไว้ — ต้องใช้เวลา/ขอโทษหลายครั้ง".to_string()); }
-        if n.state == ST_HOME {
-            let mut foes: Vec<String> = vec![];
-            for o in g.npcs.iter().filter(|o| o.id != n.id && o.state == ST_HOME && !o.child) {
-                let r = g.rel_between(n.id, o.id);
-                if r <= -30 { foes.push(NPC_NAMES[o.name as usize].to_string()); }
-            }
-            if !foes.is_empty() { info.push(format!("เข้ากับ {} ไม่ได้", foes.join(", "))); }
+        if manual && visible(y, 34. * u, c) {
+            if btn(ui, font, Rect::new(c.x + 8. * u, y + 2. * u, 150. * u, 28. * u), "ให้เกมเลือกให้", true, u) { g.rs.manual.remove(&n.id); g.assign_roles_pub(); }
         }
-        for l in info {
-            let ws = wrap_th(font, &l, 11. * u, c.w - 24. * u);
-            let hh = ws.len() as f32 * 14. * u + 4. * u;
-            if visible(y, hh, c) { for (k, w) in ws.iter().enumerate() { text(font, w, c.x + 8. * u, y + 12. * u + k as f32 * 14. * u, 11. * u, hx(0xb9c3d9)); } }
-            y += hh;
-        }
-        y += 6. * u;
+        if manual { y += 34. * u; }
     }
     // ---- คำขอ/ปัญหาที่เกี่ยวกับคนนี้
     let mut qdo: Option<(usize, QA)> = None;
@@ -1318,6 +1352,41 @@ fn tab_npc_dialog(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c:
                 y += rh;
             }
         }
+    }
+    header(font, c, y, "รู้จักเขามากขึ้น", u);
+    y += 28. * u;
+    // นิสัย/ของโปรด: ยิ่งสนิทยิ่งรู้จักมากขึ้น (เหมือนรู้จักคนจริงๆ)
+    {
+        let known = (n.hearts as usize / 2 + 1).min(5);
+        let trs: Vec<&str> = n.soc.traits_ranked().into_iter().take(known).map(|(k, hi)| Soc::trait_name(k, hi)).collect();
+        let body = g.npc_body(&n);
+        let mut info = vec![format!("รูปร่าง: {} · {}", body.describe(), body.look_words())];
+        for l in g.psy_info(n.id) { info.push(l); }
+        if n.state == ST_HOME {
+            let bed_ok = g.w.placed.get(&n.bed) == Some(&33);
+            info.push(if !bed_ok { "บ้าน: ไม่มีเตียง (ความสุขลดทุกวัน)".to_string() } else if let Some(r) = g.w.room_from(n.bed) { format!("บ้าน: มีบ้านมีหลังคา {} (ความสุข +{}/วัน{})", stars(r.comfort), if r.comfort >= 3 { 6 } else { 4 }, if r.comfort >= 3 { "" } else { " · บ้าน 3 ดาวขึ้นไป = +6" }) } else { "บ้าน: นอนกลางแจ้ง — ล้อมเตียงด้วยกำแพง+ประตู (ความสุข -3/วัน)".to_string() });
+        }
+        info.push(format!("ความรู้สึกต่อคุณ: {}", if n.married { "คู่สมรส" } else { opinion_label(op) }));
+        info.push(format!("นิสัย: {}{}", trs.join(" · "), if known < 5 { " · (ยังรู้จักไม่หมด)" } else { "" }));
+        info.push(format!("ของที่ชอบ: {}", if n.hearts >= 4 { INAME[n.soc.love as usize] } else { "ยังไม่รู้ (สนิท 4 ขึ้นไปถึงจะรู้)" }));
+        info.push(format!("ของที่ไม่ชอบ: {}", if n.hearts >= 6 { INAME[n.soc.hate as usize] } else { "ยังไม่รู้ (สนิท 6 ขึ้นไปถึงจะรู้)" }));
+        if n.soc.anger >= 20 { info.push("กำลังโกรธคุณอยู่ — ให้เวลาหรือขอโทษ".to_string()); }
+        if n.soc.grudge >= 30 { info.push("ยังแค้นเรื่องเก่าที่คุณทำไว้ — ต้องใช้เวลา/ขอโทษหลายครั้ง".to_string()); }
+        if n.state == ST_HOME {
+            let mut foes: Vec<String> = vec![];
+            for o in g.npcs.iter().filter(|o| o.id != n.id && o.state == ST_HOME && !o.child) {
+                let r = g.rel_between(n.id, o.id);
+                if r <= -30 { foes.push(NPC_NAMES[o.name as usize].to_string()); }
+            }
+            if !foes.is_empty() { info.push(format!("เข้ากับ {} ไม่ได้", foes.join(", "))); }
+        }
+        for l in info {
+            let ws = wrap_th(font, &l, 11. * u, c.w - 24. * u);
+            let hh = ws.len() as f32 * 14. * u + 4. * u;
+            if visible(y, hh, c) { for (k, w) in ws.iter().enumerate() { text(font, w, c.x + 8. * u, y + 12. * u + k as f32 * 14. * u, 11. * u, hx(0xb9c3d9)); } }
+            y += hh;
+        }
+        y += 6. * u;
     }
     row(ui, &mut y, "ให้ย้ายออก", "ถ้าไม่ต้องการแล้ว (ย้ายออกถาวร)", "ย้ายออก", true, A::Dismiss, &mut act);
     row(ui, &mut y, "กลับ", "ภาพรวมชุมชน", "กลับ", true, A::Back, &mut act);
@@ -1574,4 +1643,50 @@ fn tab_city(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
         }
     }
     y - top + 10. * u
+}
+
+#[cfg(test)]
+mod tests_v29 {
+    use super::*;
+    fn villager(g: &mut Game, id: u32, brave: u8) {
+        let b = (tfloor(g.p.x) + id as i32 * 2, tfloor(g.p.y) + 3);
+        g.w.placed.insert(b, 33);
+        let mut soc = Soc::generate(id, id as u8);
+        soc.tr[T_BRAVE] = brave;
+        g.npcs.push(Npc { id, name: id as u8, look: 0, x: 0., y: 0., state: ST_HOME, hearts: 3, mood: 60, married: false, child: false, role: 0, bed: b, anim: 0., wt: 0., wd: (0., 0.), atk_cd: 0., talked: false, gifted: false, moving: false, left: false, soc });
+    }
+    #[test]
+    fn pick_person_button_opens_role_picker_and_sets_role() {
+        let mut g = Game::new_world_seed(4242, Sfx::default());
+        villager(&mut g, 1, 80);
+        villager(&mut g, 2, 10);
+        villager(&mut g, 3, 50);
+        // ปุ่ม "เลือกคน" ของที่ปรึกษา = เปิดหน้าเลือกคน (เดิมสั่งเปิดแท็บเดิมซ้ำ เลยไม่มีอะไรเกิดขึ้น)
+        let a = g.advice().into_iter().find(|a| a.id == "farmer").expect("แนะนำให้มีชาวไร่");
+        assert_eq!(a.act, AdvAct::Role(1));
+        g.adv_do(a.act);
+        assert!(matches!(g.req, Some(Req::RolePick(1))));
+        // รายชื่อ: ทุกคนเป็นชาวไร่ได้ · ทหาร: คนขี้ขลาดทำไม่ได้ (บอกเหตุผล) และเรียงคนที่ทำได้ก่อน
+        assert!(g.role_candidates(1).iter().all(|(_, ok)| ok.is_ok()));
+        let sol = g.role_candidates(R_SOLDIER);
+        assert!(sol.last().unwrap().1.is_err() && sol.last().unwrap().0 == 2);
+        assert!(g.set_role(2, R_SOLDIER).is_err());
+        assert!(g.set_role(1, 1).is_ok());
+        assert_eq!(g.npcs[0].role, 1);
+        assert!(g.rs.manual.contains_key(&1), "จำว่าเลือกเอง");
+        // แม่ทัพมีได้คนเดียว
+        assert!(g.set_role(1, R_GENERAL).is_ok());
+        g.npcs[2].soc.tr[T_BRAVE] = 90;
+        assert!(g.set_role(3, R_GENERAL).is_err());
+        assert!(g.advice().iter().all(|a| a.id != "farmer") || g.npcs.iter().all(|n| n.role != 1));
+    }
+    #[test]
+    fn menu_context_never_sticks_to_a_person() {
+        let mut ui = UiState::new();
+        ui.npc = Some(5);
+        ui.role_pick = Some(1);
+        ui.gift_open = true;
+        ui.reset_context();
+        assert!(ui.npc.is_none() && ui.role_pick.is_none() && !ui.gift_open, "เปิดเมนูใหม่ = เริ่มที่หน้ารวม");
+    }
 }

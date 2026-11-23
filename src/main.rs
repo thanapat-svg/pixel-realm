@@ -2622,6 +2622,7 @@ fn debug_keys(g: &mut Game) {
     let shift = is_key_down(KeyCode::LeftShift);
     if shift && is_key_pressed(KeyCode::F1) { g.p.inv[WOOD] += 60; g.p.inv[STONE] += 20; g.build_sel = PIECES.iter().position(|p| p.obj == OBJ_HOUSE_S); }
     if shift && is_key_pressed(KeyCode::F2) { g.dbg_caravan(); }
+    if shift && is_key_pressed(KeyCode::F11) { g.req = Some(Req::RolePick(R_SOLDIER)); }
     if shift && is_key_pressed(KeyCode::F10) { g.build_sel = PIECES.iter().position(|p| p.obj == OBJ_MOVE); }
     if shift && is_key_pressed(KeyCode::F4) { for (j, k) in [EK::Scorp, EK::Wolf, EK::Crab, EK::Imp].into_iter().enumerate() { let (x, y) = (g.p.x - 60. + j as f32 * 40., g.p.y + 50.); g.make_enemy(k, x, y, 1., 0, false); if let Some(e) = g.en.last_mut() { e.stun = 6.; } } }
     if shift && is_key_pressed(KeyCode::F5) { let r = g.w.realm.clone(); if !g.rs.inited { g.rs.init(&r); } for st in 0..3u8 { let (x, y) = (g.p.x - 70. + st as f32 * 70., g.p.y - 50.); g.spawn_champion(st as usize % r.ks.len(), x, y); if let Some(b) = g.bosses.last_mut() { b.style = st; b.cd = 99.; } } }
@@ -2700,7 +2701,7 @@ fn debug_keys(g: &mut Game) {
     }
     if !shift && is_key_pressed(KeyCode::F3) { let (x, y) = (g.p.x + 90., g.p.y); g.spawn_boss(0, x, y); }
     if !shift && is_key_pressed(KeyCode::F4) { let (x, y) = (g.p.x + 90., g.p.y); g.spawn_boss(1, x, y); }
-    if is_key_pressed(KeyCode::F11) { let (x, y) = (g.p.x + 90., g.p.y); g.spawn_boss_hp(FINAL_KIND, x, y, FINAL_HP); }
+    if !shift && is_key_pressed(KeyCode::F11) { let (x, y) = (g.p.x + 90., g.p.y); g.spawn_boss_hp(FINAL_KIND, x, y, FINAL_HP); }
     if !shift && is_key_pressed(KeyCode::F5) { g.time = DAYLEN * 0.7; }
     if !shift && is_key_pressed(KeyCode::F7) {
         g.p.inv[SHARD] += 30; g.p.sp += 6; g.p.elems = 7; g.p.rod = true; if g.p.staff == 0 { g.p.staff = 1; } for i in [MEAT, SHROOM, HERB] { g.p.inv[i] += 10; } g.p.inv[COIN] += 500;
@@ -3055,7 +3056,7 @@ async fn main() {
                     #[cfg(debug_assertions)]
                     debug_keys(g);
                     #[cfg(debug_assertions)]
-                    if is_key_pressed(KeyCode::F11) { tu.active = !tu.active; }
+                    if is_key_pressed(KeyCode::F11) && !is_key_down(KeyCode::LeftShift) { tu.active = !tu.active; }
                     // ปุ่มลัดเหนือหัวชาวบ้าน + แผนที่เล็ก (แตะเปิดแผนที่ใหญ่)
                     let qb = v19::quick_btns(g, &v0);
                     let mut block: Vec<Rect> = qb.map(|q| q.1.to_vec()).unwrap_or_default();
@@ -3136,6 +3137,7 @@ async fn main() {
                             Req::Cook => { ui.cook = true; ui.open(8); }
                             Req::Adv => { ui.adv = true; ui.open(9); }
                             Req::Npc(id) => { ui.npc = Some(id); ui.open(10); }
+                            Req::RolePick(r) => { ui.role_pick = Some(r); ui.open(10); }
                             Req::City(ci, kind) => { ui.city = Some((ci, kind)); ui.open(12); }
                             Req::Tab(t) => { ui.open(t as usize); }
                         }

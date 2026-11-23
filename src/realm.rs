@@ -1308,6 +1308,32 @@ pub fn role_ok(n: &Npc, role: u8, rs: &RealmState) -> Result<(), &'static str> {
         _ => Ok(()),
     }
 }
+/// v29 อาชีพที่เลือกเองได้ (เรียงตามที่ใช้บ่อย) · พ่อค้าเกมเลือกให้เอง
+pub const PICK_ROLES: [u8; 13] = [1, 4, 5, 6, 7, 8, 9, 2, 10, 11, 12, 13, 0];
+impl Game {
+    /// ตั้งอาชีพให้ชาวบ้าน (ตรวจนิสัย/แม่ทัพมีได้คนเดียว) · Ok = ข้อความยืนยัน
+    pub fn set_role(&mut self, id: u32, r: u8) -> Result<String, String> {
+        let Some(i) = self.idx(id) else { return Err("ไม่พบคนนี้".into()) };
+        let n = self.npcs[i].clone();
+        if n.state != ST_HOME { return Err("ต้องย้ายมาอยู่ในเมืองก่อน".into()); }
+        role_ok(&n, r, &self.rs).map_err(|e| e.to_string())?;
+        if r == R_GENERAL && self.npcs.iter().any(|m| m.role == R_GENERAL && m.id != id) { return Err("มีแม่ทัพแล้ว 1 คน (มีได้คนเดียว)".into()); }
+        self.rs.manual.insert(id, r);
+        self.npcs[i].role = r;
+        self.rs.work.remove(&id);
+        Ok(format!("{} เป็น{}แล้ว", NPC_NAMES[n.name as usize], ROLE_N[r as usize]))
+    }
+    /// ผู้ใหญ่ในเมืองทุกคน พร้อมผลว่าเป็นอาชีพ r ได้ไหม (คนที่ว่างงาน/ไม่ได้เลือกเองมาก่อน)
+    pub fn role_candidates(&self, r: u8) -> Vec<(u32, Result<(), String>)> {
+        let mut v: Vec<(u32, Result<(), String>)> = self.residents().filter(|n| !n.child).map(|n| {
+            let ok = role_ok(n, r, &self.rs).map_err(|e| e.to_string()).and_then(|_| if r == R_GENERAL && self.npcs.iter().any(|m| m.role == R_GENERAL && m.id != n.id) { Err("มีแม่ทัพแล้ว".to_string()) } else { Ok(()) });
+            (n.id, ok)
+        }).collect();
+        // ว่างงานก่อน · ทำได้ก่อนทำไม่ได้
+        v.sort_by_key(|(id, ok)| (ok.is_err(), self.idx(*id).map_or(99, |i| if self.npcs[i].role == 0 { 0 } else if self.npcs[i].role == r { 2 } else { 1 })));
+        v
+    }
+}
 pub fn role_parts(role: u8) -> [usize; 3] {
     match role { 2 | R_SOLDIER | R_GENERAL => skin::ROLE_PARTS[2], 3 | R_DIPLOMAT | R_CLERK => skin::ROLE_PARTS[3], 1 | R_LUMBER | R_MINER | R_HUNTER | R_BUILDER => skin::ROLE_PARTS[1], _ => skin::ROLE_PARTS[0] }
 }
