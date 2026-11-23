@@ -95,16 +95,17 @@ impl Game {
 /// แผงบทเรียนด้านบนกลางจอ + ลูกศรชี้เป้าในโลก
 pub fn draw_tut(g: &Game, font: &Font, v: &View, u: f32) {
     let Some((title, sub)) = g.tut_text() else { return };
-    let sw = screen_width();
-    let w = (440. * u).min(sw * 0.38);
+    // v27 อยู่ในโซนกลางบน (ไม่ทับกล่องข้อความซ้าย/ปุ่มมุมขวา)
+    let cx = hud::col_cx();
+    let w = hud::col_wd(440. * u);
     let h = 50. * u;
-    let x = sw / 2. - w / 2.;
+    let x = cx - w / 2.;
     let y = 8. * u;
     draw_rectangle(x, y, w, h, Color::new(0.05, 0.07, 0.12, 0.8));
     draw_rectangle_lines(x, y, w, h, 2., if g.tut_flash > 0. { hx(0xffee66) } else { hx(0x66aaff) });
     text(font, &format!("บทเรียน {}/{}", g.tut as u32 + 1, TUT_N), x + 8. * u, y + 14. * u, 11. * u, hx(0x88bbff));
-    text_c(font, &title, sw / 2., y + 30. * u, 15. * u, hx(0xffffff));
-    text_c(font, sub, sw / 2., y + 44. * u, 10. * u, hx(0xaaaaaa));
+    text_c(font, &title, cx, y + 30. * u, 15. * u, hx(0xffffff));
+    text_c(font, sub, cx, y + 44. * u, 10. * u, hx(0xaaaaaa));
     if let Some((tx, ty)) = g.tut_target() {
         let (sx, sy) = ((tx - v.cx) * v.s, (ty - v.cy) * v.s);
         let (sw_, sh_) = (screen_width(), screen_height());

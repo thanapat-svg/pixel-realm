@@ -101,12 +101,12 @@ pub fn top_goal(g: &Game) -> Option<TopGoal> {
     g.adv_next().map(TopGoal::Adv)
 }
 pub fn draw_adv(g: &Game, font: &Font, u: f32) {
-    if war::in_combat(g) { return; }
+    if war::in_combat(g) || g.tut_text().is_some() { return; }
     let Some(goal) = top_goal(g) else { return };
-    let sw = screen_width();
-    let w = (420. * u).min(sw * 0.38);
+    let cx = hud::col_cx();
+    let w = hud::col_wd(420. * u);
     let h = 42. * u;
-    let x = sw / 2. - w / 2.;
+    let x = cx - w / 2.;
     let y = 8. * u;
     let (col, label, name, hint) = match goal {
         TopGoal::Adv(k) => (hx(0x7ee83a), format!("เป้าหมาย {}/{}", g.adv_done.count_ones() + 1, ADV.len()), ADV[k].0.to_string(), ADV[k].1.to_string()),
@@ -115,8 +115,8 @@ pub fn draw_adv(g: &Game, font: &Font, u: f32) {
     draw_rectangle(x, y, w, h, Color::new(0.05, 0.07, 0.12, 0.72));
     draw_rectangle_lines(x, y, w, h, 2., col);
     text(font, &label, x + 8. * u, y + 13. * u, 10. * u, col);
-    text_c(font, &name, sw / 2., y + 26. * u, 14. * u, WHITE);
-    text_c(font, &hint, sw / 2., y + 38. * u, 10. * u, hx(0xaaaaaa));
+    text_c(font, &name, cx, y + 26. * u, 14. * u, WHITE);
+    text_c(font, &hint, cx, y + 38. * u, 10. * u, hx(0xaaaaaa));
 }
 
 // ======================= 5) เรือ =======================

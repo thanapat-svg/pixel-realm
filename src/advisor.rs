@@ -198,20 +198,29 @@ pub fn cost_str(c: &[(usize, i32)]) -> String { c.iter().map(|(i, n)| format!("{
 
 // ---------------------------------------------------------------- แถบคำแนะนำ (เด้งบนจอ)
 /// (แถบ, ปุ่มทำ, ปุ่มปิด)
+/// v27 ป๊อปอัปคำแนะนำอยู่ในโซนกลาง ใต้แถบเป้าหมาย · โซนกว้าง = ปุ่มอยู่ขวา 2 บรรทัด · โซนแคบ = ปุ่มอยู่ล่าง 3 บรรทัด
+pub fn adv_wide(u: f32) -> bool { hud::layout().col_w >= 460. * u }
 pub fn adv_rects(g: &Game) -> Option<(Rect, Option<Rect>, Rect)> {
     if war::in_combat(g) { return None; }
     let (a, _) = g.rs.adv_show.as_ref()?;
     let u = ui_scale();
-    let sw = screen_width();
-    let w = (560. * u).min(sw * 0.62);
-    let h = 52. * u;
-    let x = sw / 2. - w / 2.;
-    // อยู่ใต้แถบบทเรียน/เป้าหมายด้านบน (ถ้ามี)
-    let y = if g.tut_text().is_some() || top_goal(g).is_some() { 62. * u } else { 8. * u };
-    let r = Rect::new(x, y, w, h);
-    let close = Rect::new(x + w - 46. * u, y + 10. * u, 38. * u, 32. * u);
-    let go = if a.act != AdvAct::None { Some(Rect::new(close.x - 92. * u, y + 10. * u, 86. * u, 32. * u)) } else { None };
-    Some((r, go, close))
+    let l = hud::layout();
+    let w = l.col_w.min(600. * u);
+    let x = l.col_x + l.col_w / 2. - w / 2.;
+    let th = hud::top_banner_h(g, u);
+    let y = 8. * u + if th > 0. { th + 6. * u } else { 0. };
+    let has_go = a.act != AdvAct::None;
+    if adv_wide(u) {
+        let h = 52. * u;
+        let close = Rect::new(x + w - 46. * u, y + 10. * u, 38. * u, 32. * u);
+        let go = if has_go { Some(Rect::new(close.x - 92. * u, y + 10. * u, 86. * u, 32. * u)) } else { None };
+        Some((Rect::new(x, y, w, h), go, close))
+    } else {
+        let h = 92. * u;
+        let close = Rect::new(x + w - 50. * u, y + h - 36. * u, 42. * u, 30. * u);
+        let go = if has_go { Some(Rect::new(close.x - 96. * u, y + h - 36. * u, 90. * u, 30. * u)) } else { None };
+        Some((Rect::new(x, y, w, h), go, close))
+    }
 }
 pub fn draw_advice(g: &Game, font: &Font) {
     let Some((r, go, close)) = adv_rects(g) else { return };
@@ -223,9 +232,14 @@ pub fn draw_advice(g: &Game, font: &Font) {
     draw_rectangle(r.x, r.y, 5. * u, r.h, pc);
     draw_rectangle_lines(r.x, r.y, r.w, r.h, 2., Color::new(pc.r, pc.g, pc.b, 0.8 * alpha));
     text(font, &format!("คำแนะนำ · {}", PRIO_N[a.prio as usize]), r.x + 12. * u, r.y + 15. * u, 11. * u, pc);
-    let tw = go.map_or(close.x, |g| g.x) - r.x - 20. * u;
+    let wide = adv_wide(u);
+    let tw = if wide { go.map_or(close.x, |g| g.x) - r.x - 20. * u } else { r.w - 22. * u };
     let ws = wrap_th(font, &a.text, 12. * u, tw);
-    for (k, l) in ws.iter().take(2).enumerate() { text(font, l, r.x + 12. * u, r.y + 31. * u + k as f32 * 14. * u, 12. * u, WHITE); }
+    let maxl = if wide { 2 } else { 3 };
+    for (k, l) in ws.iter().take(maxl).enumerate() {
+        let l = if k + 1 == maxl && ws.len() > maxl { format!("{}...", l) } else { l.clone() };
+        text(font, &l, r.x + 12. * u, r.y + 31. * u + k as f32 * 14. * u, 12. * u, WHITE);
+    }
     if let Some(b) = go {
         draw_rectangle(b.x, b.y, b.w, b.h, Color::new(pc.r * 0.35, pc.g * 0.35, pc.b * 0.25, 0.95));
         draw_rectangle_lines(b.x, b.y, b.w, b.h, 2., pc);

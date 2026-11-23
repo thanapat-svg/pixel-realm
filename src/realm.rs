@@ -281,6 +281,9 @@ pub struct RealmState {
     pub adv_cd: HashMap<String, f32>,
     pub ending: Option<f32>,
     pub saga_t: f32,
+    /// v27 ยืนนิ่งนานเท่าไร · ชาวบ้านที่โชว์ปุ่มลัดอยู่
+    pub still_t: f32,
+    pub quick_id: Option<u32>,
     pub lv: Living,
     pub war: WarState,
     pub tick_t: f32,
@@ -1417,11 +1420,11 @@ pub fn draw_siege_hud(g: &Game, font: &Font, u: f32) {
     let Some(s) = &g.rs.siege else { return };
     let alive = g.en.iter().filter(|e| e.k == EK::Soldier && !e.dead).count() as u32;
     let left = s.total - s.spawned + alive;
-    let sw = screen_width();
-    let w = (sw * 0.5).min(420. * u);
-    let (x, y) = (sw / 2. - w / 2., war::top_y(g, u));
+    let cx = hud::col_cx();
+    let w = hud::col_wd(420. * u);
+    let (x, y) = (cx - w / 2., war::top_y(g, u));
     draw_rectangle(x, y, w, 36. * u, Color::new(0.1, 0., 0., 0.75));
-    text_c(font, &format!("ศึกป้องกันเมือง: ทัพ{} · เหลือ {}/{} นาย", g.kname(s.k), left, s.total), sw / 2., y + 14. * u, 13. * u, hx(0xffb0b0));
+    text_c(font, &format!("ศึกป้องกันเมือง: ทัพ{} · เหลือ {}/{} นาย", g.kname(s.k), left, s.total), cx, y + 14. * u, 13. * u, hx(0xffb0b0));
     draw_rectangle(x + 6. * u, y + 22. * u, w - 12. * u, 8. * u, hx(0x301818));
     draw_rectangle(x + 6. * u, y + 22. * u, (w - 12. * u) * (s.hold / 25.).min(1.), 8. * u, hx(0xff4040));
 }

@@ -62,6 +62,7 @@ mod living;
 use living::*;
 mod war;
 use war::*;
+mod hud;
 use realm::*;
 use extra::*;
 use farm::*;
@@ -957,11 +958,21 @@ impl Game {
     // ---------- helpers ----------
     fn toast(&mut self, t: impl Into<String>) {
         let t: String = t.into();
-        let life = 2.8 + t.chars().count() as f32 / 45.;
+        let life = hud::toast_life(&t);
         // ข้อความซ้ำกับอันล่าสุด → ต่อเวลาแทนการซ้อน
         if let Some(last) = self.toasts.last_mut() { if last.0 == t { last.1 = life; return; } }
+        // v27 เรื่องเดียวกันมาติดๆ (เช่น "ภารกิจสำเร็จ: …" หลายอัน) → รวมเป็นกล่องเดียว
+        let p = hud::toast_prefix(&t);
+        if let (Some(last), Some(p)) = (p.and_then(|p| self.toasts.iter_mut().rev().find(|x| hud::toast_prefix(&x.0) == Some(p) && x.1 > 1.)), p) {
+            if last.0.chars().count() + t.chars().count() < 170 {
+                let rest = &t[p.len() + 2..];
+                last.0 = format!("{} · {}", last.0, rest);
+                last.1 = hud::toast_life(&last.0);
+                return;
+            }
+        }
         self.toasts.push((t, life));
-        if self.toasts.len() > 4 { self.toasts.remove(0); }
+        while self.toasts.len() > hud::TOAST_MAX { self.toasts.remove(0); }
     }
     fn add_float(&mut self, x: f32, y: f32, t: impl Into<String>, c: Color, icon: Option<usize>) {
         self.floats.push(Float { x, y, t: t.into(), c, l: 1., icon, sz: 1. });
@@ -990,7 +1001,7 @@ impl Game {
             self.p.hp = self.p.maxhp;
             self.p.sp += SP_PER_LV;
             let l = self.p.lvl;
-            self.toast(format!("เลเวลอัป! Lv {} (+{} แต้มสเตตัส — กด P)", l, SP_PER_LV));
+            self.toast(format!("เลเวลอัป! Lv {} (+{} แต้มสเตตัส — {})", l, SP_PER_LV, if hud::touch_on() { "เมนู → ตัวละคร" } else { "กด P" }));
             play(&self.sfx.lvl);
         }
     }
@@ -2172,16 +2183,14 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
     text(font, &format!("{} {} วันที่ {} · {:02}:{:02} · {}", SEASON_N[season(g) as usize], if night { "คืน" } else { "วัน" }, day, hr as i32, ((hr.fract()) * 60.) as i32, if g.indoors() { format!("ในบ้าน ({})", TN[g.w.biome_at(tfloor(p.x), tfloor(p.y)) as usize]) } else { TN[g.w.biome_at(tfloor(p.x), tfloor(p.y)) as usize].to_string() }), x, y + 13. * u, 13. * u, if night { hx(0xaabbff) } else { hx(0xffee99) });
     y += 20. * u;
     if let Some(st) = g.need_status() { text(font, st, x, y + 10. * u, 12. * u, hx(0xffbb77)); y += 16. * u; }
-    if p.hides > 0 || p.coat {
+    // v27 หนังสัตว์/เสื้อขนสัตว์ โชว์เฉพาะหน้าหนาว (ตอนที่ต้องใช้) · ค่าเกราะดูได้ในเมนูตัวละคร
+    if season(g) == 3 && (p.hides > 0 || p.coat) {
         text(font, &format!("หนังสัตว์ {}{}", p.hides, if p.coat { " · ใส่เสื้อขนสัตว์" } else { "" }), x, y + 10. * u, 11. * u, hx(0xe8c890));
         y += 14. * u;
     }
-    y += 24. * u;
-    if p.reduction() > 0. {
-        text(font, &format!("เกราะ ลดดาเมจ {:.0}% · เดินเร็ว +{:.0}%", p.reduction() * 100., (p.speed_mul() - 1.) * 100.), x, y + 10. * u, 11. * u, hx(0x88ccff));
-    }
+    y += 8. * u;
     if p.sp > 0 {
-        text(font, &format!("มีแต้มสเตตัส {} แต้ม — กด P", p.sp), x, y + 26. * u, 12. * u, hx(0x88ff88));
+        text(font, &format!("มีแต้มสเตตัส {} แต้ม — {}", p.sp, if touch { "เมนู → ตัวละคร" } else { "กด P" }), x, y + 26. * u, 12. * u, hx(0x88ff88));
         y += 16. * u;
     }
     if let Some(q) = &g.quest {
@@ -2197,7 +2206,7 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
         y += 16. * u;
     }
     if g.in_safe(p.x, p.y) {
-        let s = match g.home_comfort() { Some(c) => format!("ในบ้าน (น่าอยู่ {}) — ปลอดภัย · อุ่น · ฝนไม่โดน{}", stars(c), if c < 3 { " (เพิ่มพื้น/หน้าต่าง/เฟอร์นิเจอร์ = ดาวเพิ่ม)" } else { "" }), None => "เขตปลอดภัย (แสงคบเพลิง)".to_string() };
+        let s = match g.home_comfort() { Some(c) => format!("ในบ้าน · น่าอยู่ {} · ปลอดภัย", stars(c)), None => "เขตปลอดภัย (แสงคบเพลิง)".to_string() };
         text(font, &s, x, y + 26. * u, 12. * u, hx(0x88ff88));
         y += 16. * u;
     }
@@ -2213,7 +2222,7 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
     {
         let fs = 13. * u;
         let lh = 16. * u;
-        let maxw = (sw * 0.36).min(440. * u).max(220. * u);
+        let maxw = hud::layout().feed_w;
         let mut ty = y + 40. * u;
         let limit = sh * 0.62;
         let feed = g.tips.iter().map(|t| (t, true)).chain(g.toasts.iter().map(|t| (t, false)));
@@ -3159,6 +3168,7 @@ async fn main() {
                 draw_nav_world(g, &v, &font, t_now);
                 draw_siege_hud(g, &font, ui_scale());
                 war::draw_war_hud(g, &font, ui_scale());
+                hud::set_touch(tu.active);
                 prof::t("hud", || draw_hud(g, &sp, &font, tu.active));
                 if matches!(state, State::Play) { v19::draw_quick(g, &make_view(g.p.x, g.p.y), &font); advisor::draw_advice(g, &font); }
 

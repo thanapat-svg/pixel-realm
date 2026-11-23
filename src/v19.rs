@@ -15,6 +15,7 @@ impl Game {
 
     pub fn v19_tick(&mut self, dt: f32) {
         self.boat_party_tick();
+        self.quick_tick(dt);
         self.rs.bed_t -= dt;
         if self.rs.bed_t <= 0. { self.rs.bed_t = 3.; self.bed_reassign(); }
         if let Some(id) = self.rs.gift_to { if self.npc_near_r(QUICK_R) != Some(id) { self.rs.gift_to = None; } }
@@ -211,7 +212,8 @@ pub fn trail_back(tr: &[(f32, f32)], dist: f32) -> Option<(f32, f32)> {
 /// (id, [คุย, ให้ของ, อื่นๆ]) ในพิกัดจอ
 pub fn quick_btns(g: &Game, v: &View) -> Option<(u32, [Rect; 3])> {
     if g.build_sel.is_some() || g.big_map || g.w.dun.is_some() || g.rs.war.march { return None; }
-    let id = g.npc_near_r(QUICK_R)?;
+    let id = g.rs.quick_id?;
+    if g.npc_near_r(QUICK_R) != Some(id) { return None; }
     let n = g.npcs.iter().find(|n| n.id == id)?;
     let u = ui_scale();
     let (bw, bh, gap) = (52. * u, 26. * u, 6. * u);

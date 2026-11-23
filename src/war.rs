@@ -858,8 +858,12 @@ pub fn in_combat(g: &Game) -> bool {
 }
 /// แถบด้านบนจอเริ่มที่ y เท่าไร (หลบแถบเลือดบอส)
 pub fn top_y(g: &Game, u: f32) -> f32 {
-    if g.bosses.iter().any(|b| (b.x - g.p.x).hypot(b.y - g.p.y) < 420.) { 62. * u } else { 8. * u }
+    let tut = if g.tut_text().is_some() { 56. * u } else { 0. };
+    let boss = if boss_bar_info(g).is_some() { 56. * u } else { 0. };
+    8. * u + tut + boss
 }
+/// แถบเลือดบอสเริ่มที่ y (หลบแถบบทเรียน)
+pub fn boss_bar_y(g: &Game, u: f32) -> f32 { if g.tut_text().is_some() { 64. * u } else { 16. * u } }
 /// แถบสถานะทัพ / ศึกยึดเมือง
 pub fn draw_war_hud(g: &Game, font: &Font, u: f32) {
     let w = &g.rs.war;
@@ -870,10 +874,11 @@ pub fn draw_war_hud(g: &Game, font: &Font, u: f32) {
         let alive = g.en.iter().filter(|e| !e.dead && e.k == EK::Soldier && e.pal == a.k).count() as u32;
         let left = a.total - a.spawned + alive;
         let s = match a.champ { 2 => format!("ศึกยึดเมือง{} — ล้มแม่ทัพ!", c.name), _ if left > 0 => format!("ศึกยึดเมือง{} — ทหารตั้งรับเหลือ {} นาย", c.name, left), _ => format!("ศึกยึดเมือง{} — กำลังยึด...", c.name) };
-        let bw = (sw * 0.42).min(420. * u);
-        let (x, y) = (sw / 2. - bw / 2., top_y(g, u));
+        let cx = hud::col_cx();
+        let bw = hud::col_wd(420. * u);
+        let (x, y) = (cx - bw / 2., top_y(g, u));
         draw_rectangle(x, y, bw, 40. * u, Color::new(0.1, 0., 0., 0.72));
-        text_c(font, &s, sw / 2., y + 15. * u, 13. * u, hx(0xffb0a0));
+        text_c(font, &s, cx, y + 15. * u, 13. * u, hx(0xffb0a0));
         let m = (w.morale / 100.).clamp(0., 1.);
         let mc = if w.morale < 35. { hx(0xff6a3a) } else if w.morale < 60. { hx(0xffc84a) } else { hx(0x8ad84a) };
         let (bx, by, bl) = (x + 70. * u, y + 24. * u, bw - 80. * u);
@@ -886,7 +891,7 @@ pub fn draw_war_hud(g: &Game, font: &Font, u: f32) {
     if w.march {
         let mut s = format!("ทัพ {} นาย · แถว{}", w.army.len(), FORM_N[w.form as usize]);
         s += &if w.horn_t > 0. { format!(" · แตร! {:.0}s", w.horn_t) } else if w.horn_cd > 0. { format!(" · แตรอีก {:.0}s", w.horn_cd) } else { " · แตรพร้อม".to_string() };
-        if !touches_active() { s += " (V แถว · X แตร)"; }
+        if !hud::touch_on() { s += " (V แถว · X แตร)"; }
         if w.assault.is_none() { if let Some(ci) = w.target { let c = &g.w.realm.cities[ci]; s += &format!(" · ไปเมือง{} {} ช่อง ทาง{}", c.name, g.dist_to(c.pos), g.dir_word(c.pos)); } }
         let fs = 13. * u;
         let x = 14. * u;
@@ -896,7 +901,6 @@ pub fn draw_war_hud(g: &Game, font: &Font, u: f32) {
         draw_text_ex(&s, x, y, TextParams { font: Some(font), font_size: fs as u16, color: hx(0x9adcff), ..Default::default() });
     }
 }
-fn touches_active() -> bool { cfg!(target_os = "android") }
 
 // ---------------------------------------------------------------- v25 จัดแถว · กันซ้อน · ขวัญกำลังใจ · แตร · คนถือธง
 pub const F_LINE: u8 = 0;
