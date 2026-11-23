@@ -5,7 +5,7 @@
 use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-static TOUCH_ON: AtomicBool = AtomicBool::new(false);
+static TOUCH_ON: AtomicBool = AtomicBool::new(cfg!(target_os = "android"));
 pub fn set_touch(on: bool) { TOUCH_ON.store(on, Ordering::Relaxed); }
 pub fn touch_on() -> bool { TOUCH_ON.load(Ordering::Relaxed) }
 

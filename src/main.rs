@@ -3168,7 +3168,7 @@ async fn main() {
                 draw_nav_world(g, &v, &font, t_now);
                 draw_siege_hud(g, &font, ui_scale());
                 war::draw_war_hud(g, &font, ui_scale());
-                hud::set_touch(tu.active);
+                hud::set_touch(tu.active || cfg!(target_os = "android"));
                 prof::t("hud", || draw_hud(g, &sp, &font, tu.active));
                 if matches!(state, State::Play) { v19::draw_quick(g, &make_view(g.p.x, g.p.y), &font); advisor::draw_advice(g, &font); }
 
