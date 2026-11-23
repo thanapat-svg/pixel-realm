@@ -99,6 +99,7 @@ impl Game {
         let day = day_of(self);
         let s = season_of_day(day);
         self.winter_warn();
+        self.crew_dawn();
         if day > 0 && day % SEASON_DAYS == 0 {
             self.tip(TIP_SEASON);
             self.toast(format!("เข้าสู่{}", SEASON_N[s as usize]) + match s {

@@ -290,6 +290,8 @@ pub struct RealmState {
     pub move_press: Option<((i32, i32), bool)>,
     /// v30 คำขอที่ดิน + ผืนไร่ที่อนุญาต
     pub pm: Permits,
+    /// v33 พวกของเรา (ยามหุ่น · บอสที่ยอมมาเป็นพวก)
+    pub crew: crew::Crew,
     /// v31 กด "ไม่ให้" ของโปรดวันไหน (วันนั้นไม่ถามซ้ำ)
     pub want_no: HashMap<u32, i32>,
     pub lv: Living,
@@ -354,7 +356,7 @@ impl Game {
     pub fn defense(&self) -> f32 {
         let guards = self.role_count(2) as f32;
         let soldiers = self.role_count(R_SOLDIER) as f32;
-        let mut d = 4. + guards * 2. + soldiers * 4. + self.walls() as f32 * 0.4 + if self.has_castle() { 10. } else { 0. } + self.p.lvl as f32;
+        let mut d = 4. + guards * 2. + soldiers * 4. + self.walls() as f32 * 0.4 + if self.has_castle() { 10. } else { 0. } + self.p.lvl as f32 + self.crew_defense();
         if self.role_count(R_GENERAL) > 0 { d *= 1.4; }
         if self.perk_on(P_GENERAL) { d *= 1.3; }
         if self.rs.laws & ML_MILITIA != 0 { d += self.pop() as f32 * 1.2; }

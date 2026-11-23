@@ -70,6 +70,7 @@ use permit::*;
 mod wants;
 use wants::*;
 mod source;
+mod crew;
 use realm::*;
 use extra::*;
 use farm::*;
@@ -795,6 +796,7 @@ impl Game {
         s += &self.saga_save();
         s += &self.living_save();
         s += &self.permit_save();
+        s += &self.crew_save();
         s += &self.war_save();
         if let Some(b) = self.bed { s += &format!("bed {} {}\n", b.0, b.1); }
         s += "crops";
@@ -898,6 +900,8 @@ impl Game {
                 "saga" => g.saga_load(&rest),
                 "living" => g.living_load(&rest),
                 "permit" => g.permit_load(&rest),
+                "crewrel" => g.crew_load_rel(&rest),
+                "crew" => g.crew_load(&rest),
                 "war" => g.war_load(&rest),
                 "v9" => g.balance_load_line(&rest),
                 "pet" => g.pets_load_line(&rest),
@@ -1587,6 +1591,7 @@ impl Game {
         prof::t("upd_enemies", || self.upd_enemies(dt));
         prof::t("upd_drops", || self.upd_drops(dt));
         prof::t("upd_comp", || self.upd_comp(dt));
+        prof::t("crew", || self.crew_tick(dt));
         prof::t("v19_tick", || self.v19_tick(dt));
         prof::t("work_tick", || self.work_tick(dt));
         prof::t("advisor", || self.advisor_tick(dt));
@@ -1634,7 +1639,7 @@ fn make_view(cam_x: f32, cam_y: f32) -> View {
     View { s, vw, vh, cx: (cam_x - vw / 2.).round(), cy: (cam_y - vh / 2. - 6.).round() }
 }
 
-enum Draw { Obj(u8, i32, i32), Enemy(usize), Animal(usize), Boss(usize), Player, Loot(usize), Comp, Npc(usize), Lost(f32, f32, u8, u8), Citizen(usize), Caravan(usize), Dying(usize), Banner }
+enum Draw { Obj(u8, i32, i32), Enemy(usize), Animal(usize), Boss(usize), Player, Loot(usize), Comp, Crew(usize), Npc(usize), Lost(f32, f32, u8, u8), Citizen(usize), Caravan(usize), Dying(usize), Banner }
 
 fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     let w = &g.w;
@@ -1746,6 +1751,11 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         lights.push((sx, sy - 4., 10., 0));
     }
     if let Some(c) = &g.comp { list.push((c.y, Draw::Comp)); }
+    for (i, m) in g.rs.crew.m.iter().enumerate() {
+        let (sx, sy) = (m.x - v.cx, m.y - v.cy);
+        if sx < -20. || sx > v.vw + 20. || sy < -20. || sy > v.vh + 20. { continue; }
+        list.push((m.y, Draw::Crew(i)));
+    }
     for (i, n) in g.npcs.iter().enumerate() {
         let (sx, sy) = (n.x - v.cx, n.y - v.cy);
         if sx < -12. || sx > v.vw + 12. || sy < -20. || sy > v.vh + 12. { continue; }
@@ -1889,6 +1899,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
             Draw::Animal(i) => draw_animal(g, sp, v, i),
             Draw::Loot(i) => draw_loot(g, sp, v, i, t_now),
             Draw::Comp => draw_comp(g, sp, v),
+            Draw::Crew(i) => crew::draw_member(g, sp, v, i),
             Draw::Npc(i) => draw_npc(g, sp, v, i, t_now),
             Draw::Citizen(i) => draw_citizen(g, sp, v, i),
             Draw::Caravan(i) => living::draw_caravan(g, sp, v, i, t_now),
@@ -2635,6 +2646,8 @@ fn debug_keys(g: &mut Game) {
     if shift && is_key_pressed(KeyCode::F1) { g.p.inv[WOOD] += 60; g.p.inv[STONE] += 20; g.build_sel = PIECES.iter().position(|p| p.obj == OBJ_HOUSE_S); }
     if shift && is_key_pressed(KeyCode::F2) { g.dbg_caravan(); }
     if shift && is_key_pressed(KeyCode::F11) { g.req = Some(Req::RolePick(R_SOLDIER)); }
+    let ctrl = is_key_down(KeyCode::LeftControl);
+    if ctrl && (is_key_pressed(KeyCode::F1) || is_key_pressed(KeyCode::F2)) { let k = if is_key_pressed(KeyCode::F1) { 0 } else { 1 }; g.bosses.clear(); g.rs.crew.yld = None; let (x, y) = (g.p.x + 46., g.p.y - 6.); g.spawn_boss_hp(k, x, y, 10.); g.damage_boss(0, 999, false); g.p.inv[BERRY] += 3; g.p.inv[GEM] += 3; }
     if shift && is_key_pressed(KeyCode::F10) { g.build_sel = PIECES.iter().position(|p| p.obj == OBJ_MOVE); }
     if shift && is_key_pressed(KeyCode::F4) { for (j, k) in [EK::Scorp, EK::Wolf, EK::Crab, EK::Imp].into_iter().enumerate() { let (x, y) = (g.p.x - 60. + j as f32 * 40., g.p.y + 50.); g.make_enemy(k, x, y, 1., 0, false); if let Some(e) = g.en.last_mut() { e.stun = 6.; } } }
     if shift && is_key_pressed(KeyCode::F5) { let r = g.w.realm.clone(); if !g.rs.inited { g.rs.init(&r); } for st in 0..3u8 { let (x, y) = (g.p.x - 70. + st as f32 * 70., g.p.y - 50.); g.spawn_champion(st as usize % r.ks.len(), x, y); if let Some(b) = g.bosses.last_mut() { b.style = st; b.cd = 99.; } } }
@@ -3077,6 +3090,7 @@ async fn main() {
                     let adv = advisor::adv_rects(g);
                     if let Some((r, _, _)) = adv { block.push(r); }
                     if let Some((_, r, _)) = permit::card_rects(g) { block.push(r); }
+                    if let Some((r, _)) = crew::yield_rects(g) { block.push(r); }
                     if !g.big_map { block.push(minimap_rect(false)); }
                     handle_touch(&mut tu, &mut inp, g.build_sel.is_some(), g.rs.horse, g.rs.war.march, &block);
                     // เมาส์ซ้าย = โจมตี/ยิงไปทางเมาส์ (เริ่มทำงานหลังปล่อยปุ่มครั้งแรก กันคลิกจากเมนูหลุดมา)
@@ -3085,7 +3099,7 @@ async fn main() {
                     let over_map = minimap_rect(g.big_map).contains(mp);
                     let mut tap_used = false;
                     let tap: Option<Vec2> = if tu.active { touches().iter().find(|t| t.phase == TouchPhase::Started).map(|t| t.position) } else if is_mouse_button_pressed(MouseButton::Left) { Some(mp) } else { None };
-                    if let (Some(tp), false) = (tap, g.big_map) { if permit::card_tap(g, tp) { tap_used = true; } }
+                    if let (Some(tp), false) = (tap, g.big_map) { if permit::card_tap(g, tp) || crew::yield_tap(g, tp) { tap_used = true; } }
                     if let (Some(tp), Some((r, go, close)), false) = (tap, adv, tap_used) {
                         if close.contains(tp) { g.adv_dismiss(); tap_used = true; }
                         else if go.map_or(false, |b| b.contains(tp)) { let a = g.rs.adv_show.take().map(|x| x.0.act); if let Some(a) = a { g.adv_do(a); } tap_used = true; }
@@ -3207,7 +3221,7 @@ async fn main() {
                 war::draw_war_hud(g, &font, ui_scale());
                 hud::set_touch(tu.active || cfg!(target_os = "android"));
                 prof::t("hud", || draw_hud(g, &sp, &font, tu.active));
-                if matches!(state, State::Play) { let vq = make_view(g.p.x, g.p.y); v19::draw_quick(g, &vq, &font); wants::draw_want_strip(g, &sp, &vq, &font); advisor::draw_advice(g, &font); permit::draw_permit_card(g, &vq, &font, get_time() as f32); }
+                if matches!(state, State::Play) { let vq = make_view(g.p.x, g.p.y); v19::draw_quick(g, &vq, &font); wants::draw_want_strip(g, &sp, &vq, &font); advisor::draw_advice(g, &font); permit::draw_permit_card(g, &vq, &font, get_time() as f32); crew::draw_yield_card(g, &font); }
 
                 // บอสอยู่ใกล้ = แถบเลือดบอสใช้พื้นที่ด้านบนแทนบทเรียน/เป้าหมาย
                 if !g.bosses.iter().any(|b| (b.x - g.p.x).hypot(b.y - g.p.y) < 420.) {
@@ -3521,6 +3535,9 @@ mod tests {
             // ฆ่าบอส
             g.bosses[0].hp = 1.;
             g.hit_boss(0, 5);
+            // v33 หมดแรง = ยอมแพ้ก่อน (ยังไม่ตาย) แล้วผู้เล่นเลือกปราบทิ้ง → ได้ของหายากเหมือนเดิม
+            assert!(g.bosses[0].yld && !g.bosses[0].dead);
+            g.yield_slay();
             assert!(g.bosses[0].dead);
             if kind == 0 { assert!(g.p.inv[GEL] >= 3); } else { assert!(g.p.inv[CORE] >= 2); }
             assert!(g.boss_cd > 100.);

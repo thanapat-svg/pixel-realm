@@ -1553,7 +1553,7 @@ mod tests {
     }
     #[test]
     fn ult_shapes_hit_inside_and_miss_outside() {
-        let mut b = Boss { kind: CHAMP, x: 0., y: 0., hp: 1., maxhp: 1., atk: 4, st: 1., st0: 1., cd: 0., tx: 50., ty: 0., dash: 0., dvx: 1., dvy: 0., flash: 0., anim: 0., ph2: true, dead: false, burn: 0., slow: 0., btick: 0., k: 0, roar: 2, style: CS_WARRIOR };
+        let mut b = Boss { kind: CHAMP, x: 0., y: 0., hp: 1., maxhp: 1., atk: 4, st: 1., st0: 1., cd: 0., tx: 50., ty: 0., dash: 0., dvx: 1., dvy: 0., flash: 0., anim: 0., ph2: true, dead: false, burn: 0., slow: 0., btick: 0., k: 0, roar: 2, style: CS_WARRIOR, yld: false };
         let hit = |b: &Boss, px: f32, py: f32| champ_ult_shapes(b).iter().any(|&(k, x, y, r, ux, uy)| ult_hits(k, x, y, r, ux, uy, px, py));
         assert!(hit(&b, 40., 0.) && !hit(&b, 70., 0.), "ทุบพื้นวงรัศมี 58");
         b.style = CS_DESERT;

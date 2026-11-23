@@ -157,7 +157,7 @@ impl Game {
             self.toast(if k == A_WOLF { "หมาป่าชอบเนื้อ — ถือเนื้อแล้วกด ใช้ เพื่อป้อน" } else { "กระต่ายชอบแครอท/ผลไม้ — มีแล้วกด ใช้ เพื่อป้อน" });
             return true;
         };
-        if self.animals.iter().filter(|a| a.tame).count() >= PET_MAX { self.toast("เลี้ยงสัตว์ได้สูงสุด 2 ตัว"); return true; }
+        if self.animals.iter().filter(|a| a.tame).count() >= PET_MAX { self.toast("เลี้ยงสัตว์ได้สูงสุด 2 ตัว — ปล่อยตัวเก่าที่เมนู ชุมชน → พวกของเรา"); return true; }
         self.p.inv[f] -= 1;
         let (x, y) = (self.animals[i].x, self.animals[i].y);
         let chance = if k == A_WOLF { 0.35 } else { 0.5 };

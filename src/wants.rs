@@ -128,7 +128,7 @@ pub fn want_strip(g: &Game, v: &View) -> Option<(u32, String, Rect, Rect, Rect, 
     let (id, q) = v19::quick_btns(g, v)?;
     if g.rs.gift_to == Some(id) { return None; }
     // การ์ดขออนุญาตที่ดินของอีกคนขึ้นอยู่ด้านบน — ไม่ซ้อนทับกัน ตอบการ์ดก่อน
-    if g.permit_card().is_some() { return None; }
+    if g.permit_card().is_some() || g.rs.crew.yld.is_some() { return None; }
     let ws = g.wants(id);
     let w = ws.first()?;
     let more = ws.len() - 1;

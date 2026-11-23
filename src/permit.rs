@@ -238,7 +238,7 @@ impl Game {
     }
     /// คนที่กำลังยืนถามอยู่ตรงหน้า (โชว์การ์ด)
     pub fn permit_card(&self) -> Option<&LandAsk> {
-        if self.rs.pm.pick.is_some() || self.build_sel.is_some() || self.big_map || self.w.dun.is_some() || war::in_combat(self) { return None; }
+        if self.rs.pm.pick.is_some() || self.build_sel.is_some() || self.big_map || self.w.dun.is_some() || war::in_combat(self) || self.rs.crew.yld.is_some() { return None; }
         self.rs.pm.asks.iter().find(|a| a.came && self.npcs.iter().any(|n| n.id == a.by && (n.x - self.p.x).hypot(n.y - self.p.y) < ASK_NEAR))
     }
     /// ล้างคำขอที่ไม่ใช้แล้ว · เลือกคนที่จะเดินมาถาม

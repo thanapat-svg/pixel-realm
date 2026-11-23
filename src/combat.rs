@@ -259,6 +259,8 @@ pub enum Eff {
     Outfit(u8),
     Coat,
     Boat,
+    /// v33 หุ่นเฝ้าบ้าน (0 หุ่นไม้ · 1 โกเลมหิน)
+    Guard(u8),
 }
 pub struct Recipe {
     pub name: &'static str,
@@ -268,7 +270,7 @@ pub struct Recipe {
     pub need: Option<usize>,
     pub eff: Eff,
 }
-pub const RECIPES: [Recipe; 28] = [
+pub const RECIPES: [Recipe; 30] = [
     Recipe { name: "ดาบไม้", desc: "พลังโจมตี 2", cost: &[(WOOD, 5)], need: None, eff: Eff::Sword(1) },
     Recipe { name: "อีเต้อหิน", desc: "ขุดภูเขาเปิดทางได้", cost: &[(WOOD, 4), (STONE, 4)], need: None, eff: Eff::Pick },
     Recipe { name: "ดาบหิน", desc: "พลังโจมตี 3 (ต้องมีดาบไม้)", cost: &[(WOOD, 3), (STONE, 6)], need: None, eff: Eff::Sword(2) },
@@ -297,6 +299,8 @@ pub const RECIPES: [Recipe; 28] = [
     Recipe { name: "เรือ", desc: "เดินลงน้ำได้ ล่องข้ามทะเลไปเกาะอื่น (เร็วกว่าเดิน · มอนสเตอร์ตามไม่ได้)", cost: &[(WOOD, 12)], need: None, eff: Eff::Boat },
     Recipe { name: "เสื้อขนสัตว์", desc: "ใช้หนังสัตว์ 5 ผืน (ล่าสัตว์ได้) + ไม้ 2 · หน้าหนาว/ในหิมะไม่หิวเร็วขึ้น", cost: &[(WOOD, 2)], need: None, eff: Eff::Coat },
     Recipe { name: "ชุดนักล่า", desc: "หมวกขนนก+เสื้อหนังสีเขียว เปลี่ยนรูปตัวละคร", cost: &[(WOOD, 3), (MEAT, 3), (HERB, 2)], need: None, eff: Eff::Outfit(2) },
+    Recipe { name: "หุ่นไม้ยาม", desc: "ยามไม้เฝ้าจุดที่คุณยืน ตีมอนสเตอร์ที่เข้าใกล้ (ไม่มีความรู้สึก ไม่ต้องดูแล) · พวกสูงสุด 4", cost: &[(WOOD, 14), (STONE, 3)], need: None, eff: Eff::Guard(0) },
+    Recipe { name: "โกเลมหินเฝ้าบ้าน", desc: "โกเลมหินแข็งแรง เฝ้าบ้านทั้งคืน ตีแรงกว่าหุ่นไม้ · ใช้แกนโกเลมจากบอส · พวกสูงสุด 4", cost: &[(STONE, 16), (CORE, 2), (GEM, 2)], need: None, eff: Eff::Guard(1) },
 ];
 
 /// สูตรของโต๊ะคราฟต์ขั้นสูง (ขั้น 2) — ต้องมีของขั้นก่อนหน้า
@@ -343,6 +347,10 @@ impl Game {
     pub fn craft_from(&mut self, list: &'static [Recipe], ri: usize) {
         let r = &list[ri];
         if recipe_state(&self.p, r) != 0 || !can_pay(&self.p, r.cost) {
+            return;
+        }
+        if matches!(r.eff, Eff::Guard(_)) && self.rs.crew.m.len() >= crew::CREW_MAX {
+            self.toast("พวกเต็มแล้ว (4) — ปล่อย/รื้อตัวเก่าที่แท็บชุมชน → พวกของเรา ก่อน");
             return;
         }
         for &(it, n) in r.cost {
@@ -393,6 +401,7 @@ impl Game {
                 self.p.outfits |= 1 << (o - 1);
                 self.p.outfit = o;
             }
+            Eff::Guard(k) => self.crew_craft(k),
         }
         play(if matches!(r.eff, Eff::Sword(_) | Eff::Bow | Eff::Staff(_) | Eff::Armor(..) | Eff::Elem(_) | Eff::Outfit(_)) { &self.sfx.upgrade } else { &self.sfx.craft });
         self.toast(format!("คราฟต์ {} สำเร็จ!", r.name));

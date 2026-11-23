@@ -40,6 +40,8 @@ pub struct Boss {
     pub roar: u8,
     /// v26 สไตล์แม่ทัพ (นักรบ/ทะเลทราย/เวท) — คิดครั้งเดียวตอนเกิด
     pub style: u8,
+    /// v33 ยอมแพ้แล้ว: หยุดสู้ รอผู้เล่นเลือก (ชวน/ให้ของ/ปล่อย/ปราบ)
+    pub yld: bool,
 }
 
 impl Game {
@@ -50,7 +52,7 @@ impl Game {
     }
     pub fn spawn_boss_hp(&mut self, kind: u8, x: f32, y: f32, hp: f32) {
         self.bosses.push(Boss {
-            kind, x, y, hp, maxhp: hp, atk: 0, st: 0., st0: 1., cd: 1.5, tx: x, ty: y, dash: 0., dvx: 0., dvy: 0., flash: 0., anim: 0., ph2: false, dead: false, burn: 0., slow: 0., btick: 0., k: 0, roar: 0, style: 0,
+            kind, x, y, hp, maxhp: hp, atk: 0, st: 0., st0: 1., cd: 1.5, tx: x, ty: y, dash: 0., dvx: 0., dvy: 0., flash: 0., anim: 0., ph2: false, dead: false, burn: 0., slow: 0., btick: 0., k: 0, roar: 0, style: 0, yld: false,
         });
         if kind == CHAMP { return; }
         self.toast(format!("{} ปรากฏตัว!", BNAME[kind as usize]));
@@ -131,6 +133,7 @@ impl Game {
         if b.flash > 0. {
             b.flash -= dt;
         }
+        if b.yld { b.atk = 0; b.dash = 0.; return; }
         let (dx, dy) = (self.p.x - b.x, self.p.y - b.y);
         let d = dx.hypot(dy).max(0.001);
         if d > if b.kind == FINAL_KIND { 3000. } else { 1100. } {
@@ -383,8 +386,15 @@ pub fn draw_telegraphs(g: &Game, v: &View) {
 pub fn draw_boss(g: &Game, sp: &Sprites, v: &View, i: usize) {
     let b = &g.bosses[i];
     let (sx, sy) = ((b.x - v.cx).round(), (b.y - v.cy).round());
-    let c = if b.flash > 0. { Color::new(1., 0.55, 0.55, 1.) } else { WHITE };
+    let c = if b.flash > 0. { Color::new(1., 0.55, 0.55, 1.) } else if b.yld { Color::new(0.82, 0.84, 0.95, 1.) } else { WHITE };
     if b.kind == CHAMP { war::draw_champion(g, sp, v, b); return; }
+    if b.yld {
+        // ธงขาวยอมแพ้
+        let (fx, fy) = (sx + if b.kind == 0 { 15. } else { 17. }, sy - 30.);
+        prect(v, fx, fy, 1., 22., hx(0x6a5a4a));
+        prect(v, fx + 1., fy, 9., 6., WHITE);
+        prect(v, fx + 1., fy + 5., 9., 1., hx(0xcfcfd8));
+    }
     if b.kind == 0 {
         let lift = if b.atk == 1 && b.st < 0.35 { (std::f32::consts::PI * (1. - b.st / 0.35)).sin() * 26. } else { 0. };
         let sq = if b.atk == 1 && b.st >= 0.35 { 0.2 } else if b.atk == 2 { 0.12 } else { (b.anim * 1.3 * std::f32::consts::TAU).sin() * 0.1 };
@@ -413,6 +423,7 @@ pub fn draw_boss(g: &Game, sp: &Sprites, v: &View, i: usize) {
 }
 
 pub fn draw_boss_bar(g: &Game, font: &Font) {
+    if g.rs.crew.yld.is_some() { return; }
     // v26 แถบเลือดยาวด้านบน: ชื่อ+ฉายาประจำเมือง · เส้นแบ่งเฟสที่ 50% · ซ่อนเองเมื่อไม่มีบอสใกล้/บอสล้ม
     let Some((name, sub, frac, ph2)) = war::boss_bar_info(g) else { return };
     let Some(b) = g.bosses.iter().filter(|b| !b.dead && (b.x - g.p.x).hypot(b.y - g.p.y) < 420.).min_by(|a, c| (a.x - g.p.x).hypot(a.y - g.p.y).partial_cmp(&(c.x - g.p.x).hypot(c.y - g.p.y)).unwrap()) else { return };

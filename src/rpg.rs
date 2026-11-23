@@ -158,6 +158,7 @@ impl Game {
         }
     }
     pub fn damage_boss(&mut self, i: usize, dmg: i32, crit: bool) {
+        if self.bosses[i].yld { return; }
         let (x, y);
         {
             let b = &mut self.bosses[i];
@@ -177,6 +178,8 @@ impl Game {
         self.burst(x, y + 12., WHITE, 4, 60.);
         play(&self.sfx.hit);
         if self.bosses[i].hp <= 0. && !self.bosses[i].dead {
+            // v33 ราชาสไลม์/โกเลมหมดแรง → ยอมแพ้ให้เลือก (ไม่ตายทันที)
+            if self.boss_yield_try(i) { return; }
             self.bosses[i].dead = true;
             let b = self.bosses[i].clone();
             self.boss_die(&b);
