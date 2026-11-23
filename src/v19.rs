@@ -134,7 +134,9 @@ impl Game {
     pub fn rotate_build(&mut self) {
         let Some(sel) = self.build_sel else { return };
         let o = PIECES[sel].obj;
-        if o == OBJ_MOVE {
+        if o == OBJ_PERMIT {
+            if self.rs.pm.pick.and_then(|id| self.ask_of(id)).map_or(true, |a| a.kind == AK_FARM) { self.toast("ไร่ไม่ต้องหมุน — หมุนได้เฉพาะบ้าน"); return; }
+        } else if o == OBJ_MOVE {
             match &self.rs.carry {
                 Some(c) if c.building => {}
                 Some(_) => { self.toast("ของชิ้นเดียวหมุนไม่ได้ — หมุนได้ตอนย้ายทั้งหลัง"); return; }
@@ -172,8 +174,12 @@ impl Game {
             }
             self.rs.drag_last = Some(t);
         } else if started {
-            if is_prefab(o) || o == OBJ_MOVE {
+            if is_prefab(o) || o == OBJ_MOVE || o == OBJ_PERMIT {
                 if self.rs.build_arm == Some(t) { self.rs.build_arm = None; self.place_piece(); }
+                else if o == OBJ_PERMIT {
+                    self.rs.build_arm = Some(t);
+                    match self.permit_preview(t).and_then(|p| p.1) { Some(why) => self.toast(why), None => self.toast("ให้ตรงนี้? แตะซ้ำที่เดิมเพื่อยืนยัน") }
+                }
                 else if o == OBJ_MOVE {
                     self.rs.build_arm = Some(t);
                     let msg = match &self.rs.carry { None => match self.move_select(t) { Ok(c) => format!("จะยก: {} — แตะซ้ำที่เดิมเพื่อยก", c.name), Err(e) => e.to_string() }, Some(c) => format!("วาง{}ตรงนี้? แตะซ้ำที่เดิมเพื่อวาง{}", c.name, if c.building { " · ปุ่ม \"หมุน\" = หันบ้าน" } else { "" }) };
@@ -225,6 +231,8 @@ pub fn quick_btns(g: &Game, v: &View) -> Option<(u32, [Rect; 3])> {
     if g.build_sel.is_some() || g.big_map || g.w.dun.is_some() || g.rs.war.march { return None; }
     let id = g.rs.quick_id?;
     if g.npc_near_r(QUICK_R) != Some(id) { return None; }
+    // v30 คนที่มายืนขออนุญาตอยู่ ใช้การ์ดด้านบนแทน
+    if g.permit_card().map_or(false, |a| a.by == id) { return None; }
     let n = g.npcs.iter().find(|n| n.id == id)?;
     let u = ui_scale();
     let (bw, bh, gap) = (52. * u, 26. * u, 6. * u);

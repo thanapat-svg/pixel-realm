@@ -17,7 +17,9 @@ pub const J_PATROL: u8 = 8;
 pub const J_BUILD: u8 = 9;
 pub const J_ERRAND: u8 = 10;
 pub const J_HUNT: u8 = 11;
-pub const J_NAMES: [&str; 12] = ["เก็บเกี่ยว", "รดน้ำ", "ไถ-ปลูก", "ตัดไม้", "ขุดหิน", "ตกปลา", "ทำอาหาร", "ดูแลคนป่วย", "ลาดตระเวน", "ก่อสร้าง", "ทำงานเอกสาร", "ล่าสัตว์"];
+/// v30 เดินมาขออนุญาตใช้ที่ดินกับเรา
+pub const J_ASK: u8 = 12;
+pub const J_NAMES: [&str; 13] = ["เก็บเกี่ยว", "รดน้ำ", "ไถ-ปลูก", "ตัดไม้", "ขุดหิน", "ตกปลา", "ทำอาหาร", "ดูแลคนป่วย", "ลาดตระเวน", "ก่อสร้าง", "ทำงานเอกสาร", "ล่าสัตว์", "มาขออนุญาตใช้ที่"];
 /// ระยะยิงธนูของนักล่า (พิกเซล)
 pub const HUNT_RANGE: f32 = 60.;
 /// ไร่ต่อชาวไร่ 1 คน
@@ -41,7 +43,7 @@ pub struct Job {
 
 /// โครงการของชาวบ้าน (คิดเอง): สร้างบ้านของตัวเอง ฯลฯ
 #[derive(Clone, Debug)]
-pub struct Project { pub by: u32, pub kind: u8, pub at: (i32, i32), pub need: Vec<(usize, i32)>, pub started: bool, pub dir: u8 }
+pub struct Project { pub by: u32, pub kind: u8, pub at: (i32, i32), pub need: Vec<(usize, i32)>, pub started: bool, pub dir: u8, /** v30 เราอนุญาตที่ดินแล้ว */ pub ok: bool }
 /// ทิศประตูที่หันเข้าหาจุด c (ใจกลางเมือง) จากบ้านที่ประตูอยู่ p
 pub fn door_toward(p: (i32, i32), c: (i32, i32)) -> u8 {
     let (dx, dy) = (c.0 - p.0, c.1 - p.1);
@@ -102,9 +104,17 @@ impl Game {
         }
         let ids: Vec<u32> = self.npcs.iter().filter(|n| n.state == ST_HOME && !n.child && n.mood >= 20 && Game::willing(n) && !self.rs.sleeping.contains(&n.id)).map(|n| n.id).collect();
         self.rs.work.retain(|id, _| ids.contains(id));
+        // v30 คำขอที่ดิน: ทีละคนเดินมาหาเรา
+        self.permit_tick();
+        let free: Vec<u32> = ids.iter().copied().filter(|id| self.rs.work.get(id).map_or(true, |j| j.carry.is_none())).collect();
+        if let Some(a) = self.permit_next_asker(&free) {
+            let (x, y) = (self.p.x, self.p.y);
+            self.rs.work.insert(a, Job { kind: J_ASK, tile: (tfloor(x), tfloor(y)), stand: (x, y), t: 0., dur: ASK_WAIT, stage: 0, carry: None, other: 0, working: false });
+        }
         for id in ids {
             if self.rs.work.contains_key(&id) { continue; }
             if let Some(j) = self.pick_job(id) { self.rs.work.insert(id, j); }
+            else if self.idx(id).map_or(false, |i| self.npcs[i].role == 1) { self.farm_ask_maybe(id); }
         }
         self.rs.site_workers = self.rs.work.values().filter(|j| j.kind == J_BUILD && j.working).count() as u32;
     }
@@ -136,7 +146,8 @@ impl Game {
                 if let Some(&k) = mine.iter().filter(|k| self.crops[k].stage() == 2 && !self.taken(**k)).min_by_key(|k| dist(**k)) { return job(J_HARVEST, k, stand_near(k), 2.5); }
                 if let Some(&k) = mine.iter().filter(|k| self.crops[k].wet <= 0. && !self.taken(**k)).min_by_key(|k| dist(**k)) { return job(J_WATER, k, stand_near(k), 2.); }
                 let farmers = self.npcs.iter().filter(|m| m.state == ST_HOME && m.role == 1 && near(m.bed, bed, r)).count().max(1);
-                if mine.len() < PLOTS_PER_FARMER * farmers { if let Some(k) = self.find_plot(bed, &mine) { return job(J_TILL, k, stand_near(k), 4.); } }
+                // v30 ไถเฉพาะในผืนที่เราอนุญาตแล้ว (ไม่มี = ไปขอที่ก่อน)
+                if mine.len() < PLOTS_PER_FARMER * farmers { if let Some(k) = self.field_free_cell(bed, &|k| self.taken(k)) { return job(J_TILL, k, stand_near(k), 4.); } }
                 None
             }
             R_LUMBER => {
@@ -192,18 +203,6 @@ impl Game {
             _ => None,
         }
     }
-    /// หาช่องว่างที่ไถได้ ใกล้แปลงเดิม (ต่อกันเป็นไร่) หรือใกล้บ้าน
-    fn find_plot(&self, bed: (i32, i32), mine: &[(i32, i32)]) -> Option<(i32, i32)> {
-        let ok = |k: (i32, i32)| self.can_till(k.0, k.1) && !self.crops.contains_key(&k) && !self.taken(k) && !self.w.placed.contains_key(&k)
-            && self.w.tile_at(k.0, k.1) != T_SOIL && self.room_of.get(&k).is_none() && !self.site_reserved(k)
-            && self.w.realm.city_at(k.0, k.1).map_or(true, |ci| self.city_owner(ci) == PLAYER_OWN)
-            && (k.0 - bed.0).abs() + (k.1 - bed.1).abs() >= 3;
-        // ต่อจากแปลงเดิมก่อน (ไร่เป็นผืน)
-        for &m in mine { for d in [(1, 0), (-1, 0), (0, 1), (0, -1)] { let k = (m.0 + d.0, m.1 + d.1); if ok(k) { return Some(k); } } }
-        // แปลงแรก: ห่างบ้าน 3–8 ช่อง ทิศที่โล่ง
-        for rr in 3..=8i32 { for dy in -rr..=rr { for dx in -rr..=rr { if dx.abs().max(dy.abs()) != rr { continue; } let k = (bed.0 + dx, bed.1 + dy); if ok(k) { return Some(k); } } } }
-        None
-    }
     fn find_obj(&self, c: (i32, i32), r: i32, f: impl Fn(&Game, (i32, i32), u8) -> bool) -> Option<(i32, i32)> {
         let mut best: Option<((i32, i32), i32)> = None;
         for dy in -r..=r { for dx in -r..=r {
@@ -226,6 +225,7 @@ impl Game {
     pub fn work_step(&mut self, n: &mut npc::Npc, dt: f32, done: &mut Vec<(u32, Job)>) -> Option<((f32, f32), f32)> {
         // v23 ป่วย = พักอยู่บ้าน ไม่ทำงาน
         if self.is_sick(n.id) || self.rs.war.wounded.contains_key(&n.id) || (self.rs.war.march && self.rs.war.army.contains(&n.id)) { self.rs.work.remove(&n.id); return None; }
+        if self.rs.work.get(&n.id)?.kind == J_ASK { return self.ask_step(n, dt); }
         let j = self.rs.work.get_mut(&n.id)?;
         if j.kind == J_HUNT && j.stage == 0 {
             // ตามสัตว์ (มันวิ่งหนี) จนเข้าระยะยิง แล้วเล็งธนู
@@ -358,12 +358,14 @@ impl Game {
             let (kind, r0, r1) = house_style(n);
             let c = self.town_center().unwrap_or(n.bed);
             let mut at = None;
-            'f: for rr in r0..=r1 { for k in 0..(rr * 8) { let a = k as f32 / (rr * 8) as f32 * std::f32::consts::TAU + id as f32; let p = (c.0 + (a.cos() * rr as f32) as i32, c.1 + (a.sin() * rr as f32) as i32 + 3); if self.prefab_blocked(kind, p, door_toward(p, c)).is_none() && !self.rs.projects.iter().any(|q| (q.at.0 - p.0).abs() < 8 && (q.at.1 - p.1).abs() < 8) { at = Some(p); break 'f; } } }
+            'f: for rr in r0..=r1 { for k in 0..(rr * 8) { let a = k as f32 / (rr * 8) as f32 * std::f32::consts::TAU + id as f32; let p = (c.0 + (a.cos() * rr as f32) as i32, c.1 + (a.sin() * rr as f32) as i32 + 3); if self.prefab_blocked(kind, p, door_toward(p, c)).is_none() && !self.rs.projects.iter().any(|q| (q.at.0 - p.0).abs() < 8 && (q.at.1 - p.1).abs() < 8) && self.land_taken(&self.area_cells(kind, p, door_toward(p, c)), None).is_none() { at = Some(p); break 'f; } } }
             let Some(at) = at else { continue };
             let cost = project_cost(kind);
             let nm = NPC_NAMES[n.name as usize];
             self.news_add(format!("{}อยาก{} ({})", nm, project_what(kind), prefab_name(kind)));
-            self.rs.projects.push(Project { by: id, kind, at, need: cost, started: false, dir: door_toward(at, c) });
+            self.rs.projects.push(Project { by: id, kind, at, need: cost, started: false, dir: door_toward(at, c), ok: false });
+            // v30 ขอที่จากเราก่อน
+            self.house_ask(id, kind, at, door_toward(at, c));
         }
         // โครงการส่วนรวม: มีคนไม่มีน้ำดื่ม → ขุดบ่อน้ำ · ชุมชนโตแล้วแต่ไม่มีทั่ง → ตั้งโรงตีเหล็ก
         let served = self.water_served();
@@ -384,7 +386,7 @@ impl Game {
         let cost = project_cost(kind);
         let nm = self.idx(by).map(|i| NPC_NAMES[self.npcs[i].name as usize]).unwrap_or("");
         self.news_add(format!("{}เสนอ{}", nm, project_what(kind)));
-        self.rs.projects.push(Project { by, kind, at, need: cost, started: false, dir: 0 });
+        self.rs.projects.push(Project { by, kind, at, need: cost, started: false, dir: 0, ok: true });
     }
     fn free_spot_near(&self, c: (i32, i32), r0: i32, r1: i32) -> Option<(i32, i32)> {
         for rr in r0..=r1 { for dy in -rr..=rr { for dx in -rr..=rr {
@@ -398,7 +400,7 @@ impl Game {
     pub fn projects_try_start(&mut self) {
         let mut ps = std::mem::take(&mut self.rs.projects);
         self.rs.help.clear();
-        for p in ps.iter_mut().filter(|p| !p.started) {
+        for p in ps.iter_mut().filter(|p| !p.started && p.ok) {
             let Some(i) = self.idx(p.by) else { continue };
             let bed = self.npcs[i].bed;
             let nm = NPC_NAMES[self.npcs[i].name as usize];
@@ -542,6 +544,9 @@ mod tests {
         let (sx, sy) = setup(&mut g);
         g.npcs.push(mk(1, 1, (sx, sy)));
         g.rs.manual.insert(1, 1);
+        // v30 ชาวไร่มาขอที่ก่อน → อนุญาต
+        run(&mut g, 20.);
+        g.permit_yes(1);
         run(&mut g, 60.);
         let plots: Vec<(i32, i32)> = g.crops.keys().copied().filter(|k| (k.0 - sx).abs() <= 14 && (k.1 - sy).abs() <= 14).collect();
         assert!(plots.len() >= 3, "ชาวไร่ไถ+ปลูกแปลงใหม่ {}", plots.len());
@@ -598,6 +603,7 @@ mod tests {
         g.npcs.push(mk(3, 0, (sx, sy)));
         g.projects_dawn();
         assert_eq!(g.rs.projects.iter().filter(|p| is_prefab(p.kind)).count(), 1, "คิดจะสร้างบ้าน");
+        g.permit_yes(3);
         assert!(g.rs.help.contains_key(&3), "ของไม่พอ → ขอความช่วยเหลือ");
         assert!(g.rs.help[&3].contains("ไม้"));
         // ใส่ของให้ → เริ่มสร้างเอง

@@ -65,6 +65,8 @@ use war::*;
 mod hud;
 mod mover;
 use mover::*;
+mod permit;
+use permit::*;
 use realm::*;
 use extra::*;
 use farm::*;
@@ -789,6 +791,7 @@ impl Game {
         s += &self.realm_save();
         s += &self.saga_save();
         s += &self.living_save();
+        s += &self.permit_save();
         s += &self.war_save();
         if let Some(b) = self.bed { s += &format!("bed {} {}\n", b.0, b.1); }
         s += "crops";
@@ -891,6 +894,7 @@ impl Game {
                 "nreq" => g.quests_load_line(&rest),
                 "saga" => g.saga_load(&rest),
                 "living" => g.living_load(&rest),
+                "permit" => g.permit_load(&rest),
                 "war" => g.war_load(&rest),
                 "v9" => g.balance_load_line(&rest),
                 "pet" => g.pets_load_line(&rest),
@@ -1459,7 +1463,7 @@ impl Game {
         if inp.rot { self.rotate_build(); }
         if inp.form { self.cycle_formation(); }
         if inp.horn { self.blow_horn(); }
-        if inp.cancel && self.build_sel.is_some() && !self.move_cancel() { self.build_sel = None; self.toast("ยกเลิกโหมดสร้าง"); }
+        if inp.cancel && self.build_sel.is_some() && !self.permit_pick_cancel() && !self.move_cancel() { self.build_sel = None; self.toast("ยกเลิกโหมดสร้าง"); }
         if self.rs.carry.is_some() && !self.moving_on() { self.rs.carry = None; }
         if self.build_sel.is_none() { self.build_cur = None; }
         if self.build_cur.is_some() && (self.p.x - self.cur_pos.0).hypot(self.p.y - self.cur_pos.1) > 20. { self.build_cur = None; }
@@ -1971,6 +1975,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     draw_sites(g, sp, v, font, t_now);
     draw_bubbles(g, v, font);
     living::draw_living(g, v, t_now);
+    permit::draw_permit_world(g, v, font, t_now);
     living::draw_caravan_labels(g, v, font);
     if let Some(sel) = g.build_sel {
         let (tx, ty) = g.build_target();
@@ -1985,7 +1990,9 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
             }
         }
         let po = PIECES[sel].obj;
-        if po == OBJ_MOVE {
+        if po == OBJ_PERMIT {
+            permit::draw_permit_preview(g, v, font, t_now);
+        } else if po == OBJ_MOVE {
             mover::draw_move_preview(g, sp, v, font, t_now);
         } else if is_prefab(po) {
             // พรีวิวทั้งหลัง: เขียว = วางได้ · แดง = มีของขวาง (ข้อความบอกเหตุผล)
@@ -2277,7 +2284,9 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
         draw_rectangle(0., 0., sw, sh, Color::new(0., 0., 0.05, g.sleep_fx.min(1.)));
         if g.sleep_fx > 0.5 { text_c(font, "Zzz...", sw / 2., sh / 2., 30. * u, Color::new(1., 1., 1., g.sleep_fx.min(1.))); }
     }
-    if g.moving_on() {
+    if let Some((s, ok)) = permit::pick_line(g, touch) {
+        build_line(font, &s, hint_y - 34. * u, u, if ok { hx(0xffd84a) } else { hx(0xff8a8a) });
+    } else if g.moving_on() {
         let s = match &g.rs.carry { None => format!("ย้ายของ: แตะของที่จะย้าย 2 ครั้ง (ผนัง/ประตู/พื้นบ้าน = ทั้งหลัง) · {}", if touch { "ปุ่มแดง = เลิก" } else { "R = ยก · T = เลิก" }), Some(c) => format!("กำลังย้าย: {} · แตะที่ใหม่ 2 ครั้ง = วาง{} · {}", c.name, if c.building { " · หมุน = หันบ้าน" } else { "" }, if touch { "ปุ่มแดง = วางคืนที่เดิม" } else { "T = วางคืนที่เดิม" }) };
         build_line(font, &s, hint_y - 34. * u, u, hx(0x9adcff));
     } else if let Some(sel) = g.build_sel {
@@ -3062,6 +3071,7 @@ async fn main() {
                     let mut block: Vec<Rect> = qb.map(|q| q.1.to_vec()).unwrap_or_default();
                     let adv = advisor::adv_rects(g);
                     if let Some((r, _, _)) = adv { block.push(r); }
+                    if let Some((_, r, _)) = permit::card_rects(g) { block.push(r); }
                     if !g.big_map { block.push(minimap_rect(false)); }
                     handle_touch(&mut tu, &mut inp, g.build_sel.is_some(), g.rs.horse, g.rs.war.march, &block);
                     // เมาส์ซ้าย = โจมตี/ยิงไปทางเมาส์ (เริ่มทำงานหลังปล่อยปุ่มครั้งแรก กันคลิกจากเมนูหลุดมา)
@@ -3070,7 +3080,8 @@ async fn main() {
                     let over_map = minimap_rect(g.big_map).contains(mp);
                     let mut tap_used = false;
                     let tap: Option<Vec2> = if tu.active { touches().iter().find(|t| t.phase == TouchPhase::Started).map(|t| t.position) } else if is_mouse_button_pressed(MouseButton::Left) { Some(mp) } else { None };
-                    if let (Some(tp), Some((r, go, close))) = (tap, adv) {
+                    if let (Some(tp), false) = (tap, g.big_map) { if permit::card_tap(g, tp) { tap_used = true; } }
+                    if let (Some(tp), Some((r, go, close)), false) = (tap, adv, tap_used) {
                         if close.contains(tp) { g.adv_dismiss(); tap_used = true; }
                         else if go.map_or(false, |b| b.contains(tp)) { let a = g.rs.adv_show.take().map(|x| x.0.act); if let Some(a) = a { g.adv_do(a); } tap_used = true; }
                         else if r.contains(tp) { tap_used = true; }
@@ -3190,7 +3201,7 @@ async fn main() {
                 war::draw_war_hud(g, &font, ui_scale());
                 hud::set_touch(tu.active || cfg!(target_os = "android"));
                 prof::t("hud", || draw_hud(g, &sp, &font, tu.active));
-                if matches!(state, State::Play) { v19::draw_quick(g, &make_view(g.p.x, g.p.y), &font); advisor::draw_advice(g, &font); }
+                if matches!(state, State::Play) { let vq = make_view(g.p.x, g.p.y); v19::draw_quick(g, &vq, &font); advisor::draw_advice(g, &font); permit::draw_permit_card(g, &vq, &font, get_time() as f32); }
 
                 // บอสอยู่ใกล้ = แถบเลือดบอสใช้พื้นที่ด้านบนแทนบทเรียน/เป้าหมาย
                 if !g.bosses.iter().any(|b| (b.x - g.p.x).hypot(b.y - g.p.y) < 420.) {

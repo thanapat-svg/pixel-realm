@@ -134,6 +134,10 @@ impl Game {
             }
         }
         for (id, msg) in &self.rs.help { add(format!("proj{}", id), 2, msg.clone(), AdvAct::Npc(*id), "ดูคนนี้"); }
+        // v30 ชาวไร่หาที่ทำไร่ไม่ได้ (เช่น เมืองกลางทะเลทราย)
+        for (&id, _) in &self.rs.pm.nospot { if let Some(i) = self.idx(id) { if self.npcs[i].role == 1 { add(format!("nospot{}", id), 1, format!("{}หาที่ทำไร่ใกล้บ้านไม่ได้ — ดินแถวนั้นไถไม่ได้/มีของขวาง (ทรายไถได้เฉพาะริมน้ำ) ลองเคลียร์ที่ หรือให้เขาย้ายไปนอนใกล้ทุ่งหญ้า", NPC_NAMES[self.npcs[i].name as usize]), AdvAct::Npc(id), "ดูคนนี้"); } } }
+        // v30 คำขอที่ดินที่ยังไม่ได้ตอบ (คนที่ยืนถามอยู่ตรงหน้ามีการ์ดของตัวเอง)
+        for a in &self.rs.pm.asks { if a.came || self.rs.work.get(&a.by).map_or(false, |j| j.kind == J_ASK) { continue; } if let Some(i) = self.idx(a.by) { add(format!("land{}", a.by), 1, format!("{}{} — รออนุญาตอยู่", NPC_NAMES[self.npcs[i].name as usize], self.ask_what(a)), AdvAct::Npc(a.by), "ตอบเขา"); } }
         // v23 เหตุการณ์
         let sick: Vec<u32> = self.rs.lv.sick.keys().copied().collect();
         if !sick.is_empty() { add("sick".into(), 1, format!("{} คนป่วย (กากบาทเขียวบนหัว) ทำงานไม่ได้ — {}", sick.len(), if self.p.inv[HERB] > 0 { "เดินไปกดคุยเพื่อให้สมุนไพร" } else { "หาสมุนไพร (ต้นสมุนไพรในป่า/หนองน้ำ) แล้วเอาไปให้" }), AdvAct::Npc(sick[0]), "ดูคนป่วย"); }
@@ -202,7 +206,7 @@ pub fn cost_str(c: &[(usize, i32)]) -> String { c.iter().map(|(i, n)| format!("{
 /// v27 ป๊อปอัปคำแนะนำอยู่ในโซนกลาง ใต้แถบเป้าหมาย · โซนกว้าง = ปุ่มอยู่ขวา 2 บรรทัด · โซนแคบ = ปุ่มอยู่ล่าง 3 บรรทัด
 pub fn adv_wide(u: f32) -> bool { hud::layout().col_w >= 460. * u }
 pub fn adv_rects(g: &Game) -> Option<(Rect, Option<Rect>, Rect)> {
-    if war::in_combat(g) { return None; }
+    if war::in_combat(g) || g.permit_card().is_some() { return None; }
     let (a, _) = g.rs.adv_show.as_ref()?;
     let u = ui_scale();
     let l = hud::layout();

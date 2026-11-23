@@ -288,7 +288,7 @@ fn recipe_list(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rec
 fn tab_build(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32 {
     let top = c.y - ui.scroll;
     let mut y = top;
-    if ui.sel_b >= PIECES.len() { ui.sel_b = g.build_sel.unwrap_or(0); }
+    if ui.sel_b >= BUILD_N { ui.sel_b = g.build_sel.filter(|&k| k < BUILD_N).unwrap_or(0); }
     let pc = &PIECES[ui.sel_b];
     let dh = detail_box(font, c, y, u, pc.name, pc.desc, &|x, yy, s| piece_icon(sp, pc, x, yy, s, WHITE));
     let mut pick = false;
@@ -302,7 +302,7 @@ fn tab_build(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect,
     }
     y += dh + 4. * u;
     let cur = ui.sel_b;
-    let hit = grid(ui, c, &mut y, PIECES.len(), 50. * u, 6. * u, cur, |k, x, yy, s| {
+    let hit = grid(ui, c, &mut y, BUILD_N, 50. * u, 6. * u, cur, |k, x, yy, s| {
         let p = &PIECES[k];
         let ok = can_pay(&g.p, p.cost);
         piece_icon(sp, p, x + s * 0.14, yy + s * 0.14, s * 0.72, if ok { WHITE } else { Color::new(1., 1., 1., 0.4) });
@@ -1118,7 +1118,7 @@ fn tab_town(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
         let mut lines: Vec<(String, Color)> = vec![];
         for p in &g.rs.projects {
             let nm = g.idx(p.by).map(|i| NPC_NAMES[g.npcs[i].name as usize]).unwrap_or("");
-            let status = if p.started { "กำลังสร้าง".to_string() } else if let Some(h) = g.rs.help.get(&p.by) { h.splitn(2, "ยังขาด ").nth(1).map(|x| format!("ขาด {}", x.split(" —").next().unwrap_or(x))).unwrap_or_else(|| "รอวัสดุ".into()) } else { "รอวัสดุ".into() };
+            let status = if p.started { "กำลังสร้าง".to_string() } else if !p.ok { "รอคุณอนุญาตที่ดิน".to_string() } else if let Some(h) = g.rs.help.get(&p.by) { h.splitn(2, "ยังขาด ").nth(1).map(|x| format!("ขาด {}", x.split(" —").next().unwrap_or(x))).unwrap_or_else(|| "รอวัสดุ".into()) } else { "รอวัสดุ".into() };
             lines.push((format!("{}: {} — {}", nm, project_what(p.kind), status), if p.started { good } else { warn }));
         }
         for s2 in &g.sites { let total = prefab_time(s2.kind); lines.push((format!("ไซต์ {} — {:.0}%", prefab_name(s2.kind), (s2.prog / total * 100.).min(100.)), hx(0x99ccff))); }
@@ -1227,6 +1227,22 @@ fn tab_npc_dialog(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c:
     let say = g.npc_say(&n);
     if visible(y, 30. * u, c) { text(font, &format!("\"{}\"", say), c.x + 8. * u, y + 18. * u, 13. * u, hx(0xdddddd)); }
     y += 30. * u;
+    // v30 คำขอที่ดิน: ตอบได้จากตรงนี้ด้วย
+    if let Some(a) = g.ask_of(id).cloned() {
+        let s = format!("ขออนุญาต: {} — {}", g.ask_what(&a), g.ask_where(&a));
+        let ws = wrap_th(font, &s, 12. * u, c.w - 24. * u);
+        for (k, w) in ws.iter().enumerate() { if visible(y, 15. * u, c) { text(font, w, c.x + 8. * u, y + 14. * u + k as f32 * 15. * u, 12. * u, hx(0xffd84a)); } }
+        y += ws.len() as f32 * 15. * u + 6. * u;
+        if visible(y, 30. * u, c) {
+            match btn_row(ui, font, c, y, &[("ให้เลย", true), ("เลือกที่ให้เอง", true), ("ไม่ให้", true)], u) {
+                Some(0) => g.permit_yes(id),
+                Some(1) => { g.permit_pick_start(id); ui.close = true; }
+                Some(2) => g.permit_no(id),
+                _ => {}
+            }
+        }
+        y += 36. * u;
+    }
     let op = opinion(&n);
     if visible(y, 40. * u, c) {
         text(font, &format!("สนิท {}/10", n.hearts), c.x + 8. * u, y + 14. * u, 12. * u, hx(0xff9ab0));

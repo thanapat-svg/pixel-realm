@@ -286,6 +286,8 @@ pub struct RealmState {
     pub quick_id: Option<u32>,
     /// v28 ของที่ยกอยู่ (โหมดย้ายของ)
     pub carry: Option<Carry>,
+    /// v30 คำขอที่ดิน + ผืนไร่ที่อนุญาต
+    pub pm: Permits,
     pub lv: Living,
     pub war: WarState,
     pub tick_t: f32,

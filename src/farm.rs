@@ -83,13 +83,13 @@ impl Game {
             }
             self.w.tmod.insert(k, 3);
             self.toast("คืนเป็นหญ้า");
-        } else if (t == 3 || t == 4) && (o == 0 || o == 3) {
-            if o == 3 && self.w.placed.remove(&k).is_none() {
+        } else if self.tillable_ground(k.0, k.1) && (o == 0 || o == 3 || o == O_DRYGRASS) {
+            if o != 0 && self.w.placed.remove(&k).is_none() {
                 self.w.removed.insert(k);
             }
             self.w.tmod.insert(k, T_SOIL);
         } else {
-            self.toast("ไถได้เฉพาะทุ่งหญ้า/ป่า");
+            self.toast("ไถได้บนทุ่งหญ้า/ป่า/สะวันนา · ทราย/ชายหาดต้องอยู่ริมน้ำ (ไม่เกิน 4 ช่อง)");
             return false;
         }
         play(&self.sfx.craft);

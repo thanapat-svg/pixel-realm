@@ -673,7 +673,7 @@ pub fn draw_npc(g: &Game, sp: &Sprites, v: &View, i: usize, t_now: f32) {
         prect(v, cx - 3., cy - 1., 6., 2., hx(0xff3030));
     } else if n.state == ST_HOME && n.mood < 25 {
         text_c_world(v, "!", sx, sy - 19. * k - bob, hx(0xff4444), t_now);
-    } else if !g.reqs_for(n.id).is_empty() || g.rs.help.contains_key(&n.id) {
+    } else if !g.reqs_for(n.id).is_empty() || g.rs.help.contains_key(&n.id) || g.has_ask(n.id) {
         // มีคำขอ/เรื่องให้จัดการ: กรอบคำพูดสีเหลือง
         let b = ((t_now * 4.).sin() * 1.).round();
         let (cx, cy) = (sx + 5., sy - 22. * k - bob + b);

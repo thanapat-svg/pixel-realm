@@ -9,7 +9,9 @@ pub struct Piece {
     pub icon: usize,
     pub cost: &'static [(usize, i32)],
 }
-pub const PIECES: [Piece; 33] = [
+/// v30 จำนวนชิ้นที่โชว์ในเมนูสร้าง (ชิ้นท้ายสุด = เลือกที่ดินให้ชาวบ้าน ซ่อนไว้)
+pub const BUILD_N: usize = 33;
+pub const PIECES: [Piece; 34] = [
     Piece { name: "เต็นท์", desc: "ที่หลบภัยเร็วที่สุด! ผ้าใบ+เตียง 3×4 ช่อง · สร้าง 6 วินาที · กันฝน นอนดีกว่ากลางแจ้ง", obj: OBJ_TENT, icon: IC_WWALL, cost: &[(WOOD, 8)] },
     Piece { name: "กระท่อม", desc: "บ้านไม้หลังเล็ก 5×4 ช่อง มีเตียง ท่อนไม้นั่ง หน้าต่าง · สร้าง 15 วินาที", obj: OBJ_HUT, icon: IC_WWALL, cost: &[(WOOD, 22)] },
     Piece { name: "บ้านสำเร็จรูป (เล็ก)", desc: "วางทีเดียวได้ทั้งหลัง! กำแพงไม้ ประตู หน้าต่าง พื้นไม้ เตียง โคมไฟ · ประตูอยู่ช่องที่เลือก ตัวบ้านขึ้นไปด้านบน 5×5 ช่อง", obj: OBJ_HOUSE_S, icon: IC_WWALL, cost: &[(WOOD, 40), (STONE, 4)] },
@@ -43,6 +45,7 @@ pub const PIECES: [Piece; 33] = [
     Piece { name: "ท่อนไม้นั่ง", desc: "แตะเพื่อนั่ง · วางใกล้กองไฟให้ชาวบ้านมานั่งคุยกัน", obj: O_LOG, icon: IC_WWALL, cost: &[(WOOD, 2)] },
     Piece { name: "โคมไฟ", desc: "ไฟสว่างในบ้านตอนกลางคืน (เป็นเขตปลอดภัยเหมือนคบเพลิง) · +ความน่าอยู่", obj: O_LAMP, icon: IC_TORCH, cost: &[(WOOD, 1), (STONE, 2)] },
     Piece { name: "ย้ายของ", desc: "ย้ายของที่สร้างแล้วโดยไม่ต้องรื้อ (ฟรี) · แตะของ 2 ครั้ง = ยก · แตะที่ใหม่ 2 ครั้ง = วาง · แตะผนัง/ประตู/พื้นบ้าน = ย้ายทั้งหลัง (หมุนได้) · ของในกล่องและเจ้าของเตียงตามไปด้วย", obj: OBJ_MOVE, icon: IC_BOX, cost: &[] },
+    Piece { name: "ให้ที่ดิน", desc: "เลือกที่ให้ชาวบ้านที่มาขอ (ทำไร่/สร้างบ้าน)", obj: OBJ_PERMIT, icon: IC_BOX, cost: &[] },
 ];
 
 /// สิ่งที่ Game ขอให้ UI เปิด
@@ -65,7 +68,15 @@ pub enum Req {
 impl Game {
     pub fn can_till(&self, tx: i32, ty: i32) -> bool {
         let (t, o) = (self.w.tile_at(tx, ty), self.w.obj_at(tx, ty));
-        ((t == T_SOIL || t == T_WET) && (o == 0 || (27..=32).contains(&o))) || ((t == 3 || t == 4) && (o == 0 || o == 3))
+        ((t == T_SOIL || t == T_WET) && (o == 0 || (27..=32).contains(&o))) || (self.tillable_ground(tx, ty) && (o == 0 || o == 3 || o == O_DRYGRASS))
+    }
+    /// v30 ดินที่ไถได้: ทุ่งหญ้า ป่า สะวันนา หนองน้ำ · ทราย/ชายหาดได้เฉพาะริมน้ำ (≤4 ช่อง) — เมืองกลางทะเลทรายทำไร่ริมโอเอซิสได้
+    pub fn tillable_ground(&self, tx: i32, ty: i32) -> bool {
+        match self.w.tile_at(tx, ty) {
+            3 | 4 | T_SAVANNA | T_SWAMP => true,
+            2 | 8 => (-4..=4).any(|dy| (-4..=4).any(|dx| self.w.tile_at(tx + dx, ty + dy) < 2)),
+            _ => false,
+        }
     }
     pub fn player_in_tile(&self, tx: i32, ty: i32) -> bool {
         let p = &self.p;
@@ -86,6 +97,7 @@ impl Game {
             return;
         };
         let pc = &PIECES[sel];
+        if pc.obj == OBJ_PERMIT { let k = self.build_target(); self.permit_place(k); return; }
         if pc.obj == OBJ_MOVE {
             // v28 ย้ายของ: ยังไม่ได้ยก = ยก · ยกอยู่ = วาง
             let k = self.build_target();
