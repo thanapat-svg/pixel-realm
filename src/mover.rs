@@ -83,7 +83,8 @@ impl Game {
             let so = self.w.placed.get(&s).copied().unwrap_or(0);
             if OSOLID[so as usize] && self.player_in_tile(d.0, d.1) { return Some("ถอยออกจากตรงนั้นก่อน"); }
         }
-        None
+        // v34 ย้ายบ้านแล้วประตูต้องไม่ชนกำแพง/บ้านอื่น
+        self.move_door_blocked(c, anchor, dir)
     }
     /// ยกขึ้น (ยังไม่ขยับของจริง)
     pub fn move_pick(&mut self, k: (i32, i32)) -> bool {
@@ -139,6 +140,7 @@ impl Game {
         self.burst(x, y, hx(0xc8a070), 12, 50.);
         play(&self.sfx.door);
         self.toast(format!("ย้าย{}เรียบร้อย", c.name));
+        self.doors_check(false);
         self.save();
         true
     }

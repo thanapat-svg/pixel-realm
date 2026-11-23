@@ -389,6 +389,7 @@ impl Game {
             self.npc_dawn();
             self.realm_dawn();
             self.projects_dawn();
+            self.doors_check(true);
             self.season_dawn();
             self.living_dawn();
             self.war_dawn();

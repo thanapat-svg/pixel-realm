@@ -85,6 +85,7 @@ impl Game {
     }
     /// สลับของในมือ (วนรอบ รวมมือเปล่า)
     pub fn swap_weapon(&mut self) {
+        self.smart_prev = None; self.smart_set = None;
         let opts = self.hand_options();
         if opts.len() <= 1 { self.toast("ยังไม่มีอาวุธ — คราฟต์ดาบ ธนู หรือคทาได้ที่เมนู (C)"); return; }
         let cur = self.hand_cur();

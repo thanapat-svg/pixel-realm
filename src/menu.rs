@@ -324,7 +324,7 @@ fn tab_build(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect,
     });
     if let Some(k) = hit { ui.sel_b = k; }
     if visible(y, 40. * u, c) {
-        text(font, "เลือกแล้วแตะพื้นตรงที่จะวาง · ตีเพื่อรื้อถอน · อยากย้ายของที่สร้างแล้ว = ปุ่ม \"ย้ายของ\" ด้านบน", c.x + 8. * u, y + 22. * u, 12. * u, hx(0x9a9aaa));
+        text(font, "เลือกแล้วแตะพื้นตรงที่จะวาง · ตีเพื่อรื้อถอน · อยากย้ายของที่สร้างแล้ว = ปุ่ม \"ย้ายของ\" ด้านบน (หรือปุ่ม \"ย้าย\" บนจอ / Z)", c.x + 8. * u, y + 22. * u, 12. * u, hx(0x9a9aaa));
     }
     y += 40. * u;
     if cancel { g.build_sel = None; }
@@ -783,10 +783,11 @@ fn tab_settings(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: R
     let mut y = top;
     let rh = 50. * u;
     let mut flip = 0;
-    let rows: [(&str, &str, bool); 3] = [
+    let rows: [(&str, &str, bool); 4] = [
         ("เสียงเอฟเฟกต์", if crate::assets::HQ_LOADED.load(std::sync::atomic::Ordering::Relaxed) >= 60 { "ไฟล์เสียงสมจริงโหลดครบแล้ว" } else { "ใช้เสียงสำรองในโค้ด (โหลดไฟล์เสียงไม่เจอ)" }, g.sfx_on),
         ("เพลงประกอบ", "เปลี่ยนตามฉาก: สำรวจ · แคมป์ · บอส · ดันเจี้ยน/กลางคืน", g.bgm_on),
         ("เล็งอัตโนมัติ", "แตะโจมตี = ยิง/ฟันมอนสเตอร์ใกล้สุด (ลากเล็งเองได้เหมือนเดิม)", g.auto_aim),
+        ("เครื่องมืออัตโนมัติ (Smart Tool)", "กดโจมตีใกล้ต้นไม้/หิน = ถือดาบแล้วหันไปตีให้ · ใกล้มอนสเตอร์ = ถืออาวุธสู้ · เมืองห้ามอาวุธ = ใช้มือเปล่า", g.smart),
     ];
     for (i, (n, d, on)) in rows.iter().enumerate() {
         if visible(y, rh, c) {
@@ -852,13 +853,14 @@ fn tab_settings(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: R
     }
     y += rh;
     if visible(y, rh, c) {
-        text(font, "คีย์บอร์ด: Shift/K = พุ่ง · P = สเตตัส · O = ตั้งค่า", c.x + 8. * u, y + 24. * u, 11. * u, hx(0x888899));
+        text(font, "คีย์บอร์ด: Shift/K = พุ่ง · Z = ย้ายของ · P = สเตตัส · O = ตั้งค่า", c.x + 8. * u, y + 24. * u, 11. * u, hx(0x888899));
     }
     y += 30. * u;
     match flip {
         1 => { g.sfx_on = !g.sfx_on; SFX_ON.store(g.sfx_on, std::sync::atomic::Ordering::Relaxed); g.save(); }
         2 => { g.bgm_on = !g.bgm_on; g.save(); }
         3 => { g.auto_aim = !g.auto_aim; g.save(); }
+        4 => { g.smart = !g.smart; g.smart_prev = None; g.smart_set = None; g.save(); }
         _ => {}
     }
     y - top

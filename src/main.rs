@@ -71,6 +71,8 @@ mod wants;
 use wants::*;
 mod source;
 mod crew;
+mod v34;
+use v34::{draw_bad_doors, draw_pix_axe, TOOL_AXE, TOOL_PICK};
 use realm::*;
 use extra::*;
 use farm::*;
@@ -570,7 +572,7 @@ impl Player {
 }
 
 #[derive(Default)]
-struct Input { hb: Option<usize>, mv: Vec2, atk: bool, eat: bool, fire: bool, menu: Option<usize>, map: bool, act: bool, swap: bool, place: bool, cancel: bool, potion: bool, aim: Option<Vec2>, dash: bool, tile_tap: Option<Vec2>, place_hold: bool, ride: bool, build_tap: Option<Vec2>, build_start: bool, build_end: bool, rot: bool, form: bool, horn: bool }
+struct Input { mover: bool, hb: Option<usize>, mv: Vec2, atk: bool, eat: bool, fire: bool, menu: Option<usize>, map: bool, act: bool, swap: bool, place: bool, cancel: bool, potion: bool, aim: Option<Vec2>, dash: bool, tile_tap: Option<Vec2>, place_hold: bool, ride: bool, build_tap: Option<Vec2>, build_start: bool, build_end: bool, rot: bool, form: bool, horn: bool }
 
 // ======================= game =======================
 struct Game {
@@ -693,6 +695,16 @@ struct Game {
     sfx_on: bool,
     auto_aim: bool,
     pick_cd: f32,
+    // ---- v34 Smart Tool · ประตูบ้านถูกบัง
+    smart: bool,
+    smart_prev: Option<(u8, bool, u8)>,
+    smart_set: Option<(u8, bool, u8)>,
+    smart_tool: u8,
+    smart_t: f32,
+    smart_tile: Option<(i32, i32)>,
+    smart_shown: u8,
+    bad_doors: Vec<(i32, i32)>,
+    door_t: f32,
     // ---- v5 ฟาร์ม/เตียง/Grid Snap/สภาพอากาศ
     crops: HashMap<(i32, i32), Crop>,
     fruit: HashMap<(i32, i32), i32>,
@@ -751,7 +763,7 @@ impl Game {
             drops: vec![], comp: None, ghosts: vec![], quest: None, qn: HashMap::new(), shop_camp: None, fish: None, torches: vec![], torch_t: 0.,
             dun_found: HashSet::new(), wp_found: HashSet::new(), dun_clear: HashSet::new(), dun_chests: HashSet::new(), dun_ret: (0., 0.), dun_t: 0.,
             rain: 0., rain_on: false, rain_t: 90., thunder: 0., cshake: (0., 0.), bgm_on: true, to_title: false, npcs: vec![], rels: HashMap::new(), news: vec![], npc_next: 1, npc_seen: HashSet::new(), lost_told: HashSet::new(), lost_hint_t: 1., last_day: -1, tax_pool: 0, wed_day: 0, last_child: -99, tut: TUT_DONE, tut_ev0: [0; EV_N], ev: [0; EV_N], tut_flash: 0., hitstop: 0., sfx_on: true,
-            auto_aim: true, pick_cd: 0.,
+            auto_aim: true, pick_cd: 0., smart: true, smart_prev: None, smart_set: None, smart_tool: 0, smart_t: 0., smart_tile: None, smart_shown: 0, bad_doors: vec![], door_t: 1.,
             crops: HashMap::new(), fruit: HashMap::new(), crop_t: 0., bed: None, seed_sel: 0, sleep_fx: 0., build_cur: None, cur_pos: (0., 0.), weather_kind: 1,
         }
     }
@@ -780,7 +792,7 @@ impl Game {
         for v in p.inv { s += &format!(" {}", v); }
         s += &format!("\ngear {} {} {} {} {} {} {} {} {}\n", p.weapon, p.bow as i32, p.staff, p.armor[0], p.armor[1], p.armor[2], p.outfit, p.outfits, p.bare as u8);
         s += &format!("bcd {}\n", self.boss_cd);
-        s += &format!("opt {} {} {}\n", self.sfx_on as i32, self.bgm_on as i32, self.auto_aim as i32);
+        s += &format!("opt {} {} {} {}\n", self.sfx_on as i32, self.bgm_on as i32, self.auto_aim as i32, self.smart as i32);
         s += &format!("rpg {} {} {} {} {} {} {} {} {} {}\n", p.sp, p.st[0], p.st[1], p.st[2], p.st[3], p.wplus[0], p.wplus[1], p.wplus[2], p.aplus[0], p.aplus[1]);
         s += &format!("rpg2 {}\n", p.aplus[2]);
         if let Some(q) = &self.quest { s += &format!("quest {} {} {} {} {} {} {} {}\n", q.camp.0, q.camp.1, q.kind, q.goal, q.prog, q.coin, q.shard, q.bp); }
@@ -878,6 +890,7 @@ impl Game {
                 "bcd" => g.boss_cd = f(0),
                 "opt" => {
                     g.sfx_on = f(0) > 0.; g.bgm_on = f(1) > 0.; g.auto_aim = f(2) > 0.;
+                    g.smart = if rest.len() > 3 { f(3) > 0. } else { true };
                     SFX_ON.store(g.sfx_on, std::sync::atomic::Ordering::Relaxed);
                 }
                 "rpg" => {
@@ -1216,7 +1229,7 @@ impl Game {
         if self.melee_animals(fx, fy, dmg, dx, dy) { hit = true; }
         // v19: ดาบผ่านตัวพวกเดียวกัน (ชาวบ้าน ผู้ติดตาม สัตว์เลี้ยง) — ไม่บาดเจ็บ ไม่โกรธ
         if !hit {
-            let (tx, ty) = (tfloor(self.p.x + dx * 11.), tfloor(self.p.y - 3. + dy * 11.));
+            let (tx, ty) = self.smart_tile.take().unwrap_or((tfloor(self.p.x + dx * 11.), tfloor(self.p.y - 3. + dy * 11.)));
             hit = self.hit_object(tx, ty, if self.p.sword >= 2 && !self.p.bare { 2 } else { 1 });
         } else {
             play(&self.sfx.hit);
@@ -1478,6 +1491,9 @@ impl Game {
         prof::t("paint_tick", || self.paint_tick(inp.place_hold));
         if inp.rot { self.rotate_build(); }
         if inp.form { self.cycle_formation(); }
+        if inp.mover { self.move_toggle(); }
+        self.smart_tick(dt);
+        self.doors_tick(dt);
         if inp.horn { self.blow_horn(); }
         if inp.cancel && self.build_sel.is_some() && !self.permit_pick_cancel() && !self.move_cancel() { self.build_sel = None; self.toast("ยกเลิกโหมดสร้าง"); }
         if self.rs.carry.is_some() && !self.moving_on() { self.rs.carry = None; }
@@ -1532,6 +1548,8 @@ impl Game {
         if self.aim_last_t <= 0. { self.aim_last = None; }
         prof::t("auto_door", || self.auto_door(mv));
         if inp.atk && self.p.atk_cd <= 0. {
+            // v34 Smart Tool: ไม่ได้ลากเล็งเอง = เลือกของในมือ/หันหน้าตามเป้าที่อยู่ใกล้ก่อน
+            if inp.aim.is_none() { self.smart_apply(); } else { self.smart_tile = None; }
             prof::t("law_on_attack", || self.law_on_attack(self.p.weapon == 2));
             let mut aim = inp.aim.filter(|a| a.length() > 0.01);
             if aim.is_none() && self.auto_aim {
@@ -1965,7 +1983,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                         let left = p.dir == 2 && p.flip;
                         let (ox, oy) = match p.dir { 0 => (2., -11.), _ => if left { (-9., -12.) } else { (1., -12.) } };
                         let (x0, y0, ps) = (((sx + ox) * v.s).round(), ((sy + oy) * v.s).round(), 9. * v.s / 12.);
-                        if tool == 1 { pix_icon_pick(x0, y0, ps); } else { pix_icon_rod(x0, y0, ps); }
+                        if tool == 1 { pix_icon_pick(x0, y0, ps); } else if tool == 3 { draw_pix_axe(x0, y0, ps); } else { pix_icon_rod(x0, y0, ps); }
                     }
                     if p.weapon > 0 {
                         let (fx, fy) = p.facing();
@@ -1999,6 +2017,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     draw_bubbles(g, v, font);
     living::draw_living(g, v, t_now);
     permit::draw_permit_world(g, v, font, t_now);
+    draw_bad_doors(g, v, font, t_now);
     living::draw_caravan_labels(g, v, font);
     if let Some(sel) = g.build_sel {
         let (tx, ty) = g.build_target();
@@ -2426,13 +2445,34 @@ fn finish_minimap(g: &Game, img: &mut Image, tex: &Texture2D, ctr: (i32, i32), s
 }
 
 // ---------- touch controls ----------
-struct TouchUI { active: bool, joy_id: Option<u64>, joy_c: Vec2, joy_v: Vec2, atk_id: Option<u64>, aim: Vec2, flash: [f32; 12], place_id: Option<u64>, atk_start: Vec2, build_id: Option<u64> }
+struct TouchUI { active: bool, joy_id: Option<u64>, joy_c: Vec2, joy_v: Vec2, atk_id: Option<u64>, aim: Vec2, flash: [f32; 13], place_id: Option<u64>, atk_start: Vec2, build_id: Option<u64> }
 /// 0 โจมตี/เล็ง · 1 กิน · 2 กองไฟ · 3 เมนู · 4 แผนที่ · 5 สลับอาวุธ · 6 ใช้ · 7 วางสิ่งปลูกสร้าง
 /// หน่วยขนาดปุ่มทัช: อิงความสูงจอ (ปุ่มโจมตี ≈ 16 มม. บนมือถือทั่วไป) × ตัวเลือกขนาดปุ่มในตั้งค่า
+impl TouchUI {
+    /// ปล่อยทุกนิ้วที่ถืออยู่ (เปิดเมนู/กลับมาเล่น/ฉากเปลี่ยน) — กันปุ่มโจมตี/จอย/ปุ่มวางค้าง
+    fn release_all(&mut self) {
+        self.atk_id = None; self.aim = Vec2::ZERO;
+        self.joy_id = None; self.joy_v = Vec2::ZERO;
+        self.place_id = None;
+        self.build_id = None;
+    }
+}
+/// นิ้วที่ถือไว้ "ค้าง" ไหม: ไม่มีนิ้วจริงที่ id นี้อีกแล้ว (ตัวยกถูกกลืน) หรือมีนิ้วใหม่เพิ่งแตะด้วย id เดิม (ตัวเก่ายกหายไป)
+/// นิ้วที่ยกปกติ (phase Ended/Cancelled ยังเห็นอยู่ 1 เฟรม) ไม่นับ — ให้ทางปกติเคลียร์เอง
+fn touch_stale(held: Option<u64>, seen: &[(u64, TouchPhase)]) -> bool {
+    let Some(id) = held else { return false };
+    let mut any = false;
+    for &(i, ph) in seen {
+        if i != id { continue; }
+        any = true;
+        if ph == TouchPhase::Started { return true; }
+    }
+    !any
+}
 fn tunit() -> f32 {
     (screen_height() / 450.).clamp(1., 3.2) * prefs::touch_mul()
 }
-fn touch_buttons() -> [(Vec2, f32, usize); 12] {
+fn touch_buttons() -> [(Vec2, f32, usize); 13] {
     let t = tunit();
     let (sw, sh) = (screen_width(), screen_height());
     let mm = minimap_rect(false);
@@ -2450,6 +2490,7 @@ fn touch_buttons() -> [(Vec2, f32, usize); 12] {
         (vec2(sw - 238. * t, sh - 194. * t), 26. * t, 9), // ขึ้น/ลงม้า (มีม้าแล้วเท่านั้น)
         (vec2(sw - 156. * t, sh - 226. * t), 26. * t, 10), // v25 จัดแถว (เฉพาะตอนยกทัพ)
         (vec2(sw - 80. * t, sh - 250. * t), 28. * t, 11),  // v25 เป่าแตร (เฉพาะตอนยกทัพ · ตำแหน่งเดียวกับปุ่มวางของซึ่งมีแค่ตอนสร้าง)
+        (vec2(mm.x - 36. * t, ty + 68. * t), 26. * t, 12), // v34 ย้ายบ้าน/ของ (แถวใต้ปุ่มเมนู — ไม่ทับป้ายบทเรียนกลางจอ)
     ]
 }
 /// รัศมีแสงที่ "หายใจ" เข้าออกอย่างนุ่มนวล (ph = เฟสของแหล่งแสง) + ประกายเล็กน้อยสำหรับไฟ
@@ -2462,6 +2503,14 @@ fn tile_of(v: &View, p: Vec2) -> (i32, i32) {
 fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool, horse: bool, army: bool, block: &[Rect]) {
     let ts = touches();
     if !ts.is_empty() { tu.active = true; }
+    // เก็บกวาดนิ้วค้าง: ถ้า "ยก" ของนิ้วที่ถือปุ่มไว้หลุดหาย (ระบบกลืน/ id ซ้ำ) ให้ปล่อยทันที ไม่ปล่อยให้โจมตี/เดินค้าง
+    {
+        let seen: Vec<(u64, TouchPhase)> = ts.iter().map(|t| (t.id, t.phase)).collect();
+        if touch_stale(tu.atk_id, &seen) { tu.atk_id = None; tu.aim = Vec2::ZERO; }
+        if touch_stale(tu.joy_id, &seen) { tu.joy_id = None; tu.joy_v = Vec2::ZERO; }
+        if touch_stale(tu.place_id, &seen) { tu.place_id = None; }
+        if touch_stale(tu.build_id, &seen) { tu.build_id = None; inp.build_end = true; }
+    }
     let btns = touch_buttons();
     let u = tunit();
     for f in tu.flash.iter_mut() { *f = (*f - get_frame_time()).max(0.); }
@@ -2496,6 +2545,7 @@ fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool, horse: bool, arm
                         9 => inp.ride = true,
                         10 => inp.form = true,
                         11 => inp.horn = true,
+                        12 => inp.mover = true,
                         _ => { inp.place = true; tu.place_id = Some(t.id); }
                     }
                 }
@@ -2542,7 +2592,7 @@ fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool, horse: bool, arm
         if tu.aim.length() > 0.5 { inp.aim = Some(tu.aim); }
     }
 }
-fn draw_touch(tu: &TouchUI, sp: &Sprites, font: &Font, build: bool, weapon: u8, dash_cd: f32, use_lab: Option<&str>, horse: (bool, bool), army: Option<(u8, f32, bool)>) {
+fn draw_touch(tu: &TouchUI, sp: &Sprites, font: &Font, build: bool, moving: bool, weapon: u8, dash_cd: f32, use_lab: Option<&str>, horse: (bool, bool), army: Option<(u8, f32, bool)>) {
     if !tu.active { return; }
     let u = tunit();
     const TA: f32 = 0.62;
@@ -2614,6 +2664,19 @@ fn draw_touch(tu: &TouchUI, sp: &Sprites, font: &Font, build: bool, weapon: u8, 
                 }
                 tc("แตร", c.x, c.y + r * 0.9, 11. * u, if cdf > 0. { hx(0x999999) } else { hx(0xffe8a0) });
             }
+            12 => {
+                if moving { draw_circle(c.x, c.y, r, Color::new(0.8, 0.15, 0.15, 0.55)); tc("เลิก", c.x, c.y - 2. * u, 13. * u, WHITE); tc("ย้าย", c.x, c.y + 12. * u, 11. * u, WHITE); }
+                else {
+                    // ลูกศร 4 ทิศ = ย้ายตำแหน่ง
+                    let a = r * 0.46;
+                    for (dx, dy) in [(0., -1.), (0., 1.), (-1., 0.), (1., 0.)] {
+                        let (ex, ey) = (c.x + dx * a, c.y - 4. * u + dy * a);
+                        draw_line(c.x, c.y - 4. * u, ex, ey, 2.5 * u, WHITE);
+                        draw_circle(ex, ey, 3. * u, WHITE);
+                    }
+                    tc("ย้าย", c.x, c.y + r * 0.9, 11. * u, hx(0xdddddd));
+                }
+            }
             5 if build => {
                 // โหมดสร้าง: ปุ่มสลับกลายเป็น "เลิกสร้าง" สีแดง
                 draw_circle(c.x, c.y, r, Color::new(0.8, 0.15, 0.15, 0.55));
@@ -2666,6 +2729,7 @@ fn debug_keys(g: &mut Game) {
         g.damage_boss(0, 999, false);
         g.p.inv[BERRY] += 3; g.p.inv[GEM] += 3;
     }
+    if ctrl && is_key_pressed(KeyCode::F5) { g.dbg_blocked_house(); }
     if shift && is_key_pressed(KeyCode::F10) { g.build_sel = PIECES.iter().position(|p| p.obj == OBJ_MOVE); }
     if shift && is_key_pressed(KeyCode::F4) { for (j, k) in [EK::Scorp, EK::Wolf, EK::Crab, EK::Imp].into_iter().enumerate() { let (x, y) = (g.p.x - 60. + j as f32 * 40., g.p.y + 50.); g.make_enemy(k, x, y, 1., 0, false); if let Some(e) = g.en.last_mut() { e.stun = 6.; } } }
     if shift && is_key_pressed(KeyCode::F5) { let r = g.w.realm.clone(); if !g.rs.inited { g.rs.init(&r); } for st in 0..3u8 { let (x, y) = (g.p.x - 70. + st as f32 * 70., g.p.y - 50.); g.spawn_champion(st as usize % r.ks.len(), x, y); if let Some(b) = g.bosses.last_mut() { b.style = st; b.cd = 99.; } } }
@@ -2805,7 +2869,7 @@ async fn main() {
     bg.w = World::new(gen_range(1, i32::MAX));
     bg.p.invul = 0.07; // ซ่อนผู้เล่นบนหน้าเมนู
     let mut state = State::Title;
-    let mut tu = TouchUI { active: std::env::var("PIXEL_TOUCH").is_ok(), joy_id: None, joy_c: Vec2::ZERO, joy_v: Vec2::ZERO, atk_id: None, aim: Vec2::ZERO, flash: [0.; 12], place_id: None, atk_start: Vec2::ZERO, build_id: None };
+    let mut tu = TouchUI { active: std::env::var("PIXEL_TOUCH").is_ok(), joy_id: None, joy_c: Vec2::ZERO, joy_v: Vec2::ZERO, atk_id: None, aim: Vec2::ZERO, flash: [0.; 13], place_id: None, atk_start: Vec2::ZERO, build_id: None };
     let mut ui = UiState::new();
     let mut t_now = 0f32;
     let mut mouse_armed = false;
@@ -3089,6 +3153,7 @@ async fn main() {
                     inp.place_hold = is_key_down(KeyCode::R);
                     inp.rot = is_key_pressed(KeyCode::Y) && g.build_sel.is_some();
                     inp.form = is_key_pressed(KeyCode::V);
+                    inp.mover = is_key_pressed(KeyCode::Z);
                     inp.horn = is_key_pressed(KeyCode::X);
                     inp.swap = is_key_pressed(KeyCode::Tab);
                     inp.ride = is_key_pressed(KeyCode::G);
@@ -3196,12 +3261,7 @@ async fn main() {
                         ui.open(t);
                         state = State::Menu;
                     }
-                    if matches!(state, State::Menu) {
-                        tu.atk_id = None;
-                        tu.joy_id = None;
-                        tu.joy_v = Vec2::ZERO;
-                        tu.aim = Vec2::ZERO;
-                    }
+                    if matches!(state, State::Menu) { tu.release_all(); }
                 } else {
                     // ล้าง touch ที่ค้างระหว่างเปิดเมนู
                     let _ = touches();
@@ -3295,7 +3355,7 @@ async fn main() {
                 }
                 if in_play {
                     prof::lap("L:before_touch");
-                    draw_touch(&tu, &sp, &font, g.build_sel.is_some(), if g.p.bare || (g.p.weapon == 0 && g.p.sword == 0) { 3 } else { g.p.weapon }, g.p.dash_cd, g.use_label().as_deref(), (g.rs.horse, g.rs.riding), if g.rs.war.march { Some((g.rs.war.form, g.rs.war.horn_cd / war::HORN_CD, g.horn_on())) } else { None });
+                    draw_touch(&tu, &sp, &font, g.build_sel.is_some(), g.moving_on(), if g.p.bare || (g.p.weapon == 0 && g.p.sword == 0) { 3 } else { g.p.weapon }, g.p.dash_cd, g.use_label().as_deref(), (g.rs.horse, g.rs.riding), if g.rs.war.march { Some((g.rs.war.form, g.rs.war.horn_cd / war::HORN_CD, g.horn_on())) } else { None });
                     if !tu.active && g.p.weapon > 0 {
                         let (mx, my) = mouse_position();
                         let c = Color::new(1., 1., 0.6, 0.9);
@@ -3316,6 +3376,7 @@ async fn main() {
                         ui.reset_context();
                         state = State::Play;
                         mouse_armed = false;
+                        tu.release_all();
                     }
                     if g.to_title {
                         g.to_title = false;
@@ -7015,6 +7076,8 @@ mod realm_tests {
         let k = g.city_owner(ci) as usize;
         g.p.x = c.pos.0 as f32 * 16. + 8.; g.p.y = (c.pos.1 + 2) as f32 * 16. + 12.;
         g.p.inv[COIN] = 50;
+        // v34: มือเปล่าไม่ผิดกฎห้ามอาวุธ — ต้องถือดาบฟันถึงจะโดนปรับ
+        g.p.sword = 1; g.p.weapon = 0; g.p.bare = false;
         let rep0 = g.rs.ks[k].rep;
         g.law_on_attack(false);
         assert!(g.p.inv[COIN] < 50 && g.rs.ks[k].rep < rep0, "โดนปรับ");

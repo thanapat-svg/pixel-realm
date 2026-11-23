@@ -282,6 +282,11 @@ impl Game {
 /// 0 ไม่มี · 1 อีเต้อ (หันหน้าเข้าหิน/แร่) · 2 คันเบ็ด (กำลังตกปลา)
 pub fn tool_in_hand(g: &Game) -> u8 {
     if g.fish.is_some() { return 2; }
+    // v34 Smart Tool: เพิ่งเลือกเครื่องมือให้ตามเป้า (ต้นไม้ = ขวาน · หิน/ภูเขา = อีเต้อ ถ้ามี)
+    if g.smart_t > 0. && g.p.weapon == 0 {
+        if g.smart_tool == TOOL_AXE { return 3; }
+        if g.smart_tool == TOOL_PICK && g.p.pick { return 1; }
+    }
     if g.p.pick && g.p.atk_t <= 0. {
         let (tx, ty) = g.facing_tile();
         if matches!(g.w.obj_at(tx, ty), 4 | 5 | O_OBSIDIAN | O_CRYSTAL | O_RUINWALL | O_PILLAR) { return 1; }

@@ -410,7 +410,7 @@ impl Game {
         let enemy_near = self.en.iter().any(|e| !e.dead && (e.x - self.p.x).hypot(e.y - self.p.y) < 140.);
         if enemy_near { return; }
         if magic && self.law_on(ci, L_MAGIC) { self.crime(ci, "ใช้เวทมนตร์ในเมือง", 10, 4); }
-        else if self.law_on(ci, L_WEAPON) { self.crime(ci, "ใช้อาวุธในเมือง", 5, 2); }
+        else if self.law_on(ci, L_WEAPON) && !self.unarmed() { self.crime(ci, "ใช้อาวุธในเมือง", 5, 2); }
     }
     /// ทุบของในเมือง (ของในเมืองทุบไม่พัง)
     pub fn law_on_hit(&mut self, tx: i32, ty: i32) -> bool {

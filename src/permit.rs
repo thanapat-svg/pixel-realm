@@ -168,7 +168,9 @@ impl Game {
     }
     /// ให้ตรงที่เขาขอ
     pub fn permit_yes(&mut self, id: u32) {
-        let Some(a) = self.ask_of(id).cloned() else { return };
+        let Some(mut a) = self.ask_of(id).cloned() else { return };
+        // v34 ประตูถูกบังระหว่างรอ → หมุนบ้านหาทิศที่โล่งให้เอง
+        if a.kind != AK_FARM { if let Some(d) = self.door_dir_for(a.kind, a.at, a.dir) { a.dir = d; } }
         // ระหว่างรอ อาจมีของมาขวางแล้ว
         let bad = if a.kind == AK_FARM { self.farm_blocked(a.at, Some(id)) } else { self.prefab_blocked(a.kind, a.at, a.dir).or(self.land_taken(&self.area_cells(a.kind, a.at, a.dir), Some(id))) };
         if let Some(why) = bad { self.toast(format!("ตรงนั้นใช้ไม่ได้แล้ว: {} — กด \"ที่อื่น\" เพื่อเลือกให้ใหม่", why)); return; }

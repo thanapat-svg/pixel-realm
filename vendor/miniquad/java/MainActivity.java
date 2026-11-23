@@ -83,6 +83,19 @@ class QuadSurface
 
     }
 
+    // Pixel Realm: จำ id นิ้วที่กดค้างอยู่ — ถ้าระบบกลืน "ยก" ของนิ้วไป (แถบระบบ/ขอบจอ/overlay) เกมจะได้รู้ว่านิ้วนั้นหายแล้ว
+    // ไม่งั้นปุ่มโจมตี/จอยค้างอยู่จนกว่าจะแตะซ้ำ
+    private final java.util.HashSet<Integer> downIds = new java.util.HashSet<Integer>();
+
+    private void releaseStale(int keep, float x, float y) {
+        for (Integer old : new java.util.ArrayList<Integer>(downIds)) {
+            if (old.intValue() != keep) {
+                QuadNative.surfaceOnTouch(old.intValue(), 3, x, y);
+            }
+        }
+        downIds.clear();
+    }
+
     @Override
     public boolean onTouch(View v, MotionEvent event) {
         int pointerCount = event.getPointerCount();
@@ -102,6 +115,8 @@ class QuadSurface
             final int id = event.getPointerId(0);
             final float x = event.getX(0);
             final float y = event.getY(0);
+            // นิ้วสุดท้ายยก = ไม่เหลือนิ้วไหนแล้ว: นิ้วอื่นที่ยังค้างในรายการ (ยกหายไป) ปล่อยให้หมด
+            releaseStale(id, x, y);
             QuadNative.surfaceOnTouch(id, 1, x, y);
             break;
         }
@@ -109,6 +124,9 @@ class QuadSurface
             final int id = event.getPointerId(0);
             final float x = event.getX(0);
             final float y = event.getY(0);
+            // นิ้วแรกแตะ = ก่อนหน้านี้ไม่มีนิ้วเหลือ: เคลียร์นิ้วที่ค้างจากครั้งก่อน
+            releaseStale(id, x, y);
+            downIds.add(Integer.valueOf(id));
             QuadNative.surfaceOnTouch(id, 2, x, y);
             break;
         }
@@ -117,6 +135,7 @@ class QuadSurface
             final int id = event.getPointerId(pointerIndex);
             final float x = event.getX(pointerIndex);
             final float y = event.getY(pointerIndex);
+            downIds.remove(Integer.valueOf(id));
             QuadNative.surfaceOnTouch(id, 1, x, y);
             break;
         }
@@ -125,6 +144,7 @@ class QuadSurface
             final int id = event.getPointerId(pointerIndex);
             final float x = event.getX(pointerIndex);
             final float y = event.getY(pointerIndex);
+            downIds.add(Integer.valueOf(id));
             QuadNative.surfaceOnTouch(id, 2, x, y);
             break;
         }
@@ -135,6 +155,7 @@ class QuadSurface
                 final float y = event.getY(i);
                 QuadNative.surfaceOnTouch(id, 3, x, y);
             }
+            releaseStale(-1, event.getX(0), event.getY(0));
             break;
         }
         default:

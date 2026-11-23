@@ -387,7 +387,8 @@ impl Game {
             let solid_cell = match c { Cell::Wall(_) => true, Cell::Floor(_, f) | Cell::Ground(f) => f != 0 && OSOLID[f as usize] };
             if solid_cell && (self.player_in_tile(x, y) || (x, y) == (ptx, pty)) { return Some("ถอยออกมาหน่อย ตัวละครยืนขวางอยู่"); }
         }
-        None
+        // v34 ประตูต้องมีทางเดินเข้าออก (เดิมวางประตูชนกำแพง/บ้านอีกหลังได้ เข้าบ้านไม่ได้)
+        self.door_clear(kind, k, dir)
     }
     /// เริ่มก่อสร้าง: จ่ายของ เคลียร์หญ้า/ดอกไม้ จองพื้นที่ แล้วค่อยๆ สร้างขึ้นทีละชิ้นตอนผู้เล่นอยู่ใกล้
     pub fn place_prefab(&mut self, kind: u8, k: (i32, i32), dir: u8, cost: &[(usize, i32)]) -> bool {

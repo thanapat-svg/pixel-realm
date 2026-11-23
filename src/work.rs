@@ -358,14 +358,15 @@ impl Game {
             let (kind, r0, r1) = house_style(n);
             let c = self.town_center().unwrap_or(n.bed);
             let mut at = None;
-            'f: for rr in r0..=r1 { for k in 0..(rr * 8) { let a = k as f32 / (rr * 8) as f32 * std::f32::consts::TAU + id as f32; let p = (c.0 + (a.cos() * rr as f32) as i32, c.1 + (a.sin() * rr as f32) as i32 + 3); if self.prefab_blocked(kind, p, door_toward(p, c)).is_none() && !self.rs.projects.iter().any(|q| (q.at.0 - p.0).abs() < 8 && (q.at.1 - p.1).abs() < 8) && self.land_taken(&self.area_cells(kind, p, door_toward(p, c)), None).is_none() { at = Some(p); break 'f; } } }
-            let Some(at) = at else { continue };
+            // v34 ลองทิศประตูที่หันเข้าหาเมืองก่อน ถ้าชนกำแพง/บ้านอื่นก็หมุนหาทิศที่เดินเข้าออกได้
+            'f: for rr in r0..=r1 { for k in 0..(rr * 8) { let a = k as f32 / (rr * 8) as f32 * std::f32::consts::TAU + id as f32; let p = (c.0 + (a.cos() * rr as f32) as i32, c.1 + (a.sin() * rr as f32) as i32 + 3); let Some(d) = self.door_dir_for(kind, p, door_toward(p, c)) else { continue }; if !self.rs.projects.iter().any(|q| (q.at.0 - p.0).abs() < 8 && (q.at.1 - p.1).abs() < 8) && self.land_taken(&self.area_cells(kind, p, d), None).is_none() { at = Some((p, d)); break 'f; } } }
+            let Some((at, adir)) = at else { continue };
             let cost = project_cost(kind);
             let nm = NPC_NAMES[n.name as usize];
             self.news_add(format!("{}อยาก{} ({})", nm, project_what(kind), prefab_name(kind)));
-            self.rs.projects.push(Project { by: id, kind, at, need: cost, started: false, dir: door_toward(at, c), ok: false, got: vec![] });
+            self.rs.projects.push(Project { by: id, kind, at, need: cost, started: false, dir: adir, ok: false, got: vec![] });
             // v30 ขอที่จากเราก่อน
-            self.house_ask(id, kind, at, door_toward(at, c));
+            self.house_ask(id, kind, at, adir);
         }
         // โครงการส่วนรวม: มีคนไม่มีน้ำดื่ม → ขุดบ่อน้ำ · ชุมชนโตแล้วแต่ไม่มีทั่ง → ตั้งโรงตีเหล็ก
         let served = self.water_served();
@@ -414,7 +415,10 @@ impl Game {
                 continue;
             }
             let prefab = is_prefab(p.kind);
-            if prefab && self.prefab_blocked(p.kind, p.at, p.dir).is_some() { continue; }
+            if prefab && self.prefab_blocked(p.kind, p.at, p.dir).is_some() {
+                // v30 ระหว่างรอมีของมาขวาง (เช่นเราสร้างกำแพงชิดหน้าประตู) → ลองหมุนบ้านหาทิศที่โล่ง
+                match self.door_dir_for(p.kind, p.at, p.dir) { Some(d) => p.dir = d, None => continue }
+            }
             if !prefab && !self.can_place_at(p.at.0, p.at.1) { continue; }
             // หักวัสดุจากกล่องใกล้บ้าน
             for &(it, mut n) in &p.need {
