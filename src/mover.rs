@@ -66,7 +66,11 @@ impl Game {
     }
     /// วางที่ anchor ได้ไหม (None = ได้)
     pub fn move_blocked(&self, c: &Carry, anchor: (i32, i32), dir: u8) -> Option<&'static str> {
-        if !self.move_reach(anchor) { return Some("ไกลเกินไป — เดินเข้าไปใกล้อีกหน่อย"); }
+        self.move_blocked_ex(c, anchor, dir, true)
+    }
+    /// v36 เหมือน move_blocked แต่เลือกได้ว่าจะเช็กระยะเอื้อมไหม (ช่างสถาปนิกย้ายบ้านได้ทั้งเมืองโดยไม่ต้องยืนใกล้)
+    pub fn move_blocked_ex(&self, c: &Carry, anchor: (i32, i32), dir: u8, reach: bool) -> Option<&'static str> {
+        if reach && !self.move_reach(anchor) { return Some("ไกลเกินไป — เดินเข้าไปใกล้อีกหน่อย"); }
         let pairs = self.move_targets(c, anchor, dir);
         if pairs.iter().all(|(s, d)| s == d) { return Some("ยังอยู่ที่เดิม — เลือกที่ใหม่"); }
         let src: HashSet<(i32, i32)> = c.tiles.iter().copied().collect();
@@ -103,7 +107,19 @@ impl Game {
     pub fn move_drop(&mut self, anchor: (i32, i32)) -> bool {
         let Some(c) = self.rs.carry.clone() else { return false };
         if let Some(why) = self.move_blocked(&c, anchor, self.build_dir) { self.toast(why); play(&self.sfx.deny); return false; }
-        let pairs = self.move_targets(&c, anchor, self.build_dir);
+        self.move_apply(&c, anchor, self.build_dir);
+        self.rs.carry = None;
+        self.rs.build_arm = None;
+        let (x, y) = (anchor.0 as f32 * 16. + 8., anchor.1 as f32 * 16. + 8.);
+        self.burst(x, y, hx(0xc8a070), 12, 50.);
+        play(&self.sfx.door);
+        self.toast(format!("ย้าย{}เรียบร้อย", c.name));
+        self.save();
+        true
+    }
+    /// v36 ย้ายจริง (ไม่เช็กอะไรแล้ว — เรียกหลัง move_blocked/move_blocked_ex ผ่าน): ของ พื้น ของในกล่อง ประตูอัตโนมัติ เจ้าของเตียง
+    pub fn move_apply(&mut self, c: &Carry, anchor: (i32, i32), dir: u8) {
+        let pairs = self.move_targets(c, anchor, dir);
         let mut objs = vec![];
         let mut floors = vec![];
         let mut chests = vec![];
@@ -116,6 +132,7 @@ impl Game {
             self.obj_dmg.remove(&s);
         }
         let bed_map: HashMap<(i32, i32), (i32, i32)> = pairs.iter().copied().collect();
+        let old: HashSet<(i32, i32)> = pairs.iter().map(|p| p.0).collect();
         for (d, t) in floors {
             if self.w.obj_at(d.0, d.1) == 3 && !self.w.placed.contains_key(&d) { self.w.removed.insert(d); }
             self.w.tmod.insert(d, t);
@@ -127,22 +144,22 @@ impl Game {
         }
         for (d, inv) in chests { self.chests.insert(d, inv); }
         for d in autos { self.auto_doors.insert(d); }
-        // เจ้าของเตียงตามไปด้วย
+        // เจ้าของเตียงตามไปด้วย (ถ้ายืนอยู่ในบ้านเดิมตอนนั้น ก็ย้ายตัวไปที่เตียงใหม่ด้วย ไม่ให้ยืนค้างกลางที่โล่ง/ในผนังใหม่)
         for n in self.npcs.iter_mut() {
-            if let Some(&d) = bed_map.get(&n.bed) { if self.w.placed.get(&d) == Some(&33) { n.bed = d; self.rs.sleeping.remove(&n.id); } }
+            if let Some(&d) = bed_map.get(&n.bed) {
+                if self.w.placed.get(&d) == Some(&33) {
+                    if old.contains(&(tfloor(n.x), tfloor(n.y))) { n.x = d.0 as f32 * 16. + 8.; n.y = d.1 as f32 * 16. + 18.; }
+                    n.bed = d;
+                    self.rs.sleeping.remove(&n.id);
+                }
+            }
         }
+        // เตียงของเราเอง (จุดเกิด/บ้านของผู้เล่น) ตามไปด้วย
+        if let Some(b) = self.bed { if let Some(&d) = bed_map.get(&b) { if self.w.placed.get(&d) == Some(&33) { self.bed = Some(d); } } }
         self.rs.work.clear();
-        self.rs.carry = None;
-        self.rs.build_arm = None;
         self.room_t = 0.;
         self.refresh_torches();
-        let (x, y) = (anchor.0 as f32 * 16. + 8., anchor.1 as f32 * 16. + 8.);
-        self.burst(x, y, hx(0xc8a070), 12, 50.);
-        play(&self.sfx.door);
-        self.toast(format!("ย้าย{}เรียบร้อย", c.name));
         self.doors_check(false);
-        self.save();
-        true
     }
     pub fn move_cancel(&mut self) -> bool {
         if self.rs.carry.take().is_some() { self.rs.build_arm = None; self.toast("ยกเลิกการย้าย — ของอยู่ที่เดิม"); true } else { false }

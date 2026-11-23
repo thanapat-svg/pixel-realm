@@ -139,7 +139,7 @@ const NB4: [(i32, i32); 4] = [(0, -1), (0, 1), (-1, 0), (1, 0)];
 
 impl Game {
     /// ช่องนี้เดินผ่านไม่ได้: น้ำ/ภูเขา · ของแข็ง (ผนัง ต้นไม้ หิน) · ไซต์ก่อสร้างที่จองไว้ · ตัวบ้านที่กำลังจะวาง
-    fn walk_blocked(&self, t: (i32, i32), extra: &HashSet<(i32, i32)>) -> bool {
+    pub(crate) fn walk_blocked(&self, t: (i32, i32), extra: &HashSet<(i32, i32)>) -> bool {
         if extra.contains(&t) { return true; }
         if SOLIDT[self.w.tile_at(t.0, t.1) as usize] { return true; }
         if OSOLID[self.w.obj_at(t.0, t.1) as usize] { return true; }
@@ -171,7 +171,7 @@ impl Game {
         if self.open_from(door_front(k, dir), &foot) { None } else { Some("ประตูจะติดกำแพง/ของอื่น — เว้นทางหน้าประตูให้เดินเข้าออกได้ (ลองหมุนบ้าน)") }
     }
     /// ฝั่งในของประตูที่สร้างเสร็จแล้ว (ช่องข้างประตูที่อยู่ในห้องปิด) — None = ไม่ใช่ประตูบ้าน
-    fn door_inside(&self, d: (i32, i32), outside: &mut HashSet<(i32, i32)>) -> Option<(i32, i32)> {
+    pub(crate) fn door_inside(&self, d: (i32, i32), outside: &mut HashSet<(i32, i32)>) -> Option<(i32, i32)> {
         NB4.iter().map(|&(dx, dy)| (d.0 + dx, d.1 + dy)).find(|&n| self.w.room_from_ex(n, outside).is_some())
     }
     /// ประตูบ้านที่สร้างเสร็จแล้ว (12 ปิด/13 เปิด) ที่ด้านนอกถูกบัง: ฝั่งในคือช่องที่อยู่ในห้อง ฝั่งนอกคือช่องตรงข้าม

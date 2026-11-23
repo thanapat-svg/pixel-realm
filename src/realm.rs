@@ -297,6 +297,8 @@ pub struct RealmState {
     pub lv: Living,
     /// v35 พึ่งตัวเอง (คันเบ็ด · อดข้าวกี่วัน · รอวัสดุกี่วัน)
     pub sh: v35::SelfHelp,
+    pub ch: v36::Charter,
+    pub ar: arch::Arch,
     pub war: WarState,
     pub tick_t: f32,
     pub inited: bool,

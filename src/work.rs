@@ -84,7 +84,7 @@ pub fn work_hr(h: f32) -> bool { (7.0..17.0).contains(&h) }
 impl Game {
     /// ทหาร/ทหารยามที่ไล่มอนอยู่ไม่รับงานอื่น
     fn work_active(&self) -> bool {
-        self.w.dun.is_none() && work_hr(self.hour()) && self.town_center().map_or(false, |c| (c.0 as f32 * 16. - self.p.x).hypot(c.1 as f32 * 16. - self.p.y) < 70. * 16.)
+        self.w.dun.is_none() && !self.rest_day() && work_hr(self.hour()) && self.town_center().map_or(false, |c| (c.0 as f32 * 16. - self.p.x).hypot(c.1 as f32 * 16. - self.p.y) < 70. * 16.)
     }
 
     /// ทุก ~1.5 วิ: แจกงานให้คนที่ว่าง

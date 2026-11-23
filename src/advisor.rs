@@ -42,7 +42,8 @@ pub struct TownStats {
 
 impl Game {
     pub fn food_near(&self, bed: (i32, i32)) -> i32 {
-        self.chests.iter().filter(|(k, _)| (k.0 - bed.0).abs() <= 16 && (k.1 - bed.1).abs() <= 16).map(|(_, c)| FOODS.iter().map(|&i| c[i]).sum::<i32>()).sum()
+        let fr = self.food_radius();
+        self.chests.iter().filter(|(k, _)| (k.0 - bed.0).abs() <= fr && (k.1 - bed.1).abs() <= fr).map(|(_, c)| FOODS.iter().map(|&i| c[i]).sum::<i32>()).sum()
     }
     pub fn town_stats(&self) -> TownStats {
         let mut s = TownStats::default();
@@ -149,6 +150,9 @@ impl Game {
         if s.free_beds == 0 && s.pop >= 2 && !self.rs.petitions.is_empty() { add("beds".into(), 2, format!("มี {} คนยื่นขอย้ายเข้าเมือง แต่ไม่มีเตียงว่าง", self.rs.petitions.len()), AdvAct::Build(33), "วางเตียง"); }
         else if !self.rs.petitions.is_empty() { add("petition".into(), 2, format!("มี {} คน (ขุนนาง/ทหารผ่านศึก) ขอย้ายเข้าเมือง — ดูได้ที่แท็บอาณาจักร", self.rs.petitions.len()), AdvAct::Tab(11), "ดูคำขอ"); }
         if s.ripe >= 6 && !has(1) { add("ripe".into(), 3, format!("ผักสุกรอเก็บ {} แปลง", s.ripe), AdvAct::None, ""); }
+        if let Some(p) = &self.rs.ar.prop { add("archprop".into(), 1, format!("สถาปนิกเสนอแบบวางผังเมืองแล้ว (ย้ายบ้าน {} หลัง) — ดูแผนที่สีบนพื้นเกม แล้วเลือกรับหรือไม่รับ", p.count_houses()), AdvAct::Tab(10), "ดูข้อเสนอ"); }
+        if let Some(p) = &self.rs.ar.active { let sf = p.shortfall(); if !sf.is_empty() { add("archneed".into(), 1, format!("ช่างสถาปนิกขาดวัสดุ: {} — หามาแล้วใส่ที่หน้าสถาปนิก (แท็บชุมชน)", sf.iter().map(|&(i, q)| format!("{} {}", INAME[i], q)).collect::<Vec<_>>().join(", ")), AdvAct::Tab(10), "ใส่วัสดุ"); } }
+        if self.rs.ar.prop.is_none() && self.rs.ar.active.is_none() && self.rs.ar.finished == 0 && s.beds >= 5 && s.pop >= 4 { add("archhint".into(), 3, format!("บ้าน {} หลังวางกระจัดกระจาย — จ้างสถาปนิกมาจัดผังเมือง (ถนน ลานกลางเมือง บ่อน้ำ) ได้ที่แท็บชุมชน หรือจะสร้าง/ย้ายเองต่อไปก็ได้", s.beds), AdvAct::Tab(10), "ดูช่างสถาปนิก"); }
         if self.tax_pool >= 40 && (self.tier() >= 3 || self.rs.founded) { add("tax".into(), 3, format!("ภาษีสะสม {} เหรียญ — เก็บได้เลย", self.tax_pool), AdvAct::Tax, "เก็บภาษี"); }
         if !self.rs.founded && self.found_reqs().iter().all(|r| r.1) { add("found".into(), 1, "เมืองของคุณพร้อมสถาปนาเป็นอาณาจักรแล้ว!".into(), AdvAct::Tab(11), "สถาปนา"); }
         // ป้องกันอ่อนกว่าอาณาจักรที่เป็นศัตรู/ตึงเครียด

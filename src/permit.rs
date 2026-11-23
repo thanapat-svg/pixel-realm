@@ -251,6 +251,7 @@ impl Game {
         if let Some(id) = self.rs.pm.pick { if !self.has_ask(id) || self.build_sel != Some(piece_permit()) { self.rs.pm.pick = None; if self.build_sel == Some(piece_permit()) { self.build_sel = None; } } }
         let ids: Vec<u32> = self.rs.pm.asks.iter().map(|a| a.by).collect();
         self.rs.work.retain(|id, j| j.kind != J_ASK || ids.contains(id));
+        self.land_auto();
     }
     /// ใครควรเดินมาหาเราตอนนี้ (ทีละคน)
     pub fn permit_next_asker(&self, free: &[u32]) -> Option<u32> {

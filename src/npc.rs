@@ -94,7 +94,8 @@ impl Game {
     /// กินอาหาร 1 ชิ้นจากกล่องใกล้เตียง — เลือกของที่ชอบก่อน เลี่ยงของที่เกลียด (คืนไอเทมที่กิน)
     fn take_food_for(&mut self, near: (i32, i32), idx: usize) -> Option<usize> {
         let (love, hate) = (self.npcs[idx].soc.love as usize, self.npcs[idx].soc.hate as usize);
-        let keys: Vec<(i32, i32)> = self.chests.keys().copied().filter(|k| (k.0 - near.0).abs() <= 16 && (k.1 - near.1).abs() <= 16).collect();
+        let fr = self.food_radius();
+        let keys: Vec<(i32, i32)> = self.chests.keys().copied().filter(|k| (k.0 - near.0).abs() <= fr && (k.1 - near.1).abs() <= fr).collect();
         let mut best: Option<(i32, (i32, i32), usize)> = None;
         for k in keys {
             let c = self.chests[&k];
@@ -391,6 +392,7 @@ impl Game {
             guard += 1;
             self.npc_dawn();
             self.selfhelp_day();
+            self.charter_day();
             self.realm_dawn();
             self.projects_dawn();
             self.doors_check(true);

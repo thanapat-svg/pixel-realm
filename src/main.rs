@@ -74,6 +74,8 @@ mod crew;
 mod v34;
 use v34::{draw_bad_doors, draw_pix_axe, TOOL_AXE, TOOL_PICK};
 mod v35;
+mod v36;
+mod arch;
 use v35::{draw_forage, J_CRAFT, J_CURE, J_FORAGE, SELF_HOME, SELF_PROJ};
 use realm::*;
 use extra::*;
@@ -811,6 +813,8 @@ impl Game {
         s += &self.saga_save();
         s += &self.living_save();
         s += &self.sh_save();
+        s += &self.ch_save();
+        s += &self.arch_save();
         s += &self.permit_save();
         s += &self.crew_save();
         s += &self.war_save();
@@ -917,6 +921,8 @@ impl Game {
                 "saga" => g.saga_load(&rest),
                 "living" => g.living_load(&rest),
                 "shelp" => g.sh_load(&rest),
+                "charter" => g.ch_load(&rest),
+                "arch" | "archplan" => g.arch_load(tag, &rest),
                 "permit" => g.permit_load(&rest),
                 "crewrel" => g.crew_load_rel(&rest),
                 "crewst" => g.crew_load_st(&rest),
@@ -1625,6 +1631,7 @@ impl Game {
         prof::t("crew", || self.crew_tick(dt));
         prof::t("v19_tick", || self.v19_tick(dt));
         prof::t("work_tick", || self.work_tick(dt));
+        self.arch_tick(dt);
         prof::t("advisor", || self.advisor_tick(dt));
         self.rs.saga_t -= dt;
         if self.rs.saga_t <= 0. { self.rs.saga_t = 2.; prof::t("saga", || self.saga_tick()); }
@@ -2021,6 +2028,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     draw_bubbles(g, v, font);
     living::draw_living(g, v, t_now);
     permit::draw_permit_world(g, v, font, t_now);
+    arch::draw_arch_overlay(g, v, font, t_now);
     draw_bad_doors(g, v, font, t_now);
     living::draw_caravan_labels(g, v, font);
     if let Some(sel) = g.build_sel {

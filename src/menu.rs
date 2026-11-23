@@ -25,6 +25,8 @@ pub struct UiState {
     pub sel_i: usize,
     /// v32 คู่มือหาของ (แท็บกระเป๋า): ของที่เลือกดู
     pub guide_i: usize,
+    /// v36 หน้าช่างสถาปนิก (แท็บชุมชน)
+    pub arch: bool,
     press: Option<Vec2>,
     last: Vec2,
     drag: f32,
@@ -34,7 +36,7 @@ pub struct UiState {
 }
 impl UiState {
     pub fn new() -> Self {
-        UiState { tab: 0, scroll: 0., max_scroll: 0., chest: None, shop: false, forge: false, cook: false, adv: false, npc: None, role_pick: None, city: None, gift_open: false, greet: 0, sel_r: usize::MAX, sel_b: usize::MAX, sel_i: usize::MAX, guide_i: GEM, press: None, last: Vec2::ZERO, drag: 0., click: None, clip: Rect::new(0., 0., 1., 1.), close: false }
+        UiState { tab: 0, scroll: 0., max_scroll: 0., chest: None, shop: false, forge: false, cook: false, adv: false, npc: None, role_pick: None, city: None, gift_open: false, greet: 0, sel_r: usize::MAX, sel_b: usize::MAX, sel_i: usize::MAX, guide_i: GEM, arch: false, press: None, last: Vec2::ZERO, drag: 0., click: None, clip: Rect::new(0., 0., 1., 1.), close: false }
     }
     pub fn open(&mut self, tab: usize) {
         self.tab = tab;
@@ -50,6 +52,7 @@ impl UiState {
         self.adv = false;
         self.npc = None;
         self.role_pick = None;
+        self.arch = false;
         self.gift_open = false;
         self.city = None;
         self.close = false;
@@ -1198,6 +1201,7 @@ fn tab_town(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
     if let Some(r) = ui.role_pick {
         return tab_role_pick(g, font, ui, c, u, r);
     }
+    if ui.arch { return tab_arch(g, font, ui, c, u); }
     let tier = g.tier();
     // ===== v21 ภาพรวมเมือง =====
     let st = g.town_stats();
@@ -1262,6 +1266,19 @@ fn tab_town(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
             AdvAct::Build(_) => { g.adv_do(a); ui.close = true; }
             _ => g.adv_do(a),
         }
+    }
+    // ===== v36 ผังเมือง & ช่างสถาปนิก =====
+    if g.pop() >= 2 || g.rs.ar.active.is_some() {
+        header(font, c, y, "ผังเมือง & ช่างสถาปนิก", u);
+        y += 28. * u;
+        let line = match (&g.rs.ar.active, &g.rs.ar.prop) {
+            (Some(p), _) => { let (d, n) = p.progress(); format!("ช่างกำลังวางผังเมืองตามแบบ \"{}\" — ทำแล้ว {}/{}{}", arch::VARIANT_NAMES[p.variant as usize & 1], d, n, if p.shortfall().is_empty() { "" } else { " · รอวัสดุ" }) }
+            (None, Some(p)) => format!("สถาปนิกเสนอแบบ \"{}\" แล้ว (ย้ายบ้าน {} หลัง) — รอคุณตัดสินใจ", arch::VARIANT_NAMES[p.variant as usize & 1], p.count_houses()),
+            _ => "จ้างช่างมาจัดบ้าน ถนน ลานกลางเมือง บ่อน้ำ ให้เป็นระเบียบ (ค่าจ้างจ่ายเมื่อรับแบบ) · จะสร้าง/ย้ายเองต่อไปก็ได้เหมือนเดิม".to_string(),
+        };
+        para(font, c, &mut y, &line, hx(0xc9d1e6), u);
+        if visible(y, 32. * u, c) && btn(ui, font, Rect::new(c.x + 8. * u, y, 200. * u, 28. * u), "เปิดหน้าสถาปนิก", true, u) { ui.arch = true; ui.scroll = 0.; return y - top; }
+        y += 34. * u;
     }
     // ===== v29 ผู้คน (ขึ้นมาไว้ใกล้ด้านบน: ใช้บ่อยสุด) · คุยได้ทันทีจากรายชื่อ ไม่ต้องเข้าหน้าคน =====
     header(font, c, y, &format!("ผู้คน ({} คน)", g.npcs.len()), u);
@@ -1384,6 +1401,89 @@ fn tab_town(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
         }
     }
     if tax { g.collect_tax(); }
+    y - top
+}
+
+/// v36 หน้าช่างสถาปนิก: เลือกหมวด → จ้าง/เสนอแบบ → รับ/ไม่รับ → ใส่วัสดุที่ขาด
+fn tab_arch(g: &mut Game, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32 {
+    let top = c.y - ui.scroll;
+    let mut y = top;
+    header(font, c, y, "ช่างสถาปนิก — วางผังเมือง", u);
+    y += 28. * u;
+    if visible(y, 30. * u, c) && btn(ui, font, Rect::new(c.x + 8. * u, y, 110. * u, 26. * u), "ย้อนกลับ", true, u) { ui.arch = false; ui.scroll = 0.; return 0.; }
+    y += 32. * u;
+    let item = |it: usize| INAME[it].to_string();
+    let list = |v: &[(usize, i32)]| v.iter().map(|&(i, q)| format!("{} {}", INAME[i], q)).collect::<Vec<_>>().join(" · ");
+    let _ = item;
+    if let Some(p) = g.rs.ar.active.clone() {
+        // ---- ช่างกำลังทำงาน
+        let (d, n) = p.progress();
+        para(font, c, &mut y, &format!("แบบ \"{}\" — ทำแล้ว {}/{} อย่าง (ย้ายบ้าน {} หลัง) · ช่างลงมือทีละอย่างตลอดเวลา แม้เราไม่อยู่ในเมือง", arch::VARIANT_NAMES[p.variant as usize & 1], d, n, p.count_houses()), hx(0xc9d1e6), u);
+        bar(c.x + 8. * u, y, c.w - 24. * u, 8. * u, d as f32 / n.max(1) as f32, hx(0x66dd88));
+        y += 16. * u;
+        let sf = p.shortfall();
+        if sf.is_empty() { para(font, c, &mut y, "วัสดุครบแล้ว", hx(0x88ee99), u); }
+        else {
+            para(font, c, &mut y, &format!("ช่างยังขาดวัสดุ: {} — ไปหามาแล้วกดใส่ ช่างทำส่วนอื่นไปก่อนได้ ส่วนที่ต้องใช้ของจะรอ", list(&sf)), hx(0xeedd77), u);
+            let have: Vec<(usize, i32)> = sf.iter().map(|&(i, q)| (i, q.min(g.p.inv[i]))).filter(|x| x.1 > 0).collect();
+            if !have.is_empty() { para(font, c, &mut y, &format!("ในกระเป๋าใส่ได้ตอนนี้: {}", list(&have)), hx(0x88ccff), u); }
+        }
+        if visible(y, 32. * u, c) {
+            match btn_row(ui, font, c, y, &[("ใส่วัสดุจากกระเป๋า", !sf.is_empty()), (if g.rs.ar.show { "ซ่อนแผนที่" } else { "ดูแผนที่ในเกม" }, true), ("ยกเลิกแผน", true)], u) {
+                Some(0) => { g.arch_deposit(); }
+                Some(1) => { g.rs.ar.show = !g.rs.ar.show; if g.rs.ar.show { ui.close = true; } }
+                Some(2) => g.arch_cancel(),
+                _ => {}
+            }
+        }
+        y += 34. * u;
+        if let Some(note) = p.notes.first() { para(font, c, &mut y, note, hx(0xaa9988), u); }
+        return y - top;
+    }
+    // ---- เลือกหมวด
+    let opts = g.arch_opts();
+    para(font, c, &mut y, "เลือกว่าจะให้ช่างจัดอะไรบ้าง แล้วขอให้เสนอแบบ — ดูแผนที่สีบนพื้นเกมก่อน ถ้าไม่ชอบก็ไม่เสียเงิน", hx(0xc9d1e6), u);
+    for (i, bit) in [arch::OPT_NPC, arch::OPT_MINE, arch::OPT_WALLS, arch::OPT_PLAZA, arch::OPT_ROAD].iter().enumerate() {
+        if visible(y, 30. * u, c) {
+            let on = opts & bit != 0;
+            if btn(ui, font, Rect::new(c.x + 8. * u, y, 70. * u, 26. * u), if on { "เปิด" } else { "ปิด" }, true, u) { g.arch_toggle(*bit); g.rs.ar.prop = None; }
+            text(font, arch::OPT_NAMES[i], c.x + 88. * u, y + 18. * u, 12. * u, if on { hx(0xeeeeee) } else { hx(0x888899) });
+        }
+        y += 30. * u;
+    }
+    if let Some(p) = g.rs.ar.prop.clone() {
+        // ---- ข้อเสนอ
+        header(font, c, y, &format!("ข้อเสนอ: {}", arch::VARIANT_NAMES[p.variant as usize & 1]), u);
+        y += 28. * u;
+        let (nat, wall) = p.count_clear();
+        let places = p.steps.iter().filter(|s| matches!(s, arch::Step::Place { .. })).count();
+        let moves1 = p.steps.iter().filter(|s| matches!(s, arch::Step::MoveOne { .. })).count();
+        let roads = p.steps.iter().filter(|s| matches!(s, arch::Step::Pave { .. })).count();
+        para(font, c, &mut y, &format!("ย้ายและหมุนบ้าน {} หลัง ให้เรียงสองฝั่งถนน ประตูหันเข้าถนน · เคลียร์ต้นไม้/หิน {} จุด · รื้อกำแพงสะเปะสะปะ {} ชิ้น · ย้ายของส่วนกลาง {} ชิ้น · วางของใหม่ {} ชิ้น · ปูถนน {} สาย", p.count_houses(), nat, wall, moves1, places, roads), hx(0xdde4f5), u);
+        for n in &p.notes { para(font, c, &mut y, n, hx(0xee9988), u); }
+        let fee = g.arch_fee(&p);
+        let need = p.need();
+        let need_l: Vec<(usize, i32)> = (0..NI).filter(|&i| need[i] > 0).map(|i| (i, need[i])).collect();
+        para(font, c, &mut y, &format!("ค่าจ้าง {} เหรียญ (มี {}) · วัสดุที่ใช้: {}{}", fee, g.p.inv[COIN] + g.tax_pool, if need_l.is_empty() { "ไม่ต้องใช้".to_string() } else { list(&need_l) }, if p.shortfall().is_empty() { "".to_string() } else { " — รับแล้วค่อยไปหามาเพิ่มได้".to_string() }), hx(0xffee99), u);
+        para(font, c, &mut y, "บนพื้นเกม: เหลือง = บ้านที่จะย้าย · เขียว = ที่ใหม่ · แดง = เคลียร์/รื้อ · ฟ้า = ลานกลาง/บ่อ/กองไฟ · น้ำตาล = ถนน", hx(0x9aa2b8), u);
+        if visible(y, 32. * u, c) {
+            match btn_row(ui, font, c, y, &[("รับแบบนี้", g.p.inv[COIN] + g.tax_pool >= fee), ("ไม่เอา", true), ("ดูแผนที่ในเกม", true)], u) {
+                Some(0) => { if g.arch_accept() { return 0.; } }
+                Some(1) => g.arch_reject(),
+                Some(2) => { g.rs.ar.show = true; ui.close = true; }
+                _ => {}
+            }
+        }
+        y += 34. * u;
+        para(font, c, &mut y, "อยากได้แบบอื่น: กดเสนอแบบด้านล่างอีกครั้ง", hx(0x888899), u);
+    }
+    if visible(y, 32. * u, c) {
+        match btn_row(ui, font, c, y, &[("เสนอแบบ ถนนตะวันออก-ตะวันตก", true), ("เสนอแบบ ถนนเหนือ-ใต้", true)], u) {
+            Some(i) => { g.arch_hire(i as u8); }
+            None => {}
+        }
+    }
+    y += 34. * u;
     y - top
 }
 
@@ -1782,6 +1882,25 @@ fn tab_realm(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect
                 }
             }
             y += 30. * u;
+        }
+        // ---- v36 กฎบัตรเมือง
+        header(font, c, y, "กฎบัตรเมือง (สังคม)", u);
+        y += 28. * u;
+        let (ok, mid, no) = g.law_mood_split(None);
+        para(font, c, &mut y, &format!("ความเห็นของชาวบ้านต่อกฎทั้งหมด: พอใจ {} · เฉย {} · ไม่พอใจ {} (แต่ละคนคิดต่างกันตามนิสัย: ใจดี โลภ ใจร้อน กล้า ช่างพูด)", ok, mid, no), hx(0xc9d1e6), u);
+        for l in 0..v36::LAW_N {
+            let v = g.ch_lv(l) as usize;
+            let (a, b, d) = g.law_mood_split(Some(l));
+            let ws = wrap_th(font, v36::LAW_DESC[l][v], 10. * u, c.w - 24. * u);
+            let hh = 34. * u + ws.len() as f32 * 13. * u + 16. * u;
+            if visible(y, hh, c) {
+                text(font, v36::LAW_NAME[l], c.x + 8. * u, y + 20. * u, 13. * u, hx(0xffcc66));
+                if btn(ui, font, Rect::new(c.x + c.w - 156. * u, y + 2. * u, 148. * u, 26. * u), v36::LAW_LV[l][v], true, u) { g.ch_cycle(l); }
+                for (k, w) in ws.iter().enumerate() { text(font, w, c.x + 8. * u, y + 42. * u + k as f32 * 13. * u, 10. * u, hx(0x9aa2b8)); }
+                if v > 0 { text(font, &format!("ความเห็น: พอใจ {} · เฉย {} · ไม่พอใจ {}", a, b, d), c.x + 8. * u, y + hh - 6. * u, 10. * u, if d > a { hx(0xee9988) } else { hx(0x88ee99) }); }
+                sep(c, y + hh);
+            }
+            y += hh + 4. * u;
         }
     }
     if !g.rs.founded {

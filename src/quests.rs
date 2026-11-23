@@ -98,7 +98,7 @@ impl Game {
             let Some(i) = self.idx(id) else { continue };
             let (tr, mood, bed) = (self.npcs[i].soc.tr, self.npcs[i].mood, self.npcs[i].bed);
             if tr[T_GREED] < 70 || tr[T_KIND] > 35 || mood >= 70 { continue; }
-            if self.qroll(id, 1) > 0.18 { continue; }
+            if self.qroll(id, 1) > self.theft_chance() { continue; }
             let chest = self.chests.iter().filter(|(k, c)| (k.0 - bed.0).abs() <= 20 && (k.1 - bed.1).abs() <= 20 && (c[COIN] > 0 || c[GEM] > 0)).map(|(k, _)| *k).next();
             let Some(ck) = chest else { continue };
             let c = self.chests.get_mut(&ck).unwrap();
@@ -107,7 +107,8 @@ impl Game {
             self.news_add(format!("{} หายไปจากกล่องเก็บของ {} ชิ้น!", INAME[item], qty));
             let witness = ids.iter().copied().filter(|&w| w != id && !self.has_req(w)).max_by_key(|&w| self.idx(w).map_or(0, |j| self.npcs[j].soc.tr[T_SOCIAL] as i32 + self.npcs[j].soc.tr[T_KIND] as i32 / 2));
             if let Some(w) = witness {
-                self.nreqs.push(NReq { from: w, k: QK::Theft { thief: id, item, qty }, day, reward: 0 });
+                // v36 มีสภา/ศาลแล้ว ไม่ต้องรอผู้เล่นตัดสิน
+                if self.rs.ch.lv[v36::L_JUSTICE] >= 1 { self.council_theft(id, item, qty, w); } else { self.nreqs.push(NReq { from: w, k: QK::Theft { thief: id, item, qty }, day, reward: 0 }); }
             }
         }
         // ข้อพิพาท: คู่ที่เกลียดกันมาก
@@ -118,6 +119,7 @@ impl Game {
                 if self.rel_between(a, b) > -50 || self.has_req(a) || self.has_req(b) { continue; }
                 if self.nreqs.iter().any(|r| matches!(r.k, QK::Dispute { a: p, b: q } | QK::Mediate { a: p, b: q, .. } if (p, q) == (a, b) || (p, q) == (b, a))) { continue; }
                 if self.qroll(a ^ (b << 8), 2) < 0.5 {
+                    if self.rs.ch.lv[v36::L_JUSTICE] >= 1 { self.council_dispute(a, b); continue; }
                     self.nreqs.push(NReq { from: a, k: QK::Dispute { a, b }, day, reward: 0 });
                     self.news_add(format!("{} กับ {} ขอให้คุณช่วยตัดสินเรื่องที่ทะเลาะกัน", self.nmq(a), self.nmq(b)));
                 }
