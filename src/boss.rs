@@ -36,6 +36,10 @@ pub struct Boss {
     pub btick: f32,
     /// อาณาจักรของแม่ทัพ (CHAMP)
     pub k: usize,
+    /// v26 คำรามเข้าเฟส 2: 0 ยัง · 1 กำลังคำราม · 2 แล้ว
+    pub roar: u8,
+    /// v26 สไตล์แม่ทัพ (นักรบ/ทะเลทราย/เวท) — คิดครั้งเดียวตอนเกิด
+    pub style: u8,
 }
 
 impl Game {
@@ -46,7 +50,7 @@ impl Game {
     }
     pub fn spawn_boss_hp(&mut self, kind: u8, x: f32, y: f32, hp: f32) {
         self.bosses.push(Boss {
-            kind, x, y, hp, maxhp: hp, atk: 0, st: 0., st0: 1., cd: 1.5, tx: x, ty: y, dash: 0., dvx: 0., dvy: 0., flash: 0., anim: 0., ph2: false, dead: false, burn: 0., slow: 0., btick: 0., k: 0,
+            kind, x, y, hp, maxhp: hp, atk: 0, st: 0., st0: 1., cd: 1.5, tx: x, ty: y, dash: 0., dvx: 0., dvy: 0., flash: 0., anim: 0., ph2: false, dead: false, burn: 0., slow: 0., btick: 0., k: 0, roar: 0, style: 0,
         });
         if kind == CHAMP { return; }
         self.toast(format!("{} ปรากฏตัว!", BNAME[kind as usize]));
@@ -356,6 +360,16 @@ pub fn draw_telegraphs(g: &Game, v: &View) {
                 let (x0, y0) = ((b.x - v.cx) * v.s, (b.y - v.cy) * v.s);
                 draw_line(x0, y0, x0 + b.dvx * 120. * v.s, y0 + b.dvy * 120. * v.s, 14. * v.s, red);
             }
+            (CHAMP, 4) => {
+                // ท่าพิเศษเฟส 2: วงเตือนแดงชัดๆ ≥ 1 วินาทีก่อนโดน
+                for (kind, x, y, r, dx, dy) in war::champ_ult_shapes(b) {
+                    if kind == 0 { ring(x, y, r); } else {
+                        let (x0, y0) = ((x - v.cx) * v.s, (y - v.cy) * v.s);
+                        draw_line(x0, y0, x0 + dx * r * v.s, y0 + dy * r * v.s, war::ULT_W * 2. * v.s, red);
+                        draw_line(x0, y0, x0 + dx * r * k * v.s, y0 + dy * r * k * v.s, war::ULT_W * 2. * v.s, Color::new(1., 0.2, 0.1, 0.3));
+                    }
+                }
+            }
             (1, 2) => ring(b.x, b.y, 46.),
             (1, 3) => {
                 let (x0, y0) = ((b.x - v.cx) * v.s, (b.y - v.cy) * v.s);
@@ -399,21 +413,29 @@ pub fn draw_boss(g: &Game, sp: &Sprites, v: &View, i: usize) {
 }
 
 pub fn draw_boss_bar(g: &Game, font: &Font) {
-    let Some(b) = g.bosses.iter().filter(|b| (b.x - g.p.x).hypot(b.y - g.p.y) < 420.).min_by(|a, c| {
-        let da = (a.x - g.p.x).hypot(a.y - g.p.y);
-        let dc = (c.x - g.p.x).hypot(c.y - g.p.y);
-        da.partial_cmp(&dc).unwrap()
-    }) else {
-        return;
-    };
+    // v26 แถบเลือดยาวด้านบน: ชื่อ+ฉายาประจำเมือง · เส้นแบ่งเฟสที่ 50% · ซ่อนเองเมื่อไม่มีบอสใกล้/บอสล้ม
+    let Some((name, sub, frac, ph2)) = war::boss_bar_info(g) else { return };
+    let Some(b) = g.bosses.iter().filter(|b| !b.dead && (b.x - g.p.x).hypot(b.y - g.p.y) < 420.).min_by(|a, c| (a.x - g.p.x).hypot(a.y - g.p.y).partial_cmp(&(c.x - g.p.x).hypot(c.y - g.p.y)).unwrap()) else { return };
     let u = ui_scale();
     let sw = screen_width();
-    let (w, h) = ((sw * 0.4).min(380. * u), 18. * u);
+    let champ = b.kind == CHAMP;
+    // ยาวแต่ไม่ชนแผนที่เล็กมุมขวาบน/ข้อความมุมซ้ายบน
+    let w = if champ { (sw * 0.56).min(720. * u) } else { (sw * 0.4).min(380. * u) };
+    let h = if champ { 14. * u } else { 18. * u };
     let (x, y) = (sw / 2. - w / 2., 16. * u);
-    text_c(font, &boss_name(g, b), sw / 2., y + 4. * u, 17. * u, hx(0xffcc66));
+    let t = get_time() as f32;
+    text_c(font, &name, sw / 2., y + 4. * u, 17. * u, if ph2 { Color::new(1., 0.55 + 0.2 * (t * 6.).sin(), 0.4, 1.) } else { hx(0xffcc66) });
     let y = y + 10. * u;
+    draw_rectangle(x - 2. * u, y - 2. * u, w + 4. * u, h + 4. * u, Color::new(0., 0., 0., 0.6));
     draw_rectangle(x, y, w, h, hx(0x2a0e0e));
-    draw_rectangle(x, y, w * (b.hp / b.maxhp).clamp(0., 1.), h, if b.ph2 { hx(0xff5a1a) } else { hx(0xcc2222) });
+    draw_rectangle(x, y, w * frac, h, if ph2 { hx(0xff5a1a) } else { hx(0xcc2222) });
+    draw_rectangle(x, y, w * frac, h * 0.35, Color::new(1., 1., 1., 0.18));
+    if champ {
+        // เส้นแบ่งเฟส 2 ที่ครึ่งหลอด
+        draw_rectangle(x + w * 0.5 - 1. * u, y - 3. * u, 2. * u, h + 6. * u, hx(0xffd84a));
+        if ph2 { text(font, "เฟส 2", x + w + 6. * u, y + h - 2. * u, 12. * u, hx(0xff6a4a)); }
+    }
     draw_rectangle_lines(x, y, w, h, 2., BLACK);
     text_c(font, &format!("{}/{}", b.hp.max(0.) as i32, b.maxhp as i32), sw / 2., y + h - 2. * u, 11. * u, WHITE);
+    if !sub.is_empty() { text_c(font, &sub, sw / 2., y + h + 13. * u, 11. * u, hx(0xc8b8a8)); }
 }

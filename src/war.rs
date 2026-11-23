@@ -456,8 +456,10 @@ impl Game {
     pub fn spawn_champion(&mut self, k: usize, x: f32, y: f32) {
         let hp = (BHP[CHAMP as usize] + self.rs.ks[k].strength * 1.2 + self.p.lvl as f32 * 8.).ceil();
         self.spawn_boss_hp(CHAMP, x, y, hp);
-        if let Some(b) = self.bosses.last_mut() { b.k = k; b.cd = 1.2; }
-        self.toast(format!("แม่ทัพแห่ง{}ออกมาเผชิญหน้า! ล้มแม่ทัพเพื่อยึดเมืองหลวง", self.kname(k)));
+        let style = champ_style_calc(self, k);
+        if let Some(b) = self.bosses.last_mut() { b.k = k; b.cd = 1.2; b.style = style; }
+        let nm = self.bosses.last().map(|b| champ_title(self, b).0).unwrap_or_default();
+        self.toast(format!("{} ออกมาเผชิญหน้า! ล้มแม่ทัพเพื่อยึดเมืองหลวง", nm));
         play(&self.sfx.roar);
         self.shake(2.2, 0.4);
     }
@@ -478,6 +480,19 @@ impl Game {
     }
     /// แม่ทัพ: เดินเข้าหา · ฟันกวาดรอบตัว · พุ่งแทง · เรียกองครักษ์ (เฟส 2 ถี่ขึ้น)
     pub fn champ_ai(&mut self, b: &mut Boss, dt: f32, dx: f32, dy: f32, d: f32) {
+        // v26 เลือดต่ำกว่าครึ่ง: หยุดคำรามเบ่งพลัง (ตัวเรืองแดง) แล้วเข้าเฟส 2
+        if b.ph2 && b.roar == 0 {
+            b.roar = 1; b.atk = 0; b.dash = 0.; b.st0 = ROAR_T; b.st = ROAR_T;
+            let nm = champ_title(self, b).0;
+            self.toast(format!("{} คำรามเบ่งพลัง! เร็วขึ้นและปลดท่า \"{}\" — ดูวงเตือนสีแดงแล้วหลบ", nm, CS_SKILL[(b.style as usize).min(2)]));
+            play(&self.sfx.roar);
+            self.shake(2.6, 0.6);
+        }
+        if b.roar == 1 {
+            b.st -= dt;
+            if b.st <= 0. { b.roar = 2; b.cd = 0.5; }
+            return;
+        }
         if b.slow > 0. { b.slow -= dt; }
         if b.burn > 0. { b.burn -= dt; b.hp = (b.hp - dt * 3.).max(1.); }
         let fast = (if b.ph2 { 1.3 } else { 1. }) * if b.slow > 0. { 0.55 } else { 1. };
@@ -499,7 +514,12 @@ impl Game {
             if b.cd <= 0. && d < 260. {
                 let r = gen_range(0., 1.);
                 let guards = self.en.iter().filter(|e| !e.dead && e.k == EK::Soldier && e.pal == b.k).count();
-                if d < 50. || r < 0.4 { b.atk = 1; b.st0 = if b.ph2 { 0.6 } else { 0.8 }; }
+                if b.ph2 && r < 0.3 && d < 200. {
+                    b.atk = 4; b.st0 = ULT_T;
+                    b.dvx = dx / d; b.dvy = dy / d;
+                    b.tx = self.p.x; b.ty = self.p.y;
+                }
+                else if d < 50. || r < 0.4 { b.atk = 1; b.st0 = if b.ph2 { 0.6 } else { 0.8 }; }
                 else if r < 0.78 || guards >= 3 { b.atk = 2; b.st0 = 0.7; b.dvx = dx / d; b.dvy = dy / d; }
                 else { b.atk = 3; b.st0 = 0.9; }
                 b.st = b.st0;
@@ -515,6 +535,20 @@ impl Game {
                         self.shake(1.4, 0.15);
                     }
                     2 => { b.dash = 0.5; b.dvx *= 230.; b.dvy *= 230.; play(&self.sfx.dash); }
+                    4 => {
+                        let shapes = champ_ult_shapes(b);
+                        let hit = shapes.iter().any(|&(kind, x, y, r, ux, uy)| ult_hits(kind, x, y, r, ux, uy, self.p.x, self.p.y));
+                        if hit && self.p.invul <= 0. { self.hurt(5, dx / d, dy / d); }
+                        for &(kind, x, y, r, ux, uy) in &shapes {
+                            let n = if kind == 0 { 16 } else { 10 };
+                            for j in 0..n {
+                                let (px, py, vx, vy) = if kind == 0 { let q = j as f32 / n as f32 * std::f32::consts::TAU; (x + q.cos() * r, y + q.sin() * r * 0.8, q.cos() * 40., q.sin() * 30.) } else { let q = j as f32 / n as f32 * r; (x + ux * q, y + uy * q, -uy * 30., ux * 30.) };
+                                self.parts.push(Particle { x: px, y: py, vx, vy, l: 0.45, c: hx(0xff7a3a) });
+                            }
+                        }
+                        play(&self.sfx.battk);
+                        self.shake(3., 0.35);
+                    }
                     _ => {
                         for j in 0..(if b.ph2 { 3 } else { 2 }) {
                             let q = j as f32 * 2.1 + b.anim;
@@ -563,41 +597,259 @@ impl Game {
     }
 }
 
+pub const ROAR_T: f32 = 1.1;
+pub const ULT_T: f32 = 1.05;
+pub const ULT_W: f32 = 9.;
+/// รูปทรงท่าพิเศษเฟส 2: (0 = วงกลม / 1 = เส้นตรง, x, y, รัศมีหรือความยาว, ทิศ x, ทิศ y)
+pub fn champ_ult_shapes(b: &Boss) -> Vec<(u8, f32, f32, f32, f32, f32)> {
+    match b.style {
+        // ทุบพื้น: วงใหญ่รอบตัว
+        CS_WARRIOR => vec![(0, b.x, b.y, 58., 0., 0.)],
+        // พายุใบมีด: กากบาท 4 แฉกจากตัว หันตามทิศเรา
+        CS_DESERT => (0..4).map(|i| { let a = b.dvy.atan2(b.dvx) + i as f32 * std::f32::consts::FRAC_PI_2; (1, b.x, b.y, 110., a.cos(), a.sin()) }).collect(),
+        // วงเวท: 3 วงที่ตำแหน่งเรา (ตอนเริ่มร่าย) และสองข้าง
+        _ => { let (px, py) = (-b.dvy, b.dvx); vec![(0, b.tx, b.ty, 26., 0., 0.), (0, b.tx + px * 40., b.ty + py * 40., 26., 0., 0.), (0, b.tx - px * 40., b.ty - py * 40., 26., 0., 0.)] }
+    }
+}
+pub fn ult_hits(kind: u8, x: f32, y: f32, r: f32, ux: f32, uy: f32, px: f32, py: f32) -> bool {
+    if kind == 0 { return (px - x).hypot(py - y) < r; }
+    let (rx, ry) = (px - x, py - y);
+    let along = rx * ux + ry * uy;
+    let side = (rx * -uy + ry * ux).abs();
+    (0. ..=r).contains(&along) && side < ULT_W + 3.
+}
 pub fn boss_name(g: &Game, b: &Boss) -> String {
-    if b.kind == CHAMP && b.k < g.w.realm.ks.len() { format!("แม่ทัพแห่ง{}", g.w.realm.ks[b.k].name) } else { BNAME[b.kind as usize].to_string() }
+    if b.kind == CHAMP && b.k < g.w.realm.ks.len() { champ_title(g, b).0 } else { BNAME[b.kind as usize].to_string() }
 }
 
-/// แม่ทัพ: อัศวินตัวใหญ่ ผ้าคลุมสีอาณาจักร หมวกขนนก ดาบยาว
-pub fn draw_champion(g: &Game, sp: &Sprites, v: &View, b: &Boss) {
+// ---------------------------------------------------------------- v26 แม่ทัพโฉมใหม่ 3 สไตล์
+pub const CS_WARRIOR: u8 = 0;
+pub const CS_DESERT: u8 = 1;
+pub const CS_MYSTIC: u8 = 2;
+/// ฉายาตามสไตล์เมือง · ชื่อท่าพิเศษเฟส 2
+pub const CS_TITLE: [&str; 3] = ["ขุนพลเหล็ก", "ขุนดาบเนินทราย", "ผู้พิทักษ์พงไพร"];
+pub const CS_SKILL: [&str; 3] = ["ทุบพื้นแผ่นดินแยก", "พายุใบมีด", "วงเวทระเบิด"];
+/// สไตล์จากภูมิประเทศรอบเมืองหลวง + นิสัยอาณาจักร
+pub fn style_for(top_tile: u8, trait_: u8) -> u8 {
+    match top_tile {
+        8 | 16 | 2 => CS_DESERT,
+        4 | 15 => CS_MYSTIC,
+        _ if trait_ == 3 => CS_MYSTIC,
+        _ => CS_WARRIOR,
+    }
+}
+pub fn champ_style_calc(g: &Game, k: usize) -> u8 {
+    let Some(kd) = g.w.realm.ks.get(k) else { return CS_WARRIOR };
+    let c = &g.w.realm.cities[kd.cap];
+    let mut cnt = [0u16; 23];
+    for j in -5..=5 { for i in -5..=5 {
+        let (x, y) = (c.pos.0 + i * 7, c.pos.1 + j * 7);
+        if (x - c.pos.0).abs() <= c.r && (y - c.pos.1).abs() <= c.r { continue; }
+        let t = g.w.gen_base(x, y) as usize;
+        if (2..23).contains(&t) { cnt[t] += 1; }
+    } }
+    let top = (2..23).max_by_key(|&t| cnt[t]).unwrap_or(3) as u8;
+    style_for(top, kd.trait_)
+}
+pub fn champ_title(g: &Game, b: &Boss) -> (String, String) {
+    let st = (b.style as usize).min(2);
+    let Some(kd) = g.w.realm.ks.get(b.k) else { return (BNAME[CHAMP as usize].to_string(), String::new()) };
+    (format!("{} แห่งเมือง{}", CS_TITLE[st], g.w.realm.cities[kd.cap].name), format!("แม่ทัพแห่ง{}", kd.name))
+}
+
+const ART_WARRIOR: [&str; 25] = [
+    "..H..........H....",
+    "..H.........H.....",
+    "...H.oooooo.H.....",
+    "....oAAAAAAo......",
+    "...oAAAAAAAAo.....",
+    "...oAaaEEaaAo.....",
+    "...oAAAAAAAAo.....",
+    "....oaAAAAao......",
+    "..FFFFFFFFFFFF....",
+    ".kKoAAAAAAAAoKk...",
+    ".kKoAAAAAAAAAoKk..",
+    "kKKoAAAKKAAAAoKKk.",
+    "kKKoAAKKKKAAAoKKk.",
+    "kKKoAAAKKAAAAoKKk.",
+    "kKKoaAAAAAAAaoKKk.",
+    "kKKKoBBBBBBBBoKKk.",
+    "kKKKoaAAAAAAaoKKk.",
+    "kKKKoAAAaAAAAoKKk.",
+    ".kKKoAAAoAAAAoKk..",
+    ".kKKoAAo.oAAAoKk..",
+    "..kKoAAo.oAAAokk..",
+    "..kkoaao..oaao....",
+    "....oAAo..oAAo....",
+    "....obbo..obbo....",
+    "...obbbo..obbbo...",
+];
+const ART_DESERT: [&str; 23] = [
+    ".....wWWWWw.......",
+    "....wWWKWWWw......",
+    "....WWWWWWWWK.....",
+    "...wWWWWWWWWwK....",
+    "....oSSSSSSo.K....",
+    "....oSSEESEo......",
+    "....oMMMMMMo......",
+    ".....oMMMMo.......",
+    "...oookkkkooo.....",
+    "..oSokkGGkkoSo....",
+    "..oSokkkkkkoSo....",
+    "..oSokkGkkkoSo....",
+    "..oSokkkkkkoSo....",
+    "...ooKKKKKKKoo....",
+    "....oKKGKKKKo.....",
+    "...oPPPPPPPPPo....",
+    "..oPPPpPPPpPPPo...",
+    "..oPPPpPPPpPPPo...",
+    "..oPPPo..oPPPPo...",
+    "...oPPo..oPPPo....",
+    "...oppo..oppo.....",
+    "...obbo..obbo.....",
+    "..obbbo..obbbo....",
+];
+const ART_MYSTIC: [&str; 22] = [
+    ".......ooo........",
+    "......orrro.......",
+    ".....orrrrro......",
+    "....orrRRRrro.....",
+    "....orDDDDDro.....",
+    "....orDEDEDro.....",
+    "....orDDDDDro.....",
+    "...orrrDDDrrro....",
+    "...oRRrrrrrRRo....",
+    "..oRRRRGGGRRRRo...",
+    "..oRRRRRGRRRRRo...",
+    "..oRRRRRGRRRRRo...",
+    "..oRRRRRTRRRRRo...",
+    "..oRRRRRGRRRRRo...",
+    ".oRRRRRRGRRRRRRo..",
+    ".oRRRRRRGRRRRRRo..",
+    ".orRRRRRGRRRRRro..",
+    ".orRRRRRGRRRRRro..",
+    "orrRRRRRGRRRRRrro.",
+    "orrrRRRRGRRRRrrro.",
+    "oGGGGGGGGGGGGGGGo.",
+    ".ooooooooooooooo..",
+];
+fn champ_pal(style: u8, ch: char, kc: Color, t: f32) -> Option<Color> {
+    let dk = Color::new(kc.r * 0.6, kc.g * 0.6, kc.b * 0.6, 1.);
+    let c = match (style, ch) {
+        (_, 'o') => hx(0x1e1a22),
+        (_, 'K') | (_, 'R') => kc,
+        (_, 'k') | (_, 'r') => dk,
+        (_, 'E') => if style == CS_MYSTIC { Color::new(0.45, 1., 0.85, 0.75 + 0.25 * (t * 5.).sin()) } else if style == CS_WARRIOR { hx(0xffe060) } else { WHITE },
+        (CS_WARRIOR, 'A') => hx(0x8a94a8), (CS_WARRIOR, 'a') => hx(0x5a6274), (CS_WARRIOR, 'H') => hx(0xe8dcc0), (CS_WARRIOR, 'F') => hx(0x8a6a4a), (CS_WARRIOR, 'B') => hx(0x5a3a20), (CS_WARRIOR, 'b') => hx(0x2e2a30),
+        (CS_DESERT, 'W') => hx(0xf0e6d0), (CS_DESERT, 'w') => hx(0xc8bca0), (CS_DESERT, 'S') => hx(0xb07848), (CS_DESERT, 'M') => hx(0x3a2a2a), (CS_DESERT, 'G') => hx(0xe0b040), (CS_DESERT, 'P') => hx(0xe8d8b0), (CS_DESERT, 'p') => hx(0xc0a880), (CS_DESERT, 'b') => hx(0x5a3a20),
+        (CS_MYSTIC, 'D') => hx(0x141018), (CS_MYSTIC, 'G') => hx(0xe0b040), (CS_MYSTIC, 'T') => Color::new(0.65, 1., 0.95, 0.7 + 0.3 * (t * 3.).sin()),
+        _ => return None,
+    };
+    Some(c)
+}
+/// วาดแม่ทัพ (ใหญ่กว่าทหาร ~1.7 เท่า) · ออร่าใต้เท้า · เฟส 2 เรืองแดง · โดนตีวาบขาว
+pub fn draw_champion(g: &Game, _sp: &Sprites, v: &View, b: &Boss) {
+    let style = b.style;
     let (sx, sy) = ((b.x - v.cx).round(), (b.y - v.cy).round());
     let kc = hx(g.w.realm.ks.get(b.k).map_or(0xd04a4a, |k| k.color));
     let left = g.p.x < b.x;
-    let sc = 1.7;
-    let moving = b.atk == 0 && b.dash <= 0.;
-    let (fr, wb) = if moving { vfx::walk_cycle(b.anim, 7.) } else { (0, 0.) };
-    vfx::char_shadow(v, sx, sy, 20.);
-    // ออร่าเฟส 2
-    if b.ph2 { draw_circle(sx * v.s, (sy - 14.) * v.s, 18. * v.s, Color::new(kc.r, kc.g, kc.b, 0.18 + (b.anim * 5.).sin().abs() * 0.1)); }
-    // ผ้าคลุมด้านหลัง
-    let fl = (b.anim * 3.).sin() * 1.5;
-    prect(v, sx - 7. + if left { 2. } else { -2. } + fl * 0.3, sy - 22. - wb, 14., 18., Color::new(kc.r * 0.75, kc.g * 0.75, kc.b * 0.75, 1.));
-    let body = Body::generate(7000 + b.k as u32 * 13, false);
-    let tint = if b.flash > 0. { Color::new(1.8, 1.4, 1.4, 1.) } else if b.atk != 0 && (b.st * 12.) as i32 % 2 == 0 { Color::new(1.3, 1.1, 1.1, 1.) } else { WHITE };
-    skin::draw_figure(sp, &body, skin::ROLE_PARTS[2], (sx - 6. * sc) * v.s, (sy - 15. * sc - wb) * v.s, v.s * sc, 0, fr, left, tint);
-    // แถบสีอาณาจักร + ขนนกบนหมวก
-    prect(v, sx - 5., sy - 15. - wb, 10., 2., kc);
-    prect(v, sx - 1., sy - 30. - wb, 3., 4., kc);
-    prect(v, sx, sy - 33. - wb, 2., 3., Color::new((kc.r + 0.3).min(1.), (kc.g + 0.3).min(1.), (kc.b + 0.3).min(1.), 1.));
-    // ดาบยาว: ยกขึ้นตอนเตรียมฟัน · ชี้ไปข้างหน้าตอนพุ่ง
-    let f = if left { -1. } else { 1. };
-    let (hx0, hy0) = (sx + f * 9., sy - 14. - wb);
-    let ang = match b.atk { 1 => -1.9 + (1. - b.st / b.st0.max(0.01)) * -1.2, 2 => -0.1, _ => if b.dash > 0. { 0. } else { -0.9 } };
-    let (ca, sa) = (ang.cos(), ang.sin());
-    for j in 0..14 {
-        let (px, py) = (hx0 + f * ca * j as f32, hy0 + sa * j as f32);
-        prect(v, px, py, 2., 2., if j < 3 { hx(0x6a4a2a) } else { hx(0xe0e4ee) });
+    let t = b.anim;
+    let rage = b.ph2 || b.roar == 1;
+    // ออร่าใต้เท้า (สีอาณาจักร · เฟส 2 = แดง) เห็นชัดกลางวงตะลุมบอน
+    let ac = if rage { Color::new(1., 0.2, 0.15, 1.) } else { kc };
+    let pul = 0.5 + 0.5 * (t * if rage { 6. } else { 2.5 }).sin();
+    draw_ellipse(sx * v.s, (sy - 1.) * v.s, (17. + pul * 3.) * v.s, 6.5 * v.s, 0., Color::new(ac.r, ac.g, ac.b, 0.22 + pul * 0.12));
+    draw_ellipse_lines(sx * v.s, (sy - 1.) * v.s, (18. + pul * 3.) * v.s, 7. * v.s, 0., 2., Color::new(ac.r, ac.g, ac.b, 0.55));
+    vfx::char_shadow(v, sx, sy, 16.);
+    let art: &[&str] = match style { CS_DESERT => &ART_DESERT, CS_MYSTIC => &ART_MYSTIC, _ => &ART_WARRIOR };
+    let (h, w) = (art.len() as f32, art[0].len() as f32);
+    let moving = b.atk == 0 && b.dash <= 0. && b.roar != 1;
+    let bob = if moving { ((t * 7.) as i32 % 2) as f32 } else { 0. };
+    let shake_x = if b.roar == 1 { ((t * 40.).sin() * 1.2).round() } else { 0. };
+    let white = b.flash > 0.08;
+    let leg0 = h - if style == CS_MYSTIC { 3. } else { 5. };
+    for (ry, row) in art.iter().enumerate() {
+        for (rx, ch) in row.chars().enumerate() {
+            let Some(mut c) = champ_pal(style, ch, kc, t) else { continue };
+            // เดิน: ขาก้าวสลับ (แถวล่าง) · ผ้าคลุม/ชายเสื้อพลิ้ว
+            let mut ox = 0.;
+            if moving && ry as f32 >= leg0 { ox = if (rx as f32) < w / 2. { bob } else { -bob }; }
+            if (ch == 'K' || ch == 'k') && ry > 8 && style == CS_WARRIOR { ox += ((t * 4. + ry as f32 * 0.5).sin() * 0.6).round(); }
+            let fx = if left { w - 1. - rx as f32 } else { rx as f32 } + ox * if left { -1. } else { 1. };
+            if white { c = WHITE; }
+            else if rage { let r = 0.25 + 0.2 * pul; c = Color::new((c.r + r).min(1.), c.g * (1. - r * 0.6), c.b * (1. - r * 0.6), c.a); }
+            prect(v, sx - w / 2. + fx + shake_x, sy - h + ry as f32 - if ry as f32 >= leg0 { 0. } else { bob }, 1., 1., c);
+        }
     }
-    prect(v, hx0 - 2. + f * ca * 3., hy0 + sa * 3. - 1., 4., 2., hx(0xd8b040));
+    draw_champ_weapon(v, b, style, sx + shake_x, sy - bob, h, left, kc, white);
+    // คำราม: วงคลื่นแดงขยายออก
+    if b.roar == 1 {
+        let q = 1. - (b.st / b.st0.max(0.01)).clamp(0., 1.);
+        for k in 0..2 {
+            let rr = (q + k as f32 * 0.5).fract() * 46.;
+            draw_circle_lines(sx * v.s, (sy - h * 0.5) * v.s, rr * v.s, 3., Color::new(1., 0.25, 0.2, 0.7 * (1. - rr / 46.)));
+        }
+    }
+}
+fn draw_champ_weapon(v: &View, b: &Boss, style: u8, sx: f32, sy: f32, h: f32, left: bool, kc: Color, white: bool) {
+    let f = if left { -1. } else { 1. };
+    let wc = |c: Color| if white { WHITE } else { c };
+    // มุมอาวุธตามท่า: เตรียมฟัน = ง้างขึ้นแล้วฟาด · พุ่ง = ชี้ไปข้างหน้า · คำราม = ชูขึ้นฟ้า
+    let prog = if b.atk != 0 { 1. - (b.st / b.st0.max(0.01)).clamp(0., 1.) } else { 0. };
+    let ang = match (b.roar, b.atk) {
+        (1, _) => -1.45,
+        (_, 1) | (_, 4) => -2.2 + prog * -0.8,
+        (_, 2) => -0.15,
+        (_, 3) => -1.3,
+        _ => if b.dash > 0. { 0. } else { -0.75 + (b.anim * 2.).sin() * 0.06 },
+    };
+    let (ca, sa) = (ang.cos(), ang.sin());
+    let (hx0, hy0) = (sx + f * 7., sy - h * 0.5);
+    let pt = |d: f32, side: f32| (hx0 + f * ca * d - sa * side * f, hy0 + sa * d + ca * side);
+    match style {
+        CS_DESERT => {
+            // ดาบโค้งคู่: มือหน้า + มือหลัง (มุมต่างกัน)
+            for (k, da) in [(0, 0.), (1, 0.7)] {
+                let a2 = ang + da;
+                let (c2, s2) = (a2.cos(), a2.sin());
+                let base = (hx0 - f * (k as f32 * 9.), hy0 + k as f32);
+                for j in 0..13 {
+                    let curve = (j as f32 / 12.).powi(2) * 3.;
+                    let (x, y) = (base.0 + f * c2 * j as f32 - s2 * curve * f, base.1 + s2 * j as f32 + c2 * curve);
+                    prect(v, x, y, if j < 3 { 2. } else { 1.5 }, 1.5, wc(if j < 3 { hx(0x6a4a2a) } else { hx(0xe8ecf4) }));
+                }
+                prect(v, base.0 + f * c2 * 3. - 1., base.1 + s2 * 3. - 1., 3., 2., wc(hx(0xe0b040)));
+            }
+        }
+        CS_MYSTIC => {
+            // คทายาว ปลายลูกแก้วเรืองแสงสีอาณาจักร
+            for j in 0..22 { let (x, y) = pt(j as f32 - 4., 0.); prect(v, x, y, 2., 2., wc(hx(0x5a3a24))); }
+            let (ox, oy) = pt(19., 0.);
+            let glow = 0.6 + 0.4 * (b.anim * 4.).sin();
+            draw_circle(ox * v.s, oy * v.s, 5.5 * v.s, Color::new(kc.r, kc.g, kc.b, 0.25 * glow));
+            prect(v, ox - 2., oy - 2., 5., 5., wc(Color::new((kc.r + 0.4).min(1.), (kc.g + 0.4).min(1.), (kc.b + 0.4).min(1.), 1.)));
+            prect(v, ox - 1., oy - 1., 2., 2., wc(WHITE));
+        }
+        _ => {
+            // ขวานยักษ์: ด้ามยาว + ใบขวานพระจันทร์เสี้ยว
+            for j in 0..20 { let (x, y) = pt(j as f32 - 3., 0.); prect(v, x, y, 2., 2., wc(hx(0x6a4424))); }
+            for j in 0..8 {
+                for s in 0..(7 - (j as i32 - 4).abs()) {
+                    let (x, y) = pt(12. + j as f32, 1. + s as f32);
+                    prect(v, x, y, 1.5, 1.5, wc(if s >= 4 - (j as i32 - 4).abs() / 2 { hx(0xf0f4fa) } else { hx(0x9aa4b4) }));
+                }
+            }
+        }
+    }
+}
+
+/// แถบเลือดบอส: (ชื่อ+ฉายา, บรรทัดรอง, สัดส่วนเลือด, เฟส 2) — None = ซ่อน (ไม่มีบอสใกล้/ตายแล้ว)
+pub fn boss_bar_info(g: &Game) -> Option<(String, String, f32, bool)> {
+    let b = g.bosses.iter().filter(|b| !b.dead && (b.x - g.p.x).hypot(b.y - g.p.y) < 420.).min_by(|a, c| {
+        (a.x - g.p.x).hypot(a.y - g.p.y).partial_cmp(&(c.x - g.p.x).hypot(c.y - g.p.y)).unwrap()
+    })?;
+    let frac = (b.hp / b.maxhp).clamp(0., 1.);
+    if b.kind == CHAMP { let (t, s) = champ_title(g, b); Some((t, s, frac, b.ph2)) } else { Some((BNAME[b.kind as usize].to_string(), String::new(), frac, b.ph2)) }
 }
 
 /// ตอนนี้กำลังสู้ (บอสใกล้ · ศึกป้องกันเมือง · ศึกยึดเมือง) — ซ่อนแถบเป้าหมาย/คำแนะนำ ให้จอโล่ง
@@ -1233,5 +1485,76 @@ mod tests {
         }
         assert!(hits.len() >= 2, "{:?} {}", hits, hp0);
         assert_eq!(hits[0], hits[1] * 2., "ปะทะครั้งแรกแรง x2 ครั้งต่อไปปกติ");
+    }
+
+    // ---------------------------------------------------------------- v26
+    #[test]
+    fn champion_style_follows_city_and_title_names_the_city() {
+        assert_eq!(style_for(8, 0), CS_DESERT);
+        assert_eq!(style_for(16, 1), CS_DESERT);
+        assert_eq!(style_for(4, 0), CS_MYSTIC);
+        assert_eq!(style_for(3, 3), CS_MYSTIC, "อาณาจักรเคร่งครัด (ใช้เวท) = สายเวท");
+        assert_eq!(style_for(3, 0), CS_WARRIOR);
+        assert_eq!(style_for(7, 2), CS_WARRIOR);
+        let mut g = Game::new_world_seed(746397394, Sfx::default());
+        let r = g.w.realm.clone(); g.rs.init(&r);
+        g.spawn_champion(1, g.p.x + 60., g.p.y);
+        let b = g.bosses.last().unwrap().clone();
+        assert_eq!(b.style, champ_style_calc(&g, 1), "คิดสไตล์ตอนเกิดครั้งเดียว");
+        let (t, sub) = champ_title(&g, &b);
+        assert!(t.contains(CS_TITLE[b.style as usize]) && t.contains(&r.cities[r.ks[1].cap].name), "{}", t);
+        assert!(sub.contains(&r.ks[1].name));
+        // แถบเลือด: โชว์ตอนอยู่ใกล้ · ซ่อนเมื่อไกล/ล้มแล้ว
+        let info = boss_bar_info(&g).expect("โชว์แถบเลือด");
+        assert_eq!(info.0, t);
+        assert_eq!(info.2, 1.);
+        g.p.x += 2000.;
+        assert!(boss_bar_info(&g).is_none(), "ไกล = ซ่อน");
+        g.p.x -= 2000.;
+        g.bosses.clear();
+        assert!(boss_bar_info(&g).is_none(), "ล้มแล้ว = ซ่อน");
+    }
+    #[test]
+    fn champion_phase2_roars_then_unlocks_a_fair_wide_attack() {
+        for style in [CS_WARRIOR, CS_DESERT, CS_MYSTIC] {
+            let mut g = Game::new_world_seed(746397394, Sfx::default());
+            let r = g.w.realm.clone(); g.rs.init(&r);
+            let (cx, cy) = (tfloor(g.p.x), tfloor(g.p.y));
+            for y in cy - 25..cy + 25 { for x in cx - 25..cx + 25 { g.w.tmod.insert((x, y), 3); g.w.removed.insert((x, y)); } }
+            g.spawn_champion(0, g.p.x + 70., g.p.y);
+            g.bosses[0].style = style;
+            g.p.hp = 9999; g.p.maxhp = 9999;
+            // เฟส 1: ไม่มีท่าพิเศษ
+            let mut seen = HashSet::new();
+            for _ in 0..(20 * 30) { g.upd_bosses(1. / 30.); if let Some(b) = g.bosses.first() { seen.insert(b.atk); } g.p.invul = 1.; g.p.hp = 9999; g.p.x = g.bosses[0].x - 70.; }
+            assert!(!seen.contains(&4), "เฟส 1 ยังไม่มีท่าพิเศษ");
+            // เลือดต่ำกว่าครึ่ง → คำราม (หยุดนิ่ง เรืองแดง) แล้วเข้าเฟส 2
+            g.bosses[0].hp = g.bosses[0].maxhp * 0.45;
+            g.upd_bosses(1. / 30.);
+            assert!(g.bosses[0].ph2 && g.bosses[0].roar == 1, "คำรามเบ่งพลัง");
+            let (x0, y0) = (g.bosses[0].x, g.bosses[0].y);
+            for _ in 0..15 { g.upd_bosses(1. / 30.); }
+            assert_eq!((g.bosses[0].x, g.bosses[0].y), (x0, y0), "ระหว่างคำรามยืนนิ่ง");
+            for _ in 0..40 { g.upd_bosses(1. / 30.); }
+            assert_eq!(g.bosses[0].roar, 2);
+            // เฟส 2: ปลดท่าพิเศษ มีวงเตือน ≥ 1 วินาที
+            let mut got = false;
+            for _ in 0..(40 * 30) {
+                g.p.invul = 1.; g.p.hp = 9999; g.p.x = g.bosses[0].x - 70.; g.p.y = g.bosses[0].y;
+                g.upd_bosses(1. / 30.);
+                if g.bosses[0].atk == 4 { got = true; assert!(g.bosses[0].st0 >= 1.0); assert!(!champ_ult_shapes(&g.bosses[0]).is_empty()); break; }
+            }
+            assert!(got, "สไตล์ {} ได้ท่าพิเศษเฟส 2", style);
+        }
+    }
+    #[test]
+    fn ult_shapes_hit_inside_and_miss_outside() {
+        let mut b = Boss { kind: CHAMP, x: 0., y: 0., hp: 1., maxhp: 1., atk: 4, st: 1., st0: 1., cd: 0., tx: 50., ty: 0., dash: 0., dvx: 1., dvy: 0., flash: 0., anim: 0., ph2: true, dead: false, burn: 0., slow: 0., btick: 0., k: 0, roar: 2, style: CS_WARRIOR };
+        let hit = |b: &Boss, px: f32, py: f32| champ_ult_shapes(b).iter().any(|&(k, x, y, r, ux, uy)| ult_hits(k, x, y, r, ux, uy, px, py));
+        assert!(hit(&b, 40., 0.) && !hit(&b, 70., 0.), "ทุบพื้นวงรัศมี 58");
+        b.style = CS_DESERT;
+        assert!(hit(&b, 80., 2.) && hit(&b, 0., -80.) && !hit(&b, 50., 50.), "กากบาท 4 แฉก ยืนแนวทแยง = รอด");
+        b.style = CS_MYSTIC;
+        assert!(hit(&b, 50., 0.) && hit(&b, 50., 40.) && !hit(&b, 0., 0.), "วงเวทตกที่ตำแหน่งเรา");
     }
 }

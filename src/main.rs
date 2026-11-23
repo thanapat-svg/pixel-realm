@@ -2597,7 +2597,8 @@ fn debug_keys(g: &mut Game) {
     if shift && is_key_pressed(KeyCode::F1) { g.p.inv[WOOD] += 60; g.p.inv[STONE] += 20; g.build_sel = PIECES.iter().position(|p| p.obj == OBJ_HOUSE_S); }
     if shift && is_key_pressed(KeyCode::F2) { g.dbg_caravan(); }
     if shift && is_key_pressed(KeyCode::F4) { for (j, k) in [EK::Scorp, EK::Wolf, EK::Crab, EK::Imp].into_iter().enumerate() { let (x, y) = (g.p.x - 60. + j as f32 * 40., g.p.y + 50.); g.make_enemy(k, x, y, 1., 0, false); if let Some(e) = g.en.last_mut() { e.stun = 6.; } } }
-    if shift && is_key_pressed(KeyCode::F5) { let r = g.w.realm.clone(); if !g.rs.inited { g.rs.init(&r); } let (x, y) = (g.p.x + 50., g.p.y - 10.); g.spawn_champion(0, x, y); }
+    if shift && is_key_pressed(KeyCode::F5) { let r = g.w.realm.clone(); if !g.rs.inited { g.rs.init(&r); } for st in 0..3u8 { let (x, y) = (g.p.x - 70. + st as f32 * 70., g.p.y - 50.); g.spawn_champion(st as usize % r.ks.len(), x, y); if let Some(b) = g.bosses.last_mut() { b.style = st; b.cd = 99.; } } }
+    if shift && is_key_pressed(KeyCode::F9) { for b in g.bosses.iter_mut() { b.hp = b.maxhp * 0.45; b.cd = 0.3; } }
     if shift && is_key_pressed(KeyCode::F6) { for n in g.npcs.iter_mut() { n.role = R_SOLDIER; n.mood = 80; } g.army_call(None); }
     if shift && is_key_pressed(KeyCode::F8) { for j in 0..40 { let q = j as f32 * 0.7; let (x, y) = (g.p.x + 90. + q.cos() * (20. + j as f32), g.p.y + q.sin() * (20. + j as f32)); if !collide(&g.w, x, y) { g.make_enemy(EK::Soldier, x, y, 1.5, 99, false); } } }
     if shift && is_key_pressed(KeyCode::F7) { let n = g.en.len(); for i in (0..n).rev() { g.damage_enemy(i, 999, false, 1., 0.); } }
