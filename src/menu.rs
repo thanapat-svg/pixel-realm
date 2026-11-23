@@ -1513,6 +1513,21 @@ fn tab_npc_dialog(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: 
         }
         if manual { y += 34. * u; }
     }
+    // ---- v35 เขาดูแลตัวเองได้แค่ไหน (หาเอง/ทำเอง) และเรื่องที่ต้องพึ่งเรา
+    let own = g.self_status(id);
+    if !own.is_empty() {
+        header(font, c, y, "พึ่งตัวเอง", u);
+        y += 28. * u;
+        for (k, l) in own.iter().enumerate() {
+            let ws = wrap_th(font, l, 11. * u, c.w - 24. * u);
+            let hh = ws.len() as f32 * 14. * u + 4. * u;
+            if visible(y, hh, c) { for (j, w) in ws.iter().enumerate() { text(font, w, c.x + 8. * u, y + 14. * u + j as f32 * 14. * u, 11. * u, if k == 0 && l.starts_with("ตอนนี้") { hx(0x99ddaa) } else if l.contains("ต้องพึ่งคุณ") || l.contains("ขอแรงช่วย") { hx(0xffcc66) } else { hx(0xcccccc) }); } }
+            y += hh;
+        }
+        let fine = "ความปลอดภัย · ตัดสินข้อพิพาท · อนุญาตที่ดิน คือสิ่งที่เขาพึ่งคุณ";
+        if visible(y, 18. * u, c) { text(font, fine, c.x + 8. * u, y + 13. * u, 10.5 * u, hx(0x8899aa)); }
+        y += 22. * u;
+    }
     // ---- คำขอ/ปัญหาที่เกี่ยวกับคนนี้
     let mut qdo: Option<(usize, QA)> = None;
     // ขอของ/ส่งของ ย้ายไปอยู่ในหัวข้อ "อยากได้" ด้านบนแล้ว

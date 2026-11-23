@@ -140,7 +140,7 @@ impl Game {
         for a in &self.rs.pm.asks { if a.came || self.rs.work.get(&a.by).map_or(false, |j| j.kind == J_ASK) { continue; } if let Some(i) = self.idx(a.by) { add(format!("land{}", a.by), 1, format!("{}{} — รออนุญาตอยู่", NPC_NAMES[self.npcs[i].name as usize], self.ask_what(a)), AdvAct::Npc(a.by), "ตอบเขา"); } }
         // v23 เหตุการณ์
         let sick: Vec<u32> = self.rs.lv.sick.keys().copied().collect();
-        if !sick.is_empty() { add("sick".into(), 1, format!("{} คนป่วย (กากบาทเขียวบนหัว) ทำงานไม่ได้ — {}", sick.len(), if self.p.inv[HERB] > 0 { "เดินไปกดคุยเพื่อให้สมุนไพร" } else { "หาสมุนไพร (ต้นสมุนไพรในป่า/หนองน้ำ) แล้วเอาไปให้" }), AdvAct::Npc(sick[0]), "ดูคนป่วย"); }
+        if !sick.is_empty() { add("sick".into(), 1, format!("{} คนป่วย (กากบาทเขียวบนหัว) ทำงานไม่ได้ — {}", sick.len(), if self.p.inv[HERB] > 0 { "เดินไปกดคุยเพื่อให้สมุนไพร (ชาวบ้านก็ช่วยกันหายาเองด้วย)" } else { "หาสมุนไพร (ต้นไม้ยักษ์/ปราบโครงกระดูก) แล้วเอาไปให้ — ชาวบ้านก็ออกหาให้กันเองด้วย" }), AdvAct::Npc(sick[0]), "ดูคนป่วย"); }
         if self.rs.lv.waiting > 0 { add("refugee".into(), 1, format!("ผู้ลี้ภัย {} คนรอเตียงว่าง — วางเตียงหรือสร้างบ้านให้ จะย้ายเข้าตอนเช้า", self.rs.lv.waiting), AdvAct::Build(33), "วางเตียง"); }
         // ---- งาน/การเติบโต
         let has = |r: u8| s.roles.iter().any(|x| x.0 == r && x.1 > 0);

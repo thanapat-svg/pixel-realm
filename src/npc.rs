@@ -286,7 +286,10 @@ impl Game {
             let town_well = self.big_well_near(bed);
             let bed_ok = self.w.placed.get(&bed) == Some(&33);
             let eaten = self.take_food_for(bed, i);
-            let fed = eaten.is_some();
+            // v35 หามากินเองระหว่างวัน (ไม่มีกล่อง) ก็ถือว่าอิ่ม · นับวันที่อดติดกัน (ถึง 2 วัน = มาขอเรา)
+            let snacked = self.rs.sh.snack.remove(id);
+            let fed = eaten.is_some() || snacked;
+            if fed { self.rs.sh.hungry.remove(id); } else { *self.rs.sh.hungry.entry(*id).or_insert(0) += 1; }
             let has_water = served.contains(&bed);
             let room = if bed_ok { self.w.room_from(bed) } else { None };
             let house = room.is_some();
@@ -387,6 +390,7 @@ impl Game {
             self.last_day += 1;
             guard += 1;
             self.npc_dawn();
+            self.selfhelp_day();
             self.realm_dawn();
             self.projects_dawn();
             self.doors_check(true);

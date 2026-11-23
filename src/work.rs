@@ -19,7 +19,7 @@ pub const J_ERRAND: u8 = 10;
 pub const J_HUNT: u8 = 11;
 /// v30 เดินมาขออนุญาตใช้ที่ดินกับเรา
 pub const J_ASK: u8 = 12;
-pub const J_NAMES: [&str; 13] = ["เก็บเกี่ยว", "รดน้ำ", "ไถ-ปลูก", "ตัดไม้", "ขุดหิน", "ตกปลา", "ทำอาหาร", "ดูแลคนป่วย", "ลาดตระเวน", "ก่อสร้าง", "ทำงานเอกสาร", "ล่าสัตว์", "มาขออนุญาตใช้ที่"];
+pub const J_NAMES: [&str; 16] = ["เก็บเกี่ยว", "รดน้ำ", "ไถ-ปลูก", "ตัดไม้", "ขุดหิน", "ตกปลา", "ทำอาหาร", "ดูแลคนป่วย", "ลาดตระเวน", "ก่อสร้าง", "ทำงานเอกสาร", "ล่าสัตว์", "มาขออนุญาตใช้ที่", "หาของป่า", "ลงมือทำเอง", "เอายาไปให้คนป่วย"];
 /// ระยะยิงธนูของนักล่า (พิกเซล)
 pub const HUNT_RANGE: f32 = 60.;
 /// ไร่ต่อชาวไร่ 1 คน
@@ -113,13 +113,18 @@ impl Game {
         }
         for id in ids {
             if self.rs.work.contains_key(&id) { continue; }
-            if let Some(j) = self.pick_job(id) { self.rs.work.insert(id, j); }
-            else if self.idx(id).map_or(false, |i| self.npcs[i].role == 1) { self.farm_ask_maybe(id); }
+            // v35 ครัวเรือนไม่มีอาหาร → ออกหาอาหารเองก่อนงานประจำ (ยาม/ชาวไร่/นักล่า/พ่อครัวทำงานของตัวเองอยู่แล้ว)
+            if self.sh_urgent(id) { if let Some(j) = self.self_job(id) { self.rs.work.insert(id, j); continue; } }
+            if let Some(j) = self.pick_job(id) { self.rs.work.insert(id, j); continue; }
+            // v35 ว่าง → พึ่งตัวเอง: หาอาหาร/ทำเบ็ด/หายา/หาวัสดุสร้างบ้าน (หาไม่เจอพักแป๊บค่อยลองใหม่)
+            if let Some(j) = self.self_job(id) { self.rs.work.insert(id, j); continue; }
+            self.rs.sh.idle.insert(id, self.time + 20.);
+            if self.idx(id).map_or(false, |i| self.npcs[i].role == 1) { self.farm_ask_maybe(id); }
         }
         self.rs.site_workers = self.rs.work.values().filter(|j| j.kind == J_BUILD && j.working).count() as u32;
     }
 
-    fn taken(&self, t: (i32, i32)) -> bool { self.rs.work.values().any(|j| j.tile == t) }
+    pub(crate) fn taken(&self, t: (i32, i32)) -> bool { self.rs.work.values().any(|j| j.tile == t) }
 
     /// เลือกงานตามอาชีพ (และนิสัย: คนขยันทำงานไกลกว่า)
     fn pick_job(&self, id: u32) -> Option<Job> {
@@ -203,7 +208,7 @@ impl Game {
             _ => None,
         }
     }
-    fn find_obj(&self, c: (i32, i32), r: i32, f: impl Fn(&Game, (i32, i32), u8) -> bool) -> Option<(i32, i32)> {
+    pub(crate) fn find_obj(&self, c: (i32, i32), r: i32, f: impl Fn(&Game, (i32, i32), u8) -> bool) -> Option<(i32, i32)> {
         let mut best: Option<((i32, i32), i32)> = None;
         for dy in -r..=r { for dx in -r..=r {
             let k = (c.0 + dx, c.1 + dy);
@@ -212,7 +217,7 @@ impl Game {
         } }
         best.map(|b| b.0)
     }
-    fn find_tile(&self, c: (i32, i32), r: i32, f: impl Fn(&Game, (i32, i32)) -> bool) -> Option<(i32, i32)> {
+    pub(crate) fn find_tile(&self, c: (i32, i32), r: i32, f: impl Fn(&Game, (i32, i32)) -> bool) -> Option<(i32, i32)> {
         let mut best: Option<((i32, i32), i32)> = None;
         for dy in -r..=r { for dx in -r..=r {
             let k = (c.0 + dx, c.1 + dy);
@@ -325,13 +330,20 @@ impl Game {
                 J_COOK => { self.cook_day_pub(bed); self.burst(fx.0, fx.1 - 6., hx(0xdddddd), 6, 20.); }
                 J_HEAL => if let Some(k) = self.idx(j.other) { self.npcs[k].mood = (self.npcs[k].mood + 8).min(100); let (x, y) = (self.npcs[k].x, self.npcs[k].y - 22.); self.add_float(x, y, "สบายขึ้น", hx(0xff99cc), None); },
                 J_ERRAND => { if self.npcs[i].role == R_CLERK { self.tax_pool += 2; } else if self.npcs[i].role == 3 { self.tax_pool += 1; } }
+                J_FORAGE => got = self.forage_result(&j),
+                J_CRAFT => self.craft_result(id, &j),
+                J_CURE => self.cure_result(id, &j),
                 _ => {}
             }
             // มีของ: ถือไปเก็บในกล่องที่ใกล้ที่สุด (ไม่มีกล่อง = เก็บเข้าคลังเลย)
             if let Some((it, k)) = got {
+                // v35 วัสดุสร้างบ้านตัวเอง → ใส่เข้าโครงการตรงๆ ไม่ต้องเดินไปกล่อง
+                if j.other & SELF_PROJ != 0 && self.sh_to_project(id, it, k) { self.add_float(nx, ny - 22., format!("+{}", k), hx(0xa8f070), Some(it)); self.projects_try_start(); continue; }
                 let chest = self.chests.keys().copied().filter(|c| (c.0 - bed.0).abs() <= 18 && (c.1 - bed.1).abs() <= 18).min_by_key(|c| (c.0 - tfloor(nx)).abs() + (c.1 - tfloor(ny)).abs());
                 match chest {
                     Some(c) => { self.rs.work.insert(id, Job { kind: j.kind, tile: c, stand: (c.0 as f32 * 16. + 8., c.1 as f32 * 16. + 28.), t: 0., dur: 0., stage: 1, carry: Some((it, k)), other: 0, working: false }); }
+                    // v35 ไม่มีกล่องเก็บ: ของกินที่หามาเองกินเลย (ไม่ไหลเข้ากระเป๋าเรา) · อย่างอื่นเข้ากระเป๋าเหมือนเดิม
+                    None if j.other & SELF_HOME != 0 && FOODS.contains(&it) => { self.rs.sh.snack.insert(id); self.add_float(nx, ny - 22., "หามากินเอง", hx(0xa8f070), Some(it)); }
                     None => { self.give_to_chest(bed, it, k); self.add_float(nx, ny - 22., format!("+{}", k), hx(0xa8f070), Some(it)); }
                 }
             }
@@ -389,7 +401,7 @@ impl Game {
         self.news_add(format!("{}เสนอ{}", nm, project_what(kind)));
         self.rs.projects.push(Project { by, kind, at, need: cost, started: false, dir: 0, ok: true, got: vec![] });
     }
-    fn free_spot_near(&self, c: (i32, i32), r0: i32, r1: i32) -> Option<(i32, i32)> {
+    pub(crate) fn free_spot_near(&self, c: (i32, i32), r0: i32, r1: i32) -> Option<(i32, i32)> {
         for rr in r0..=r1 { for dy in -rr..=rr { for dx in -rr..=rr {
             if dx.abs().max(dy.abs()) != rr { continue; }
             let k = (c.0 + dx, c.1 + dy);
@@ -410,8 +422,11 @@ impl Game {
             let missing: Vec<(usize, i32)> = p.need.iter().map(|&(it, n)| (it, n - have(self, it))).filter(|x| x.1 > 0).collect();
             if !missing.is_empty() {
                 let s: Vec<String> = missing.iter().map(|(it, n)| format!("{} {}", INAME[*it], n)).collect();
-                let msg = format!("{}: อยาก{} แต่ยังขาด {} — ช่วยมอบให้หน่อยได้ไหม", nm, project_what(p.kind), s.join(" · "));
-                self.rs.help.entry(p.by).or_insert(msg);
+                // v35 หาวัสดุเองก่อน (ตัดไม้/ขุดหิน) · ขอเราเฉพาะของที่หาเองไม่ได้ หรือรอเกิน 3 วัน
+                if self.sh_stuck_build(p.by, &missing) {
+                    let msg = format!("{}: อยาก{} แต่หาเองไม่ไหว ยังขาด {} — ช่วยมอบให้หน่อยได้ไหม", nm, project_what(p.kind), s.join(" · "));
+                    self.rs.help.entry(p.by).or_insert(msg);
+                }
                 continue;
             }
             let prefab = is_prefab(p.kind);
@@ -519,6 +534,9 @@ pub fn draw_work(g: &Game, sp: &Sprites, v: &View, n: &npc::Npc, sx: f32, sy: f3
             prect(v, (bx - ux * pull).round(), (by - uy * pull).round(), 1., 1., WHITE);
             for k in 0..6 { prect(v, (bx - ux * pull + ux * k as f32).round(), (by - uy * pull + uy * k as f32).round(), 1., 1., if k == 5 { iron } else { hx(0xd8c8a0) }); }
         }
+        J_FORAGE => draw_forage(v, sx, sy, t, n.left, n.id),
+        J_CRAFT => { let b = ((t * 7.).sin() * 1.2).round(); prect(v, (sx + f * 5.).round(), (sy - 8. + b).round(), 3., 2., hx(0x9a9a9a)); prect(v, (sx + f * 4.).round(), (sy - 7.).round(), 1., 3., wood); }
+        J_CURE => { let b = ((t * 3.).sin() * 1.5).round(); prect(v, sx - 1., sy - 26. + b, 3., 1., hx(0x7aff9a)); prect(v, sx, sy - 27. + b, 1., 3., hx(0x7aff9a)); }
         J_HEAL => { let b = ((t * 3.).sin() * 1.5).round(); prect(v, sx - 1., sy - 26. + b, 3., 1., hx(0xff6aa0)); prect(v, sx, sy - 27. + b, 1., 3., hx(0xff6aa0)); }
         _ => {}
     }
@@ -611,7 +629,11 @@ mod tests {
         g.projects_dawn();
         assert_eq!(g.rs.projects.iter().filter(|p| is_prefab(p.kind)).count(), 1, "คิดจะสร้างบ้าน");
         g.permit_yes(3);
-        assert!(g.rs.help.contains_key(&3), "ของไม่พอ → ขอความช่วยเหลือ");
+        // v35 ของไม่พอ → ออกหาวัสดุเองก่อน ยังไม่ขอเรา · รอเกิน 3 วันจึงขอความช่วยเหลือ
+        assert!(!g.rs.help.contains_key(&3), "หาเองก่อน");
+        g.rs.sh.wait.insert(3, v35::STUCK_BUILD_DAYS);
+        g.projects_try_start();
+        assert!(g.rs.help.contains_key(&3), "รอนานแล้วหาเองไม่ทัน → ขอความช่วยเหลือ");
         assert!(g.rs.help[&3].contains("ไม้"));
         // ใส่ของให้ → เริ่มสร้างเอง
         for it in [WOOD, STONE, BERRY] { g.chests.get_mut(&(sx - 2, sy)).unwrap()[it] = 60; }
@@ -634,7 +656,7 @@ mod tests {
         g.npcs.push(mk(4, 0, (sx, sy)));
         g.projects_dawn();
         assert!(g.rs.projects.iter().any(|p| p.kind == 39), "เสนอขุดบ่อน้ำ {:?}", g.rs.projects.iter().map(|p| p.kind).collect::<Vec<_>>());
-        assert!(g.rs.help.get(&4).map_or(false, |m| m.contains("บ่อน้ำ")));
+        assert!(g.rs.help.get(&4).is_none(), "บ่อน้ำใช้ไม้+หิน — หาเองได้ ยังไม่ขอเรา");
         g.chests.get_mut(&(sx + 6, sy)).unwrap()[STONE] = 20;
         g.chests.get_mut(&(sx + 6, sy)).unwrap()[WOOD] = 10;
         g.projects_try_start();

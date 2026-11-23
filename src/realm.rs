@@ -295,6 +295,8 @@ pub struct RealmState {
     /// v31 กด "ไม่ให้" ของโปรดวันไหน (วันนั้นไม่ถามซ้ำ)
     pub want_no: HashMap<u32, i32>,
     pub lv: Living,
+    /// v35 พึ่งตัวเอง (คันเบ็ด · อดข้าวกี่วัน · รอวัสดุกี่วัน)
+    pub sh: v35::SelfHelp,
     pub war: WarState,
     pub tick_t: f32,
     pub inited: bool,

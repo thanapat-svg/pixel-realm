@@ -1,6 +1,6 @@
 // quests.rs — v8e: คำขอ/ปัญหาจากชาวบ้าน (เกิดจากนิสัย ความต้องการ และความสัมพันธ์จริง)
-//  - ขอของ: คนหิว/ไม่มีความสุขขอของกินที่ชอบ · คนโลภอยากได้อัญมณี
-//  - ล่าสัตว์: คนขี้ขลาดขอให้กำจัดหมาป่า/หมูป่า/จระเข้ที่ทำให้กลัว
+//  - ขอของ (v35 ทางสุดท้าย): ชาวบ้านหาอาหารเอง/ทำเองก่อน — ขอเราเมื่ออดติดกัน 2 วัน · อัญมณีขอเฉพาะตอนไม่มีแร่ให้ขุดเองใกล้เมือง
+//  - ล่าสัตว์/ขอความคุ้มครอง: คนขี้ขลาด หรือใครก็ตามที่มีสัตว์ร้ายอยู่ใกล้บ้าน ขอให้กำจัดหมาป่า/หมูป่า/จระเข้ — เรื่องปลอดภัยคือสิ่งที่เขาพึ่งผู้นำ
 //  - ฝากของ: คนช่างพูดฝากของขวัญไปให้เพื่อนสนิท
 //  - ไกล่เกลี่ย: คนใจดีขอให้ช่วยให้สองคนที่ทะเลาะกันคืนดี (คุยกับทั้งคู่ในวันเดียวกัน)
 //  - ข้อพิพาท: สองคนที่เกลียดกันมากขอให้คุณตัดสิน — เข้าข้างคนหนึ่ง อีกคนแค้น · ประนีประนอมได้ถ้าสนิทกับทั้งคู่
@@ -142,8 +142,18 @@ impl Game {
                     }
                 }
             }
-            // หิว/ไม่มีความสุข: ขอของกินที่ชอบ
-            if n.mood < 55 && roll < 0.4 {
+            // v35 ภัยสัตว์ร้ายใกล้บ้าน: เรื่องที่ชาวบ้านจัดการเองไม่ได้ → ขอความคุ้มครอง (คนขี้ขลาดขอบ่อยกว่า)
+            if let Some(animal) = self.threat_near(n.bed) {
+                if roll < 0.3 + (100 - tr[T_BRAVE] as i32).max(0) as f64 / 250. && !self.nreqs.iter().any(|r| matches!(r.k, QK::Hunt { animal: a, .. } if a == animal)) {
+                    let nn = if animal == A_CROC { 1 } else { 2 };
+                    let reward = self.pay(id, 12 * nn);
+                    self.nreqs.push(NReq { from: id, k: QK::Hunt { animal, n: nn, done: 0 }, day, reward });
+                    self.news_add(format!("{}ขอความคุ้มครอง: {}ใกล้บ้าน", self.nmq(id), AN_NAME[animal as usize]));
+                    continue;
+                }
+            }
+            // หาอาหารเองมาตลอดแต่ไม่ได้ (อดติดกัน 2 วัน) จึงค่อยขอของกินจากเรา
+            if self.sh_stuck_food(id) && roll < 0.8 {
                 let item = if nutrition(n.soc.love as usize).is_some() { n.soc.love as usize } else { [BERRY, MEAT, FISH][(self.qroll(id, 4) * 3.) as usize % 3] };
                 let qty = 2 + (self.qroll(id, 5) * 3.) as i32;
                 let reward = self.pay(id, 4 * qty);
@@ -159,7 +169,7 @@ impl Game {
                 continue;
             }
             // โลภ: อยากได้อัญมณี (จ่ายเหรียญให้)
-            if tr[T_GREED] >= 60 && roll < 0.15 {
+            if tr[T_GREED] >= 60 && roll < 0.15 && !self.gem_rock_near(n.bed) {
                 let qty = 1 + (self.qroll(id, 7) * 2.) as i32;
                 self.nreqs.push(NReq { from: id, k: QK::Fetch { item: GEM, qty }, day, reward: 18 * qty });
                 continue;

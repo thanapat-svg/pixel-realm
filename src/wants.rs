@@ -40,10 +40,11 @@ impl Game {
             }
         }
         let miss = self.project_missing(id);
-        if !miss.is_empty() {
+        // v35 เขาหาวัสดุเองอยู่ — โชว์ปุ่มขอเฉพาะตอนหาเองไม่ได้/รอนานแล้ว (และวันที่เรากด "ไม่ให้" ก็ไม่ถามซ้ำ)
+        if !miss.is_empty() && self.sh_stuck_build(id, &miss) && self.rs.want_no.get(&id) != Some(&day_of(self)) {
             let s: Vec<String> = miss.iter().map(|(it, q)| format!("{} {}", INAME[*it], q)).collect();
             let kind = self.rs.projects.iter().find(|p| p.by == id && p.ok && !p.started).map(|p| p.kind).unwrap_or(0);
-            v.push(Want { k: WantK::Build(miss.clone()), text: format!("วัสดุ{}: {}", if is_prefab(kind) { "สร้างบ้าน" } else { "ส่วนรวม" }, s.join(" · ")), give: "มอบ".into(), can: miss.iter().any(|(it, _)| self.p.inv[*it] > 0) });
+            v.push(Want { k: WantK::Build(miss.clone()), text: format!("วัสดุ{}ที่หาเองไม่ได้: {}", if is_prefab(kind) { "สร้างบ้าน" } else { "ส่วนรวม" }, s.join(" · ")), give: "มอบ".into(), can: miss.iter().any(|(it, _)| self.p.inv[*it] > 0) });
         }
         let love = n.soc.love as usize;
         let day = day_of(self);
@@ -106,12 +107,11 @@ impl Game {
         match w {
             WantK::Req(ri) => { if let Some(m) = self.req_do(*ri, QA::Decline) { self.toast(m); } }
             WantK::Build(_) => {
-                // ไม่ช่วยวัสดุ = เขาเลิกโครงการนี้ (ไม่โกรธมาก)
-                self.rs.projects.retain(|p| !(p.by == id && !p.started));
-                self.rs.help.remove(&id);
-                if let Some(i) = self.idx(id) { self.npcs[i].mood = (self.npcs[i].mood - 2).max(0); }
-                self.npc_bubble(id, "ไม่เป็นไร ไว้ค่อยว่ากัน");
-                self.toast("ไม่ให้วัสดุ — เขาพักโครงการนี้ไว้ก่อน");
+                // v35 ไม่ให้ = เขาก็ยังพยายามหาเองต่อ (ไม่เลิกโครงการ ไม่โกรธ) แค่วันนี้ไม่ถามซ้ำ
+                let day = day_of(self);
+                self.rs.want_no.insert(id, day);
+                self.npc_bubble(id, "ไม่เป็นไร เดี๋ยวหาเอง");
+                self.toast("ไม่ให้วัสดุ — เขาจะพยายามหาเองต่อ");
             }
             WantK::Love(_) => {
                 let day = day_of(self);
@@ -228,24 +228,30 @@ mod tests_v31 {
     fn give_building_materials_directly_without_chest() {
         let (mut g, (sx, sy)) = g1();
         g.rs.projects.push(Project { by: 1, kind: 39, at: (sx + 4, sy + 3), need: project_cost(39), started: false, dir: 0, ok: true, got: vec![] });
+        // v35 เขาหาวัสดุเองก่อน — ยังไม่ขอเรา จนกว่าจะรอเกิน 3 วัน
+        assert!(g.wants(1).iter().all(|w| !matches!(w.k, WantK::Build(_))), "ยังหาเองอยู่ ไม่ขอ");
+        g.rs.sh.wait.insert(1, v35::STUCK_BUILD_DAYS);
         let w = g.wants(1);
         let k = w.iter().find(|w| matches!(w.k, WantK::Build(_))).expect("ขอวัสดุ").k.clone();
         for &(it, n) in &project_cost(39) { g.p.inv[it] += n + 2; }
         g.want_give(1, &k);
         assert!(g.rs.projects.iter().any(|p| p.started), "มอบครบ = เริ่มสร้างเลย (ไม่ต้องมีกล่อง)");
         for &(it, n) in &project_cost(39) { assert!(g.p.inv[it] >= 2 && g.p.inv[it] < n + 2 || n == 0); }
-        // ไม่ให้วัสดุ = เขาพักโครงการ
+        // ไม่ให้วัสดุ = เขายังหาเองต่อ (ไม่เลิกโครงการ) วันนั้นไม่ถามซ้ำ
         let (mut h, (sx, sy)) = g1();
         h.rs.projects.push(Project { by: 1, kind: 39, at: (sx + 4, sy + 3), need: project_cost(39), started: false, dir: 0, ok: true, got: vec![] });
+        h.rs.sh.wait.insert(1, v35::STUCK_BUILD_DAYS);
         let k = h.wants(1).iter().find(|w| matches!(w.k, WantK::Build(_))).unwrap().k.clone();
         h.want_no(1, &k);
-        assert!(h.rs.projects.is_empty());
+        assert!(!h.rs.projects.is_empty(), "ไม่เลิกโครงการ");
+        assert!(h.wants(1).iter().all(|w| !matches!(w.k, WantK::Build(_))), "วันนี้ไม่ถามซ้ำ");
     }
     #[test]
     fn partial_materials_are_kept_and_counted() {
         let (mut g, (sx, sy)) = g1();
         let need = project_cost(39);
         g.rs.projects.push(Project { by: 1, kind: 39, at: (sx + 4, sy + 3), need: need.clone(), started: false, dir: 0, ok: true, got: vec![] });
+        g.rs.sh.wait.insert(1, v35::STUCK_BUILD_DAYS);
         let (it0, n0) = need[0];
         g.p.inv[it0] = 1;
         let k = g.wants(1).iter().find(|w| matches!(w.k, WantK::Build(_))).unwrap().k.clone();

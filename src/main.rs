@@ -73,6 +73,8 @@ mod source;
 mod crew;
 mod v34;
 use v34::{draw_bad_doors, draw_pix_axe, TOOL_AXE, TOOL_PICK};
+mod v35;
+use v35::{draw_forage, J_CRAFT, J_CURE, J_FORAGE, SELF_HOME, SELF_PROJ};
 use realm::*;
 use extra::*;
 use farm::*;
@@ -808,6 +810,7 @@ impl Game {
         s += &self.realm_save();
         s += &self.saga_save();
         s += &self.living_save();
+        s += &self.sh_save();
         s += &self.permit_save();
         s += &self.crew_save();
         s += &self.war_save();
@@ -913,6 +916,7 @@ impl Game {
                 "nreq" => g.quests_load_line(&rest),
                 "saga" => g.saga_load(&rest),
                 "living" => g.living_load(&rest),
+                "shelp" => g.sh_load(&rest),
                 "permit" => g.permit_load(&rest),
                 "crewrel" => g.crew_load_rel(&rest),
                 "crewst" => g.crew_load_st(&rest),
@@ -6037,6 +6041,8 @@ mod quest_tests {
     fn hungry_villager_asks_for_food_and_pays() {
         let mut g = town(2);
         g.npcs[0].mood = 30;
+        // v35 หาอาหารเองมาแล้วแต่ไม่ได้ติดกัน 2 วัน จึงค่อยขอเรา
+        g.rs.sh.hungry.insert(1, v35::STUCK_FOOD_DAYS);
         let r = until(&mut g, &|r| r.from == 1 && matches!(r.k, QK::Fetch { .. }));
         let QK::Fetch { item, qty } = r.k else { unreachable!() };
         assert!(nutrition(item).is_some(), "คนหิวขอของกิน");
@@ -6153,6 +6159,7 @@ mod quest_tests {
     fn ignored_requests_expire_with_disappointment_and_save_roundtrip() {
         let mut g = town(2);
         g.npcs[0].mood = 30;
+        g.rs.sh.hungry.insert(1, v35::STUCK_FOOD_DAYS);
         let r = until(&mut g, &|r| r.from == 1);
         let s = g.quests_save_str();
         let mut h = town(2);
