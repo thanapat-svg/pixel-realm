@@ -52,6 +52,19 @@ impl Game {
         }
         v
     }
+    /// ของที่ยังขาด (ชิ้น, ขาดอีกเท่าไร) สำหรับคำขอนี้ — ใช้โชว์คู่มือ "หาได้จากไหน"
+    pub fn want_lack(&self, k: &WantK) -> Vec<(usize, i32)> {
+        let one = |it: usize, n: i32| if self.p.inv[it] < n { vec![(it, n - self.p.inv[it])] } else { vec![] };
+        match k {
+            WantK::Req(ri) => match self.nreqs.get(*ri).map(|r| &r.k) {
+                Some(QK::Fetch { item, qty }) => one(*item, *qty),
+                Some(QK::Deliver { item, .. }) => one(*item, 1),
+                _ => vec![],
+            },
+            WantK::Build(miss) => miss.iter().filter(|&&(it, q)| self.p.inv[it] < q).map(|&(it, q)| (it, q - self.p.inv[it])).collect(),
+            WantK::Love(it) => one(*it, 1),
+        }
+    }
     /// กด "มอบ"
     pub fn want_give(&mut self, id: u32, w: &WantK) {
         match w {
@@ -114,6 +127,8 @@ impl Game {
 pub fn want_strip(g: &Game, v: &View) -> Option<(u32, String, Rect, Rect, Rect, WantK, bool)> {
     let (id, q) = v19::quick_btns(g, v)?;
     if g.rs.gift_to == Some(id) { return None; }
+    // การ์ดขออนุญาตที่ดินของอีกคนขึ้นอยู่ด้านบน — ไม่ซ้อนทับกัน ตอบการ์ดก่อน
+    if g.permit_card().is_some() { return None; }
     let ws = g.wants(id);
     let w = ws.first()?;
     let more = ws.len() - 1;
@@ -136,8 +151,8 @@ pub fn want_tap(g: &mut Game, v: &View, tp: Vec2) -> bool {
     else if !r.contains(tp) { return false; }
     true
 }
-pub fn draw_want_strip(g: &Game, v: &View, font: &Font) {
-    let Some((_, text_s, r, give, no, _, can)) = want_strip(g, v) else { return };
+pub fn draw_want_strip(g: &Game, sp: &Sprites, v: &View, font: &Font) {
+    let Some((_, text_s, r, give, no, wk, can)) = want_strip(g, v) else { return };
     let u = ui_scale();
     draw_rectangle(r.x, r.y, r.w, r.h, Color::new(0.08, 0.07, 0.03, 0.85));
     draw_rectangle_lines(r.x, r.y, r.w, r.h, 2., hx(0xffd84a));
@@ -151,7 +166,26 @@ pub fn draw_want_strip(g: &Game, v: &View, font: &Font) {
     draw_rectangle(no.x, no.y, no.w, no.h, hx(0x7a2f2f));
     draw_rectangle_lines(no.x, no.y, no.w, no.h, 2., Color::new(1., 1., 1., 0.5));
     text_c(font, "ไม่ให้", no.x + no.w / 2., no.y + no.h * 0.7, 13. * u, WHITE);
-    if !can { text(font, "(ของไม่พอ)", r.x + 6. * u, give.y + give.h * 0.7, 11. * u, hx(0xaaaaaa)); }
+    // v32 ขาดของ: บอกว่าหาได้จากไหน (รูป + ทิศ/ระยะ) — รายละเอียดเต็มอยู่ในหน้าของเขา
+    let lack = g.want_lack(&wk);
+    if let Some(&(it, _)) = lack.first() {
+        let bx = r.x + 6. * u;
+        let maxw = give.x - bx - 6. * u;
+        match source::item_howto(g, it).first() {
+            Some(sr) => {
+                let sz = 20. * u;
+                let by = give.y + (give.h - sz) / 2.;
+                draw_rectangle(bx - 2., by - 2., maxw + 2., sz + 4., Color::new(0.14, 0.15, 0.22, 0.9));
+                source::draw_pic(sp, sr.pic, bx, by, sz);
+                let rel = source::rel(g, sr.find);
+                let mut tx = bx + sz + 4. * u;
+                if let Some((dx, dy)) = rel { source::draw_arrow(tx + 6. * u, give.y + give.h / 2., 6. * u, dx, dy, hx(0x9ad8ff)); tx += 16. * u; }
+                let lbl = match rel { Some((dx, dy)) => format!("{} {}", sr.short, source::dir_text(dx, dy)), None => format!("ขาด{} · {}", INAME[it], sr.short) };
+                text(font, &source::fit_text(font, &lbl, 11. * u, bx + maxw - tx), tx, give.y + give.h * 0.7, 11. * u, hx(0xdde0ee));
+            }
+            None => text(font, "(ของไม่พอ)", r.x + 6. * u, give.y + give.h * 0.7, 11. * u, hx(0xaaaaaa)),
+        }
+    } else if !can { text(font, "(ของไม่พอ)", r.x + 6. * u, give.y + give.h * 0.7, 11. * u, hx(0xaaaaaa)); }
 }
 
 #[cfg(test)]

@@ -69,6 +69,7 @@ mod permit;
 use permit::*;
 mod wants;
 use wants::*;
+mod source;
 use realm::*;
 use extra::*;
 use farm::*;
@@ -2781,6 +2782,7 @@ async fn main() {
     let mut map_sc = 2i32;
 
     loop {
+        source::new_frame();
         let frame_t0 = get_time();
         prof::begin();
         let dt = get_frame_time().min(0.05);
@@ -3205,7 +3207,7 @@ async fn main() {
                 war::draw_war_hud(g, &font, ui_scale());
                 hud::set_touch(tu.active || cfg!(target_os = "android"));
                 prof::t("hud", || draw_hud(g, &sp, &font, tu.active));
-                if matches!(state, State::Play) { let vq = make_view(g.p.x, g.p.y); v19::draw_quick(g, &vq, &font); wants::draw_want_strip(g, &vq, &font); advisor::draw_advice(g, &font); permit::draw_permit_card(g, &vq, &font, get_time() as f32); }
+                if matches!(state, State::Play) { let vq = make_view(g.p.x, g.p.y); v19::draw_quick(g, &vq, &font); wants::draw_want_strip(g, &sp, &vq, &font); advisor::draw_advice(g, &font); permit::draw_permit_card(g, &vq, &font, get_time() as f32); }
 
                 // บอสอยู่ใกล้ = แถบเลือดบอสใช้พื้นที่ด้านบนแทนบทเรียน/เป้าหมาย
                 if !g.bosses.iter().any(|b| (b.x - g.p.x).hypot(b.y - g.p.y) < 420.) {

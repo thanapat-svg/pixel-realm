@@ -23,6 +23,8 @@ pub struct UiState {
     pub sel_r: usize,
     pub sel_b: usize,
     pub sel_i: usize,
+    /// v32 คู่มือหาของ (แท็บกระเป๋า): ของที่เลือกดู
+    pub guide_i: usize,
     press: Option<Vec2>,
     last: Vec2,
     drag: f32,
@@ -32,7 +34,7 @@ pub struct UiState {
 }
 impl UiState {
     pub fn new() -> Self {
-        UiState { tab: 0, scroll: 0., max_scroll: 0., chest: None, shop: false, forge: false, cook: false, adv: false, npc: None, role_pick: None, city: None, gift_open: false, greet: 0, sel_r: usize::MAX, sel_b: usize::MAX, sel_i: usize::MAX, press: None, last: Vec2::ZERO, drag: 0., click: None, clip: Rect::new(0., 0., 1., 1.), close: false }
+        UiState { tab: 0, scroll: 0., max_scroll: 0., chest: None, shop: false, forge: false, cook: false, adv: false, npc: None, role_pick: None, city: None, gift_open: false, greet: 0, sel_r: usize::MAX, sel_b: usize::MAX, sel_i: usize::MAX, guide_i: GEM, press: None, last: Vec2::ZERO, drag: 0., click: None, clip: Rect::new(0., 0., 1., 1.), close: false }
     }
     pub fn open(&mut self, tab: usize) {
         self.tab = tab;
@@ -260,6 +262,7 @@ fn recipe_list(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rec
         if btn(ui, font, Rect::new(c.x + c.w - 112. * u, y + 20. * u, 100. * u, 40. * u), lab, st == 0 && can_pay(&g.p, r.cost), u) { act = true; }
     }
     y += dh + 4. * u;
+    if st != 1 { let lack = source::lack_of(g, r.cost, r.need); if !lack.is_empty() { y += source::draw_lack(g, sp, font, c, y, u, &lack); } }
     let sel_pos = shown.iter().position(|&i| i == ui.sel_r).unwrap_or(usize::MAX);
     let hit = grid(ui, c, &mut y, shown.len(), 50. * u, 6. * u, sel_pos, |k, x, yy, s| {
         let rr = &list[shown[k]];
@@ -310,6 +313,7 @@ fn tab_build(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect,
         }
     }
     y += dh + 4. * u;
+    { let lack = source::lack_of(g, pc.cost, None); if !lack.is_empty() { y += source::draw_lack(g, sp, font, c, y, u, &lack); } }
     let cur = ui.sel_b;
     let hit = grid(ui, c, &mut y, BUILD_N, 50. * u, 6. * u, cur, |k, x, yy, s| {
         let p = &PIECES[k];
@@ -372,6 +376,19 @@ fn tab_gear(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
             mcui::slot_count(font, g.p.inv[i], x, yy, s);
         });
         if let Some(k) = hit { ui.sel_i = owned[k]; }
+        y += 8. * u;
+    }
+    // v32 คู่มือ: ของแต่ละอย่างหาได้จากไหน (แตะเลือกชิ้นที่อยากรู้)
+    header(font, c, y, "คู่มือ: หาของได้จากไหน", u);
+    y += 28. * u;
+    {
+        let items: Vec<usize> = (0..NI).collect();
+        if ui.guide_i >= NI { ui.guide_i = GEM; }
+        let gi = ui.guide_i;
+        y += source::draw_howto(g, sp, font, c, c.x + 6. * u, y, c.w - 12. * u, u, gi, None, 3) + 6. * u;
+        if let Some(k) = grid(ui, c, &mut y, items.len(), 42. * u, 5. * u, gi, |k, x, yy, s| {
+            icon_c(sp, items[k], x + s * 0.14, yy + s * 0.14, s * 0.72, if g.p.inv[items[k]] > 0 { WHITE } else { Color::new(1., 1., 1., 0.55) });
+        }) { ui.guide_i = items[k]; }
         y += 8. * u;
     }
     header(font, c, y, "อาวุธ (กด Tab เพื่อสลับ)", u);
@@ -564,6 +581,7 @@ fn tab_shop(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
         if btn(ui, font, Rect::new(c.x + c.w - 112. * u, y + 20. * u, 100. * u, 40. * u), if owned { "มีแล้ว" } else if g.p.inv[COIN] >= of.price { "ซื้อ" } else { "เงินไม่พอ" }, !owned && g.p.inv[COIN] >= of.price, u) { buy = true; }
     }
     y += dh + 4. * u;
+    if !owned && g.p.inv[COIN] < of.price { y += source::draw_lack(g, sp, font, c, y, u, &[(COIN, of.price - g.p.inv[COIN])]); }
     if let Some(h) = grid(ui, c, &mut y, offers.len(), 48. * u, 6. * u, oi, |n, x, yy, s| {
         let o = offers[n];
         icon_c(sp, o.item, x + s * 0.14, yy + s * 0.14, s * 0.72, if g.p.inv[COIN] >= o.price { WHITE } else { Color::new(1., 1., 1., 0.45) });
@@ -599,6 +617,10 @@ fn tab_shop(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
         }
     }
     y += 72. * u;
+    {
+        let qk = match g.quest.as_ref() { Some(q) => Some(q.kind), None => g.shop_camp.map(|k| g.offered_quest(k).kind) };
+        if let Some(qk) = qk { y += source::draw_quest_howto(g, sp, font, c, c.x + 6. * u, y, c.w - 12. * u, u, qk) + 6. * u; }
+    }
     match qact {
         1 => { if let Some(k) = g.shop_camp { g.accept_quest(k); } }
         2 => g.claim_quest(),
@@ -1224,7 +1246,7 @@ fn tab_role_pick(g: &mut Game, font: &Font, ui: &mut UiState, c: Rect, u: f32, r
     y - top
 }
 
-fn tab_npc_dialog(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, u: f32, id: u32) -> f32 {
+fn tab_npc_dialog(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, u: f32, id: u32) -> f32 {
     let top = c.y - ui.scroll;
     let mut y = top;
     let Some(n) = g.npcs.iter().find(|n| n.id == id).cloned() else { ui.npc = None; return 0.; };
@@ -1252,6 +1274,9 @@ fn tab_npc_dialog(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c:
             }
             y += hh;
             sep(c, y - 2.);
+            // v32 ขาดของ → บอกว่าหาได้จากไหน (รูป + ทิศ/ระยะ)
+            let lack = g.want_lack(&w.k);
+            if !lack.is_empty() { y += source::draw_lack(g, sp, font, c, y, u, &lack); }
         }
         if let Some((k, give)) = hit { if give { g.want_give(id, &k); } else { g.want_no(id, &k); } }
         y += 6. * u;
