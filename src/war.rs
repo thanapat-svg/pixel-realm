@@ -45,7 +45,7 @@ pub fn draw_dying(g: &Game, sp: &Sprites, v: &View, i: usize) {
         }
         EK::Soldier => {
             // ล้มหงายลงช้าๆ
-            let body = Body::generate(1000 + d.pal as u32 * 7 + (d.x as u32 % 5), false);
+            let body = Body::generate(1000 + d.pal as u32 * 7, false);
             let k = (q * 2.).min(1.);
             let rot = if d.left { 1. } else { -1. } * k * std::f32::consts::FRAC_PI_2;
             skin::draw_figure_rot(sp, &body, skin::ROLE_PARTS[2], (sx - 6.) * v.s, (sy - 15. + k * 8.) * v.s, v.s, rot, col);
@@ -253,13 +253,27 @@ pub struct WarState {
     pub assault: Option<Assault>,
     pub captured: u32,
     pub champs: u32,
+    // v25
+    pub form: u8,
+    pub fdir: f32,
+    pub horn_cd: f32,
+    pub horn_t: f32,
+    pub morale: f32,
+    pub streak: u32,
+    pub last_kill: f32,
+    pub flee_t: f32,
+    pub banner: Option<(f32, f32, f32, bool)>,
+    /// เวลาที่ทหารตีครั้งล่าสุด (ไว้คิดโบนัสปะทะครั้งแรกของหัวลูกศร)
+    pub last_atk: HashMap<u32, f32>,
+    /// แสงวาบตอนทหารเราโดนตี
+    pub hurt_t: HashMap<u32, f32>,
 }
 pub const CHAMP_R: f32 = 36.;
 pub fn soldier_hp(tier: u8) -> f32 { 12. + tier as f32 * 3. }
 
 impl Game {
     pub fn army_candidates(&self) -> Vec<u32> {
-        self.residents().filter(|n| matches!(n.role, 2 | R_SOLDIER | R_GENERAL) && n.mood >= 20 && Game::willing(n) && !n.child && !self.is_sick(n.id) && !self.rs.war.wounded.contains_key(&n.id)).map(|n| n.id).collect()
+        self.residents().filter(|n| matches!(n.role, 2 | R_SOLDIER | R_GENERAL | R_HUNTER) && n.mood >= 20 && Game::willing(n) && !n.child && !self.is_sick(n.id) && !self.rs.war.wounded.contains_key(&n.id)).map(|n| n.id).collect()
     }
     pub fn army_pos(&self) -> Vec<(f32, f32)> {
         if !self.rs.war.march { return vec![]; }
@@ -269,16 +283,20 @@ impl Game {
     pub fn army_call(&mut self, target: Option<usize>) {
         let ids = self.army_candidates();
         let hp = soldier_hp(self.tier());
+        let (fx, fy) = self.p.facing();
         let w = &mut self.rs.war;
         w.march = true;
         w.target = target;
+        if w.assault.is_none() { w.morale = 100.; }
+        if fx.abs() + fy.abs() > 0.1 { w.fdir = fy.atan2(fx); }
         for id in &ids { w.hp.entry(*id).or_insert(hp); }
         w.army = ids.clone();
         // ทหารมาหาเราทันที (เดินมาจากเมือง = วาร์ปมาอยู่ข้างหลัง)
         for id in &ids { if let Some(i) = self.idx(*id) { let n = &mut self.npcs[i]; n.x = self.p.x + gen_range(-20., 20.); n.y = self.p.y + 16. + gen_range(0., 10.); self.rs.sleeping.remove(id); } }
         let to = target.map(|ci| format!(" → เมือง{} ({} ช่อง ทาง{})", self.w.realm.cities[ci].name, self.dist_to(self.w.realm.cities[ci].pos), self.dir_word(self.w.realm.cities[ci].pos))).unwrap_or_default();
+        let na = ids.iter().filter(|id| self.is_archer(**id)).count();
         if ids.is_empty() { self.toast(format!("ยกทัพ{} — ยังไม่มีทหารพร้อมรบ ไปคนเดียวก่อน (ตั้งชาวบ้านใจกล้าเป็นทหารในแท็บชุมชน)", to)); }
-        else { self.toast(format!("ยกทัพ! ทหาร {} นายตามคุณไป{} — เข้าเมืองศัตรูเพื่อเริ่มศึกยึดเมือง", ids.len(), to)); }
+        else { self.toast(format!("ยกทัพ! ทหาร {} นาย{} ตามคุณไป{} · ปุ่ม \"แถว\" สลับการจัดแถว · ปุ่ม \"แตร\" ปลุกใจ", ids.len() - na, if na > 0 { format!(" นักธนู {} นาย", na) } else { String::new() }, to)); }
         play(&self.sfx.quest);
     }
     pub fn army_home(&mut self, why: &str) {
@@ -306,6 +324,16 @@ impl Game {
     }
 
     pub fn war_tick(&mut self, dt: f32) {
+        {
+            let w = &mut self.rs.war;
+            w.horn_cd = (w.horn_cd - dt).max(0.);
+            w.horn_t = (w.horn_t - dt).max(0.);
+            for v in w.hurt_t.values_mut() { *v -= dt; }
+            w.hurt_t.retain(|_, v| *v > 0.);
+        }
+        self.fdir_tick(dt);
+        self.banner_tick(dt);
+        self.morale_tick(dt);
         if self.rs.war.march {
             // ทหารที่ไม่อยู่แล้ว/ป่วย ออกจากทัพ
             let ok: Vec<u32> = self.rs.war.army.iter().copied().filter(|id| self.idx(*id).map_or(false, |i| self.npcs[i].state == ST_HOME) && !self.is_sick(*id)).collect();
@@ -323,6 +351,11 @@ impl Game {
                     .or_else(|| self.bosses.iter().find(|b| !b.dead && (b.x - nx).hypot(b.y - ny) < BOSS_R + 8.).map(|_| 3));
                 if let Some(dmg) = hit {
                     *self.rs.war.hit_cd.get_mut(&id).unwrap() = 0.9;
+                    // แถวหน้ากระดาน -20% · วงกลมคุ้มกัน -30% · ขวัญศัตรูต่ำ = ตีเบา
+                    let fm = match self.rs.war.form { F_LINE => 0.8, F_CIRCLE => 0.7, _ => 1. };
+                    let mm = if self.rs.war.assault.is_some() && self.rs.war.morale < 60. { 0.75 } else { 1. };
+                    let dmg = ((dmg as f32 * fm * mm).round() as i32).max(1);
+                    self.rs.war.hurt_t.insert(id, 0.15);
                     let hp = self.rs.war.hp.entry(id).or_insert(10.);
                     *hp -= dmg as f32;
                     let dead = *hp <= 0.;
@@ -330,7 +363,9 @@ impl Game {
                     if dead { hurt.push(id); }
                 }
             }
+            let had = !self.rs.war.army.is_empty();
             for id in hurt { self.wound(id); }
+            if had && self.rs.war.army.is_empty() { self.army_home("ทหารบาดเจ็บหมดทั้งทัพ — คนถือธงพาทัพถอยกลับเมือง"); }
         }
         self.assault_tick(dt);
     }
@@ -345,6 +380,8 @@ impl Game {
         let total = ((5. + st / 14.) as u32).min(14) + if c.cap { 3 } else { 0 };
         let cap = c.cap && self.w.realm.ks[k].cap == ci;
         self.rs.war.assault = Some(Assault { ci, k, total, spawned: 0, t: 0., champ: if cap { 1 } else { 0 } });
+        self.rs.war.morale = 100.;
+        self.rs.war.streak = 0;
         let army = if self.rs.war.march { self.rs.war.army.len() } else { 0 };
         self.toast(format!("ศึกยึดเมือง{}! ทหาร{} {} นายออกมาตั้งรับ{}{}", c.name, self.kname(k), total, if cap { " · แม่ทัพผู้พิทักษ์เฝ้าปราสาท" } else { "" }, if army > 0 { format!(" · ทัพเรา {} นาย", army) } else { " · ไปคนเดียว (ยกทัพได้ที่แท็บอาณาจักร)".to_string() }));
         self.news_add(format!("{}บุกเมือง{}ของ{}", self.my_name(), c.name, self.kname(k)));
@@ -433,6 +470,7 @@ impl Game {
         self.p.xp += 60;
         self.p.kills += 1;
         self.rs.war.champs += 1;
+        if self.rs.war.assault.is_some() { self.morale_add(-50.); self.toast("แม่ทัพล้ม! ขวัญศัตรูดิ่งลง"); }
         self.check_lv();
         self.shake(3.5, 0.5);
         self.toast(format!("ล้มแม่ทัพแห่ง{}ได้แล้ว!", self.kname(b.k)));
@@ -562,32 +600,313 @@ pub fn draw_champion(g: &Game, sp: &Sprites, v: &View, b: &Boss) {
     prect(v, hx0 - 2. + f * ca * 3., hy0 + sa * 3. - 1., 4., 2., hx(0xd8b040));
 }
 
+/// ตอนนี้กำลังสู้ (บอสใกล้ · ศึกป้องกันเมือง · ศึกยึดเมือง) — ซ่อนแถบเป้าหมาย/คำแนะนำ ให้จอโล่ง
+pub fn in_combat(g: &Game) -> bool {
+    g.rs.siege.is_some() || g.rs.war.assault.is_some() || g.bosses.iter().any(|b| !b.dead && (b.x - g.p.x).hypot(b.y - g.p.y) < 420.)
+}
+/// แถบด้านบนจอเริ่มที่ y เท่าไร (หลบแถบเลือดบอส)
+pub fn top_y(g: &Game, u: f32) -> f32 {
+    if g.bosses.iter().any(|b| (b.x - g.p.x).hypot(b.y - g.p.y) < 420.) { 62. * u } else { 8. * u }
+}
 /// แถบสถานะทัพ / ศึกยึดเมือง
 pub fn draw_war_hud(g: &Game, font: &Font, u: f32) {
     let w = &g.rs.war;
-    let mut lines: Vec<(String, Color)> = vec![];
+    let sw = screen_width();
     if let Some(a) = &w.assault {
+        // กลางบน: ชื่อศึก + ทหารตั้งรับที่เหลือ + แถบขวัญศัตรู
         let c = &g.w.realm.cities[a.ci];
         let alive = g.en.iter().filter(|e| !e.dead && e.k == EK::Soldier && e.pal == a.k).count() as u32;
         let left = a.total - a.spawned + alive;
         let s = match a.champ { 2 => format!("ศึกยึดเมือง{} — ล้มแม่ทัพ!", c.name), _ if left > 0 => format!("ศึกยึดเมือง{} — ทหารตั้งรับเหลือ {} นาย", c.name, left), _ => format!("ศึกยึดเมือง{} — กำลังยึด...", c.name) };
-        lines.push((s, hx(0xff9a8a)));
+        let bw = (sw * 0.42).min(420. * u);
+        let (x, y) = (sw / 2. - bw / 2., top_y(g, u));
+        draw_rectangle(x, y, bw, 40. * u, Color::new(0.1, 0., 0., 0.72));
+        text_c(font, &s, sw / 2., y + 15. * u, 13. * u, hx(0xffb0a0));
+        let m = (w.morale / 100.).clamp(0., 1.);
+        let mc = if w.morale < 35. { hx(0xff6a3a) } else if w.morale < 60. { hx(0xffc84a) } else { hx(0x8ad84a) };
+        let (bx, by, bl) = (x + 70. * u, y + 24. * u, bw - 80. * u);
+        text(font, "ขวัญศัตรู", x + 8. * u, by + 9. * u, 11. * u, hx(0xdddddd));
+        draw_rectangle(bx, by, bl, 9. * u, hx(0x302018));
+        draw_rectangle(bx, by, bl * m, 9. * u, mc);
+        // เส้นแบ่ง: ต่ำกว่า 60 = ตีเบาลง · ต่ำกว่า 35 = เริ่มหนี
+        for q in [0.35, 0.6] { draw_rectangle(bx + bl * q, by, 1.5 * u, 9. * u, Color::new(1., 1., 1., 0.5)); }
     }
     if w.march {
-        let mut s = format!("ทัพของเรา {} นาย", w.army.len());
-        if w.assault.is_none() { if let Some(ci) = w.target { let c = &g.w.realm.cities[ci]; s += &format!(" · เป้าหมาย: เมือง{} {} ช่อง ทาง{}", c.name, g.dist_to(c.pos), g.dir_word(c.pos)); } }
-        lines.push((s, hx(0x9adcff)));
-    }
-    if lines.is_empty() { return; }
-    let x = 14. * u;
-    let mut y = screen_height() - 110. * u - 30. * u * (lines.len() as f32 - 1.);
-    for (s, c) in lines {
+        let mut s = format!("ทัพ {} นาย · แถว{}", w.army.len(), FORM_N[w.form as usize]);
+        s += &if w.horn_t > 0. { format!(" · แตร! {:.0}s", w.horn_t) } else if w.horn_cd > 0. { format!(" · แตรอีก {:.0}s", w.horn_cd) } else { " · แตรพร้อม".to_string() };
+        if !touches_active() { s += " (V แถว · X แตร)"; }
+        if w.assault.is_none() { if let Some(ci) = w.target { let c = &g.w.realm.cities[ci]; s += &format!(" · ไปเมือง{} {} ช่อง ทาง{}", c.name, g.dist_to(c.pos), g.dir_word(c.pos)); } }
         let fs = 13. * u;
+        let x = 14. * u;
+        let y = screen_height() - 178. * u;
         let dm = measure_text(&s, Some(font), fs as u16, 1.);
         draw_rectangle(x - 4. * u, y - fs, dm.width + 10. * u, fs + 8. * u, Color::new(0., 0., 0., 0.55));
-        draw_text_ex(&s, x, y, TextParams { font: Some(font), font_size: fs as u16, color: c, ..Default::default() });
-        y += fs + 12. * u;
+        draw_text_ex(&s, x, y, TextParams { font: Some(font), font_size: fs as u16, color: hx(0x9adcff), ..Default::default() });
     }
+}
+fn touches_active() -> bool { cfg!(target_os = "android") }
+
+// ---------------------------------------------------------------- v25 จัดแถว · กันซ้อน · ขวัญกำลังใจ · แตร · คนถือธง
+pub const F_LINE: u8 = 0;
+pub const F_WEDGE: u8 = 1;
+pub const F_CIRCLE: u8 = 2;
+pub const FORM_N: [&str; 3] = ["หน้ากระดาน", "หัวลูกศร", "วงกลมคุ้มกัน"];
+pub const FORM_DESC: [&str; 3] = ["ทหารประชิดยืนแถวหน้า นักธนูแถวหลัง · รับดาเมจ -20%", "พุ่งทะลวง: เดินเร็ว +25% · ปะทะครั้งแรกดาเมจ x2", "ล้อมรอบตัวคุณ 360 องศา · รับดาเมจ -30% · ไม่ไล่ไกล"];
+pub const HORN_CD: f32 = 40.;
+pub const HORN_T: f32 = 8.;
+pub const SEP_R: f32 = 11.;
+
+/// ตำแหน่งในแถว (ประชิดก่อน แล้วตามด้วยนักธนู) · pos = ตัวเรา · dir = ทิศหน้าของทัพ (หน่วยเวกเตอร์)
+pub fn formation_slots(form: u8, n_melee: usize, n_range: usize, pos: (f32, f32), dir: (f32, f32)) -> Vec<(f32, f32)> {
+    let (fx, fy) = dir;
+    let (px, py) = (-fy, fx);
+    let at = |f: f32, s: f32| (pos.0 + fx * f + px * s, pos.1 + fy * f + py * s);
+    let n = n_melee + n_range;
+    let mut v = Vec::with_capacity(n);
+    match form {
+        F_WEDGE => {
+            for i in 0..n {
+                let r = ((i + 1) / 2) as f32;
+                let side = if i == 0 { 0. } else if i % 2 == 1 { 1. } else { -1. };
+                v.push(at(34. - r * 12., side * r * 12.));
+            }
+        }
+        F_CIRCLE => {
+            // ประชิดวงนอก · นักธนูวงใน
+            let rr = (n_melee as f32 * 15. / std::f32::consts::TAU).max(24.);
+            for i in 0..n_melee {
+                let a = i as f32 / n_melee.max(1) as f32 * std::f32::consts::TAU + fy.atan2(fx);
+                v.push((pos.0 + a.cos() * rr, pos.1 + a.sin() * rr * 0.85));
+            }
+            let ri = (rr * 0.55).max(14.);
+            for i in 0..n_range {
+                let a = (i as f32 + 0.5) / n_range.max(1) as f32 * std::f32::consts::TAU + fy.atan2(fx);
+                v.push((pos.0 + a.cos() * ri, pos.1 + a.sin() * ri * 0.85));
+            }
+        }
+        _ => {
+            // หน้ากระดาน: แถวละ 6 ด้านหน้า · นักธนูแถวละ 6 ด้านหลัง
+            for i in 0..n_melee {
+                let (row, col) = (i / 6, i % 6);
+                let inrow = (n_melee - row * 6).min(6);
+                v.push(at(24. + row as f32 * 13., (col as f32 - (inrow as f32 - 1.) / 2.) * 14.));
+            }
+            for i in 0..n_range {
+                let (row, col) = (i / 6, i % 6);
+                let inrow = (n_range - row * 6).min(6);
+                v.push(at(-20. - row as f32 * 13., (col as f32 - (inrow as f32 - 1.) / 2.) * 14.));
+            }
+        }
+    }
+    v
+}
+
+/// แรงผลักเบาๆ ระหว่างยูนิตฝั่งเดียวกัน (ตารางช่องขนาด r — เช็กแค่ 9 ช่องรอบตัว ไม่ใช่ทุกคู่)
+/// `fixed` = จำนวนจุดแรกที่ไม่ขยับ (เช่น ตัวผู้เล่น) แต่ยังผลักคนอื่น · คืนค่าระยะที่ควรขยับของแต่ละจุด
+pub fn separation(pts: &[(f32, f32)], fixed: usize, r: f32) -> Vec<(f32, f32)> {
+    let mut out = vec![(0f32, 0f32); pts.len()];
+    if pts.len() < 2 { return out; }
+    let cell = |p: (f32, f32)| ((p.0 / r).floor() as i32, (p.1 / r).floor() as i32);
+    let mut grid: HashMap<(i32, i32), Vec<u16>> = HashMap::with_capacity(pts.len());
+    for (i, &p) in pts.iter().enumerate() { grid.entry(cell(p)).or_default().push(i as u16); }
+    for (i, &a) in pts.iter().enumerate() {
+        let (cx, cy) = cell(a);
+        for gy in cy - 1..=cy + 1 {
+            for gx in cx - 1..=cx + 1 {
+                let Some(list) = grid.get(&(gx, gy)) else { continue };
+                for &j in list {
+                    let j = j as usize;
+                    if j <= i { continue; }
+                    let b = pts[j];
+                    let (mut dx, mut dy) = (b.0 - a.0, b.1 - a.1);
+                    let mut d = dx.hypot(dy);
+                    if d >= r { continue; }
+                    if d < 0.01 {
+                        // ซ้อนกันพอดี: แยกตามมุมที่ต่างกันแต่ละคู่ (ไม่สุ่ม = ผลซ้ำได้)
+                        let ang = (i * 7 + j * 13) as f32 * 0.9;
+                        dx = ang.cos(); dy = ang.sin(); d = 1.;
+                    }
+                    let push = (r - d.min(r)) * 0.5;
+                    let (ux, uy) = (dx / d, dy / d);
+                    let (ia, jb) = (i >= fixed, j >= fixed);
+                    let (ka, kb) = match (ia, jb) { (true, true) => (0.5, 0.5), (true, false) => (1., 0.), (false, true) => (0., 1.), _ => (0., 0.) };
+                    out[i].0 -= ux * push * ka * 2.; out[i].1 -= uy * push * ka * 2.;
+                    out[j].0 += ux * push * kb * 2.; out[j].1 += uy * push * kb * 2.;
+                }
+            }
+        }
+    }
+    out
+}
+
+impl Game {
+    pub fn is_archer(&self, id: u32) -> bool { self.idx(id).map_or(false, |i| self.npcs[i].role == R_HUNTER) }
+    pub fn horn_on(&self) -> bool { self.rs.war.horn_t > 0. }
+    /// ทหารประชิดก่อน นักธนูทีหลัง (ลำดับในแถว)
+    pub fn army_order(&self) -> Vec<u32> {
+        let mut m: Vec<u32> = self.rs.war.army.iter().copied().filter(|id| !self.is_archer(*id)).collect();
+        m.extend(self.rs.war.army.iter().copied().filter(|id| self.is_archer(*id)));
+        m
+    }
+    /// ช่องในแถวของทหารแต่ละคน (id → ตำแหน่ง)
+    pub fn army_slots(&self) -> HashMap<u32, (f32, f32)> {
+        let order = self.army_order();
+        let nr = order.iter().filter(|id| self.is_archer(**id)).count();
+        let a = self.rs.war.fdir;
+        let slots = formation_slots(self.rs.war.form, order.len() - nr, nr, (self.p.x, self.p.y), (a.cos(), a.sin()));
+        order.into_iter().zip(slots).collect()
+    }
+    pub fn cycle_formation(&mut self) {
+        if !self.rs.war.march { return; }
+        self.rs.war.form = (self.rs.war.form + 1) % 3;
+        let f = self.rs.war.form as usize;
+        self.toast(format!("จัดแถว: {} — {}", FORM_N[f], FORM_DESC[f]));
+        play(&self.sfx.click);
+    }
+    pub fn blow_horn(&mut self) -> bool {
+        if !self.rs.war.march { return false; }
+        if self.rs.war.horn_cd > 0. { self.toast(format!("แตรยังไม่พร้อม (อีก {:.0} วินาที)", self.rs.war.horn_cd)); return false; }
+        self.rs.war.horn_cd = HORN_CD;
+        self.rs.war.horn_t = HORN_T;
+        if self.rs.war.assault.is_some() { self.morale_add(-8.); }
+        for j in 0..18 {
+            let q = j as f32 / 18. * std::f32::consts::TAU;
+            self.parts.push(Particle { x: self.p.x + q.cos() * 10., y: self.p.y - 8. + q.sin() * 7., vx: q.cos() * 90., vy: q.sin() * 60., l: 0.5, c: hx(0xffd84a) });
+        }
+        self.shake(0.8, 0.2);
+        play(&self.sfx.lvl);
+        self.toast(format!("เป่าแตรปลุกใจ! ทัพตีเร็วขึ้น {} วินาที", HORN_T as i32));
+        true
+    }
+    pub fn morale_add(&mut self, d: f32) {
+        let w = &mut self.rs.war;
+        let before = w.morale;
+        w.morale = (w.morale + d).clamp(0., 100.);
+        if before > 12. && w.morale <= 12. && w.assault.is_some() {
+            // แตกทัพ: ที่เหลือหนีหมด ไม่มีกำลังเสริมอีก
+            let k = w.assault.as_ref().unwrap().k;
+            if let Some(a) = w.assault.as_mut() { a.spawned = a.total; }
+            for e in self.en.iter_mut() { if e.k == EK::Soldier && e.pal == k && !e.dead { e.fl = true; } }
+            self.toast("ศัตรูแตกทัพ! ทหารตั้งรับวิ่งหนีกระเจิง");
+            self.shake(1.2, 0.25);
+        }
+    }
+    /// ล้มทหารตั้งรับ: ขวัญตก (ล้มติดกันยิ่งตกมาก)
+    pub fn morale_on_kill(&mut self, e: &Enemy) {
+        let Some(a) = &self.rs.war.assault else { return };
+        if !(e.k == EK::Soldier && e.pal == a.k) || e.fl { return; }
+        let now = self.time;
+        let w = &mut self.rs.war;
+        w.streak = if now - w.last_kill < 3.5 { w.streak + 1 } else { 1 };
+        w.last_kill = now;
+        let streak = w.streak;
+        let d = 6. + (streak.saturating_sub(1) as f32 * 3.).min(12.);
+        if streak >= 3 { self.add_float(e.x, e.y - 24., format!("ล้มติดกัน x{}", streak), hx(0xffd84a), None); }
+        self.morale_add(-d);
+    }
+    /// ตัวคูณดาเมจของศัตรูฝั่งตั้งรับตามขวัญ
+    pub fn morale_dmg_mul(&self, e: &Enemy) -> f32 {
+        match &self.rs.war.assault { Some(a) if e.k == EK::Soldier && e.pal == a.k && self.rs.war.morale < 60. => 0.75, _ => 1. }
+    }
+    pub fn morale_tick(&mut self, dt: f32) {
+        let Some(k) = self.rs.war.assault.as_ref().map(|a| a.k) else { self.rs.war.morale = 100.; return };
+        if self.time - self.rs.war.last_kill > 5. && self.rs.war.morale > 12. { self.rs.war.morale = (self.rs.war.morale + 1.5 * dt).min(100.); }
+        // ขวัญต่ำ: บางคนถอดใจวิ่งหนี
+        self.rs.war.flee_t -= dt;
+        if self.rs.war.flee_t <= 0. {
+            self.rs.war.flee_t = 1.;
+            let m = self.rs.war.morale;
+            if m < 35. {
+                let mut n = 0;
+                for e in self.en.iter_mut() {
+                    if e.k == EK::Soldier && e.pal == k && !e.dead && !e.fl && gen_range(0., 1.) < 0.12 { e.fl = true; n += 1; }
+                }
+                if n > 0 { self.toast(format!("ทหารศัตรู {} นายถอดใจวิ่งหนี!", n)); }
+            }
+        }
+    }
+    /// คนถือธง: เดินตามหลังเราตอนยกทัพ
+    pub fn banner_tick(&mut self, dt: f32) {
+        if !self.rs.war.march { self.rs.war.banner = None; return; }
+        // ยืนข้างหลังค่อนไปทางขวาของเรา (ไม่ทับช่องแถวแบบไหนเลย)
+        let a = self.rs.war.fdir;
+        let (fx, fy) = (a.cos(), a.sin());
+        let (tx, ty) = (self.p.x - fx * 5. - fy * 11., self.p.y - fy * 5. + fx * 11. + 1.);
+        let b = self.rs.war.banner.get_or_insert((tx, ty, 0., false));
+        let (dx, dy) = (tx - b.0, ty - b.1);
+        let d = dx.hypot(dy);
+        if d > 240. { b.0 = tx; b.1 = ty; }
+        else if d > 3. {
+            let sp = (d * 4.).clamp(40., 120.);
+            let (nx, ny) = (b.0 + dx / d * sp * dt, b.1 + dy / d * sp * dt);
+            if !collide(&self.w, nx, ny) { b.0 = nx; b.1 = ny; } else { b.0 = tx; b.1 = ty; }
+            b.2 += dt;
+            if dx.abs() > 0.5 { b.3 = dx < 0.; }
+        }
+    }
+    /// ทิศหน้าของทัพ: หมุนตามทิศที่เราเดินแบบนุ่มๆ (ไม่สะบัด)
+    pub fn fdir_tick(&mut self, dt: f32) {
+        if !self.p.moving { return; }
+        let (fx, fy) = self.p.facing();
+        if fx.abs() + fy.abs() < 0.1 { return; }
+        let target = fy.atan2(fx);
+        let mut da = target - self.rs.war.fdir;
+        while da > std::f32::consts::PI { da -= std::f32::consts::TAU; }
+        while da < -std::f32::consts::PI { da += std::f32::consts::TAU; }
+        self.rs.war.fdir += da * (dt * 5.).min(1.);
+    }
+    /// กันทหารเราเดินซ้อน (รวมคนถือธง) · ไม่ผลักออกจากตัวเรา (ช่องในแถวไม่ทับตัวเราอยู่แล้ว และให้เดินผ่านได้ ไม่ติดค้างหลังตัวเรา)
+    pub fn army_separate(&mut self, dt: f32) {
+        if !self.rs.war.march { return; }
+        let idxs: Vec<usize> = self.rs.war.army.iter().filter_map(|id| self.idx(*id)).collect();
+        let mut pts: Vec<(f32, f32)> = vec![];
+        pts.extend(idxs.iter().map(|&i| (self.npcs[i].x, self.npcs[i].y)));
+        let has_b = self.rs.war.banner.is_some();
+        if let Some(b) = self.rs.war.banner { pts.push((b.0, b.1)); }
+        let d = separation(&pts, 0, SEP_R);
+        let k = (dt * 10.).min(1.);
+        for (j, &i) in idxs.iter().enumerate() {
+            let (dx, dy) = (d[j].0 * k, d[j].1 * k);
+            let (nx, ny) = (self.npcs[i].x + dx, self.npcs[i].y + dy);
+            if !collide(&self.w, nx, ny) { self.npcs[i].x = nx; self.npcs[i].y = ny; }
+        }
+        if has_b {
+            let dd = d[pts.len() - 1];
+            if let Some(b) = self.rs.war.banner.as_mut() { let (nx, ny) = (b.0 + dd.0 * k, b.1 + dd.1 * k); if !collide(&self.w, nx, ny) { b.0 = nx; b.1 = ny; } }
+        }
+    }
+}
+
+/// คนถือธงสีอาณาจักรเรา
+pub fn draw_banner(g: &Game, sp: &Sprites, v: &View, t: f32) {
+    let Some((x, y, an, left)) = g.rs.war.banner else { return };
+    let (sx, sy) = ((x - v.cx).round(), (y - v.cy).round());
+    let moving = (x - g.p.x).hypot(y - g.p.y) > 18.;
+    let (fr, wb) = if moving { vfx::walk_cycle(an, 8.) } else { (0, 0.) };
+    vfx::char_shadow(v, sx, sy, 7.);
+    let body = Body::generate(4242, false);
+    let f = if left { -1. } else { 1. };
+    // เสาธง (หลังตัว) + ธงโบก
+    let (px, top) = (sx - f * 4., sy - 34. - wb);
+    prect(v, px, top, 1.5, 30., hx(0x6a4424));
+    prect(v, px - 1., top - 2., 3.5, 2., hx(0xd8b040));
+    let mc = hx(MY_COLOR);
+    for c in 0..11 {
+        let wave = ((t * 6. - c as f32 * 0.6).sin() * 1.2).round();
+        let xx = px + 1.5 + f * c as f32 - if left { 1. } else { 0. };
+        let shade = if c % 4 == 3 { 0.82 } else { 1. };
+        prect(v, xx, top + wave, 1., 8., Color::new(mc.r * shade, mc.g * shade, mc.b * shade, 1.));
+        if (3..7).contains(&c) { prect(v, xx, top + 3. + wave, 1., 2., hx(0xffe9a0)); }
+    }
+    skin::draw_figure(sp, &body, skin::ROLE_PARTS[2], (sx - 6.) * v.s, (sy - 15. - wb) * v.s, v.s, 0, fr, left, WHITE);
+    prect(v, sx - 3., sy - 9. - wb, 6., 1., mc);
+}
+/// วงสว่างขาวทับร่าง (แสงวาบตอนโดนตี) สำหรับตัวที่วาดจากชิ้นส่วนเสื้อผ้า
+pub fn hit_flash(v: &View, sx: f32, sy: f32, a: f32) {
+    if a <= 0. { return; }
+    let c = Color::new(1., 1., 1., (a * 0.8).min(0.8));
+    prect(v, sx - 4., sy - 14., 8., 13., c);
+    prect(v, sx - 3., sy - 16., 6., 2., c);
 }
 
 #[cfg(test)]
@@ -739,5 +1058,180 @@ mod tests {
         g.time += DAYLEN;
         g.war_dawn();
         assert!(!g.rs.war.wounded.contains_key(&id), "หายเช้าวันถัดไป");
+    }
+
+    // ---------------------------------------------------------------- v25
+    fn min_dist(p: &[(f32, f32)]) -> f32 {
+        let mut m = f32::MAX;
+        for i in 0..p.len() { for j in i + 1..p.len() { m = m.min((p[i].0 - p[j].0).hypot(p[i].1 - p[j].1)); } }
+        m
+    }
+    #[test]
+    fn formations_line_wedge_circle_shapes() {
+        let pos = (100., 100.);
+        let dir = (1., 0.);
+        let fwd = |p: &(f32, f32)| p.0 - pos.0;
+        // หน้ากระดาน: ประชิดอยู่หน้าเรา นักธนูอยู่หลัง · ไม่ซ้อนกัน
+        let l = formation_slots(F_LINE, 5, 3, pos, dir);
+        assert_eq!(l.len(), 8);
+        assert!(l[..5].iter().all(|p| fwd(p) > 15.), "ประชิดแถวหน้า");
+        assert!(l[5..].iter().all(|p| fwd(p) < -10.), "นักธนูแถวหลัง");
+        assert!(min_dist(&l) >= 12.);
+        // หัวลูกศร: คนแรกแหลมสุดด้านหน้า ปีกซ้ายขวาสมมาตรถอยหลัง
+        let w = formation_slots(F_WEDGE, 7, 0, pos, dir);
+        assert!(w.iter().skip(1).all(|p| fwd(p) < fwd(&w[0])), "ปลายหัวลูกศรอยู่หน้าสุด");
+        assert!((w[1].1 - pos.1 + (w[2].1 - pos.1)).abs() < 0.01, "สมมาตร");
+        assert!(min_dist(&w) >= 12.);
+        // วงกลม: ล้อมรอบ 360 องศา ระยะเท่ากัน
+        let c = formation_slots(F_CIRCLE, 8, 0, pos, dir);
+        let ds: Vec<f32> = c.iter().map(|p| ((p.0 - pos.0).powi(2) + ((p.1 - pos.1) / 0.85).powi(2)).sqrt()).collect();
+        assert!(ds.iter().all(|d| (d - ds[0]).abs() < 0.5 && *d >= 20.));
+        let quad = |q: (bool, bool)| c.iter().any(|p| (p.0 > pos.0) == q.0 && (p.1 > pos.1) == q.1);
+        assert!(quad((true, true)) && quad((true, false)) && quad((false, true)) && quad((false, false)), "ครบทุกทิศ");
+        assert!(min_dist(&c) >= 12.);
+        // หมุนตามทิศหน้า: หันลง = แถวหน้ากระดานอยู่ด้านล่าง
+        let d = formation_slots(F_LINE, 3, 0, pos, (0., 1.));
+        assert!(d.iter().all(|p| p.1 > pos.1 + 15.));
+    }
+    #[test]
+    fn soft_separation_spreads_stacked_units_cheaply() {
+        // 30 คนยืนจุดเดียวกัน → ผลักเบาๆ ไม่กี่วินาทีก็แยกกันชัด · ตัวเรา (จุดตายตัว) ไม่ขยับ
+        let mut pts = vec![(50f32, 50f32); 31];
+        for _ in 0..90 {
+            let d = separation(&pts, 1, SEP_R);
+            for (p, dd) in pts.iter_mut().zip(d.iter()) { p.0 += dd.0 * 0.5; p.1 += dd.1 * 0.5; }
+        }
+        assert_eq!(pts[0], (50., 50.), "จุดตายตัวไม่ขยับ");
+        assert!(min_dist(&pts) > SEP_R * 0.7, "แยกกัน {}", min_dist(&pts));
+        // ห่างกันอยู่แล้วไม่ถูกผลัก
+        let far = vec![(0., 0.), (40., 0.), (0., 40.)];
+        assert!(separation(&far, 0, SEP_R).iter().all(|d| d.0 == 0. && d.1 == 0.));
+        // ทัพใหญ่ 600 ยูนิต: ใช้ตารางช่อง ไม่ใช่ทุกคู่ — เร็วพอแม้ build debug
+        let big: Vec<(f32, f32)> = (0..600).map(|i| ((i % 30) as f32 * 9. + (i / 30) as f32 * 0.3, (i / 30) as f32 * 9.)).collect();
+        let t0 = std::time::Instant::now();
+        for _ in 0..10 { let _ = separation(&big, 0, SEP_R); }
+        let ms = t0.elapsed().as_secs_f64() * 100.;
+        assert!(ms < 40., "600 ยูนิต/เฟรม ใช้ {:.2} ms", ms);
+    }
+    #[test]
+    fn army_holds_formation_without_stacking() {
+        let mut g = Game::new_world_seed(4242, Sfx::default());
+        let r = g.w.realm.clone(); g.rs.init(&r);
+        let (cx, cy) = (tfloor(g.p.x), tfloor(g.p.y));
+        for y in cy - 20..cy + 20 { for x in cx - 20..cx + 20 { g.w.tmod.insert((x, y), 3); g.w.removed.insert((x, y)); } }
+        let ids = soldier_town(&mut g, 6);
+        let hunter = ids[5];
+        let hi = g.idx(hunter).unwrap(); g.npcs[hi].role = R_HUNTER; g.rs.manual.insert(hunter, R_HUNTER);
+        g.army_call(None);
+        assert_eq!(g.rs.war.army.len(), 6, "นักล่าเข้าทัพเป็นนักธนู");
+        for form in [F_LINE, F_WEDGE, F_CIRCLE] {
+            g.rs.war.form = form;
+            // ทุกคนเริ่มที่จุดเดียวกัน
+            for id in &ids { let i = g.idx(*id).unwrap(); g.npcs[i].x = g.p.x; g.npcs[i].y = g.p.y + 30.; }
+            for _ in 0..(5 * 30) { g.npc_tick(1. / 30.); g.war_tick(1. / 30.); }
+            let slots = g.army_slots();
+            let pos: Vec<(f32, f32)> = ids.iter().map(|id| { let i = g.idx(*id).unwrap(); (g.npcs[i].x, g.npcs[i].y) }).collect();
+            for (id, p) in ids.iter().zip(&pos) { let s = slots[id]; assert!((s.0 - p.0).hypot(s.1 - p.1) < 14., "แถว {} อยู่ใกล้ช่องตัวเอง {:?} {:?} p={:?}", FORM_N[form as usize], s, p, (g.p.x, g.p.y)); }
+            assert!(min_dist(&pos) > 7., "ไม่ซ้อนกัน ({}) {}", FORM_N[form as usize], min_dist(&pos));
+        }
+        // คนถือธงตามหลัง
+        let b = g.rs.war.banner.unwrap();
+        assert!((b.0 - g.p.x).hypot(b.1 - g.p.y) < 30.);
+        g.army_home("");
+        g.war_tick(0.1);
+        assert!(g.rs.war.banner.is_none());
+    }
+    #[test]
+    fn morale_drops_with_kill_streaks_and_breaks_the_enemy() {
+        let mut g = Game::new_world_seed(746397394, Sfx::default());
+        let r = g.w.realm.clone(); g.rs.init(&r);
+        let ci = (0..r.cities.len()).find(|&c| !r.cities[c].cap).unwrap();
+        let k = g.city_owner(ci) as usize;
+        g.rs.ks[k].stance = 3;
+        let c = r.cities[ci].clone();
+        g.p.x = c.pos.0 as f32 * 16. + 8.; g.p.y = (c.pos.1 + 2) as f32 * 16. + 8.;
+        assert!(g.assault_begin(ci));
+        for j in 0..6 { g.make_enemy(EK::Soldier, g.p.x + 40. + j as f32 * 12., g.p.y, 1., k, false); }
+        assert_eq!(g.rs.war.morale, 100.);
+        let e0 = g.en.iter().find(|e| e.pal == k).unwrap().clone();
+        assert_eq!(g.morale_dmg_mul(&e0), 1.);
+        // ล้ม 1 ตัว = -6 · ล้มติดกันตัวที่ 2-3 ตกมากขึ้น
+        g.morale_on_kill(&e0);
+        assert_eq!(g.rs.war.morale, 94.);
+        g.morale_on_kill(&e0);
+        assert_eq!(g.rs.war.morale, 85.);
+        g.morale_on_kill(&e0);
+        assert_eq!(g.rs.war.morale, 73.);
+        // ขวัญต่ำกว่า 60 = ศัตรูตีเบาลง
+        g.morale_add(-20.);
+        assert_eq!(g.morale_dmg_mul(&e0), 0.75);
+        // ต่ำกว่า 35 = เริ่มมีคนหนี
+        g.morale_add(-25.);
+        for _ in 0..40 { g.morale_tick(0.5); }
+        assert!(g.en.iter().any(|e| e.fl), "มีคนถอดใจหนี");
+        // แตกทัพ (≤12): ที่เหลือหนีหมด ไม่มีกำลังเสริม
+        g.morale_add(-30.);
+        assert!(g.en.iter().filter(|e| e.pal == k).all(|e| e.fl));
+        let a = g.rs.war.assault.as_ref().unwrap();
+        assert_eq!(a.spawned, a.total);
+        // คนหนีวิ่งออกไปแล้วหายเอง ไม่ดรอปของ
+        let n0 = g.en.len();
+        for _ in 0..(20 * 30) { g.upd_enemies(1. / 30.); }
+        assert!(g.en.len() < n0, "หนีพ้นแล้วหายไป");
+    }
+    #[test]
+    fn champion_down_crushes_morale_and_horn_has_cooldown() {
+        let mut g = Game::new_world_seed(746397394, Sfx::default());
+        let r = g.w.realm.clone(); g.rs.init(&r);
+        let cap = r.ks[0].cap;
+        g.rs.ks[0].stance = 3;
+        let c = r.cities[cap].clone();
+        g.p.x = c.pos.0 as f32 * 16. + 8.; g.p.y = (c.pos.1 + 3) as f32 * 16. + 8.;
+        assert!(g.assault_begin(cap));
+        g.spawn_champion(0, g.p.x + 40., g.p.y);
+        let b = g.bosses.pop().unwrap();
+        g.boss_die(&b);
+        assert_eq!(g.rs.war.morale, 50., "ล้มแม่ทัพ = ขวัญ -50");
+        // แตร: ยกทัพก่อนถึงเป่าได้ · บัฟ 8 วินาที · คูลดาวน์ 40 วินาที
+        assert!(!g.blow_horn());
+        soldier_town(&mut g, 2);
+        g.army_call(None);
+        assert!(g.blow_horn());
+        assert!(g.horn_on());
+        assert_eq!(g.rs.war.morale, 42., "เสียงแตรทำให้ศัตรูขวัญเสีย");
+        assert!(!g.blow_horn(), "ติดคูลดาวน์");
+        for _ in 0..90 { g.war_tick(0.1); }
+        assert!(!g.horn_on(), "บัฟหมดใน 8 วินาที");
+        assert!(!g.blow_horn());
+        for _ in 0..320 { g.war_tick(0.1); }
+        assert!(g.blow_horn(), "คูลดาวน์หมดเป่าได้อีก");
+        // สลับแถว 3 แบบวนกลับ
+        let f0 = g.rs.war.form;
+        for _ in 0..3 { g.cycle_formation(); }
+        assert_eq!(g.rs.war.form, f0);
+    }
+    #[test]
+    fn wedge_first_clash_hits_double() {
+        let mut g = Game::new_world_seed(4242, Sfx::default());
+        let r = g.w.realm.clone(); g.rs.init(&r);
+        let (cx, cy) = (tfloor(g.p.x), tfloor(g.p.y));
+        for y in cy - 20..cy + 20 { for x in cx - 20..cx + 20 { g.w.tmod.insert((x, y), 3); g.w.removed.insert((x, y)); } }
+        let ids = soldier_town(&mut g, 1);
+        g.army_call(None);
+        g.rs.war.form = F_WEDGE;
+        let i = g.idx(ids[0]).unwrap();
+        let (x, y) = (g.npcs[i].x + 8., g.npcs[i].y);
+        g.make_enemy(EK::Slime, x, y, 40., 0, false);
+        g.en[0].stun = 99.;
+        let hp0 = g.en[0].hp;
+        let mut hits = vec![];
+        for _ in 0..(4 * 30) {
+            let before = g.en[0].hp;
+            g.en[0].x = x; g.en[0].y = y; g.en[0].kb = 0.;
+            g.npc_tick(1. / 30.);
+            if g.en[0].hp < before { hits.push(before - g.en[0].hp); }
+        }
+        assert!(hits.len() >= 2, "{:?} {}", hits, hp0);
+        assert_eq!(hits[0], hits[1] * 2., "ปะทะครั้งแรกแรง x2 ครั้งต่อไปปกติ");
     }
 }

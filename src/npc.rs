@@ -137,7 +137,7 @@ impl Game {
     pub fn npc_near(&self) -> Option<u32> { self.npc_near_r(24.) }
     /// ชาวบ้านที่ใกล้ที่สุดในรัศมี r พิกเซล (ไม่นับคนหลงทาง/คนที่หลับ)
     pub fn npc_near_r(&self, r: f32) -> Option<u32> {
-        self.npcs.iter().filter(|n| n.state != ST_LOST && !self.rs.sleeping.contains(&n.id))
+        self.npcs.iter().filter(|n| n.state != ST_LOST && !self.rs.sleeping.contains(&n.id) && !(self.rs.war.march && self.rs.war.army.contains(&n.id)))
             .map(|n| ((n.x - self.p.x).hypot(n.y - (self.p.y - 3.)), n.id))
             .filter(|d| d.0 < r).min_by(|a, b| a.0.partial_cmp(&b.0).unwrap()).map(|d| d.1)
     }
@@ -421,6 +421,7 @@ impl Game {
         let bosses: Vec<(usize, f32, f32)> = self.bosses.iter().enumerate().filter(|(_, b)| !b.dead).map(|(i, b)| (i, b.x, b.y)).collect();
         let mut boss_hits: Vec<usize> = vec![];
         let gather = std::mem::take(&mut self.gather);
+        let slots = if self.rs.war.march { self.army_slots() } else { HashMap::new() };
         let mut npcs = std::mem::take(&mut self.npcs);
         let mut paths = std::mem::take(&mut self.rs.npaths);
         paths.retain(|id, _| npcs.iter().any(|n| n.id == *id));
@@ -429,7 +430,10 @@ impl Game {
         // v24 ทัพของเรา: ทหารที่ตามเราออกรบ
         let army: Vec<u32> = if self.rs.war.march { self.rs.war.army.clone() } else { vec![] };
         let wounded: HashSet<u32> = self.rs.war.wounded.keys().copied().collect();
-        let pf = self.p.facing();
+        let form = self.rs.war.form;
+        let horn = self.horn_on();
+        let mut army_hits: Vec<(usize, f32, f32, bool)> = vec![];
+        let mut arrows: Vec<(f32, f32, f32, f32)> = vec![];
         for n in npcs.iter_mut() {
             let marching = army.iter().position(|&a| a == n.id);
             n.anim += dt;
@@ -459,28 +463,46 @@ impl Game {
                     if d > 26. { tx = px; ty = py; spd = 70.; }
                 }
                 _ if marching.is_some() => {
-                    // เดินแถวตามหลังเรา · เจอศัตรูใกล้ตัวเรา = เข้าตี
+                    // v25 เดินตามช่องในแถว (หน้ากระดาน/หัวลูกศร/วงกลม) · เจอศัตรูในระยะของแถวนั้น = เข้าตี
                     let slot = marching.unwrap();
-                    let (row, col) = ((slot / 4) as f32, (slot % 4) as f32 - 1.5);
-                    let (fx, fy) = if pf.0.abs() + pf.1.abs() < 0.1 { (0., 1.) } else { pf };
-                    let (sx, sy) = (px - fx * (22. + row * 14.) - fy * col * 13., py - fy * (22. + row * 14.) + fx * col * 13.);
-                    let tgt = enemies.iter().filter(|e| (e.1 - px).hypot(e.2 - py) < 190. && (e.1 - n.x).hypot(e.2 - n.y) < 130.).min_by(|a, b| ((a.1 - n.x).hypot(a.2 - n.y)).partial_cmp(&((b.1 - n.x).hypot(b.2 - n.y))).unwrap());
+                    let (sx, sy) = slots.get(&n.id).copied().unwrap_or((px, py + 20.));
+                    let archer = n.role == R_HUNTER;
+                    let (reach, hold): (f32, f32) = match form { F_CIRCLE => (70., 40.), F_LINE => (140., 70.), _ => (160., 999.) };
+                    let fspd = if form == F_WEDGE { 1.25 } else { 1. };
+                    let cd = if horn { 0.45 } else { 0.8 };
+                    let tgt = enemies.iter().filter(|e| (e.1 - px).hypot(e.2 - py) < reach && (e.1 - sx).hypot(e.2 - sy) < hold.max(if archer { 130. } else { 0. }) && (e.1 - n.x).hypot(e.2 - n.y) < if archer { 130. } else { 140. }).min_by(|a, b| ((a.1 - n.x).hypot(a.2 - n.y)).partial_cmp(&((b.1 - n.x).hypot(b.2 - n.y))).unwrap());
                     let btgt = bosses.iter().filter(|b| (b.1 - px).hypot(b.2 - py) < 220.).min_by(|a, b| ((a.1 - n.x).hypot(a.2 - n.y)).partial_cmp(&((b.1 - n.x).hypot(b.2 - n.y))).unwrap());
-                    if let Some(&(ei, ex, ey)) = tgt {
+                    let mut engaged = false;
+                    if archer {
+                        // นักธนู: ยืนประจำช่อง ยิงศัตรู/บอสที่อยู่ในระยะ
+                        tx = sx; ty = sy;
+                        let d = (n.x - sx).hypot(n.y - sy);
+                        if d > 6. { spd = (if d > 60. { 95. } else { 72. }) * fspd; }
+                        let aim = tgt.map(|e| (e.1, e.2 - 5.)).or_else(|| btgt.filter(|b| (b.1 - n.x).hypot(b.2 - n.y) < 150.).map(|b| (b.1, b.2 - 14.)));
+                        if let Some((ax, ay)) = aim { if n.atk_cd <= 0. { n.atk_cd = if horn { 0.8 } else { 1.4 }; arrows.push((n.x, n.y - 9., ax, ay)); n.left = ax < n.x; } }
+                    } else if let Some(&(ei, ex, ey)) = tgt {
+                        engaged = true;
                         let d = (ex - n.x).hypot(ey - n.y);
-                        if d > 13. { tx = ex; ty = ey; spd = 82.; } else if n.atk_cd <= 0. { n.atk_cd = 0.8; hits.push((ei, (ex - n.x) / d.max(1.), (ey - n.y) / d.max(1.))); }
+                        if d > 13. { tx = ex; ty = ey; spd = 84. * fspd; } else if n.atk_cd <= 0. {
+                            n.atk_cd = cd;
+                            let charge = form == F_WEDGE && self.time - self.rs.war.last_atk.get(&n.id).copied().unwrap_or(-99.) > 2.5;
+                            self.rs.war.last_atk.insert(n.id, self.time);
+                            army_hits.push((ei, (ex - n.x) / d.max(1.), (ey - n.y) / d.max(1.), charge));
+                        }
                     } else if let Some(&(bi, bx, by)) = btgt {
+                        engaged = true;
                         // ล้อมตีบอส/แม่ทัพ (ยืนรอบตัว)
                         let a = slot as f32 * 1.7;
                         let (gx, gy) = (bx + a.cos() * (BOSS_R + 6.), by + a.sin() * (BOSS_R + 2.));
                         let d = (gx - n.x).hypot(gy - n.y);
-                        if d > 5. { tx = gx; ty = gy; spd = 82.; } else if n.atk_cd <= 0. { n.atk_cd = 1.0; boss_hits.push(bi); n.left = bx < n.x; }
-                    } else {
+                        if d > 5. { tx = gx; ty = gy; spd = 84. * fspd; } else if n.atk_cd <= 0. { n.atk_cd = cd + 0.2; boss_hits.push(bi); n.left = bx < n.x; }
+                    }
+                    if !archer && !engaged {
                         tx = sx; ty = sy;
                         let d = (n.x - sx).hypot(n.y - sy);
-                        if d > 6. { spd = if d > 60. { 95. } else { 72. }; }
+                        if d > 4. { spd = (if d > 60. { 98. } else if d > 16. { 78. } else { 50. }) * fspd; }
                     }
-                    if (n.x - px).hypot(n.y - py) > 320. { n.x = px - fx * 20.; n.y = py - fy * 20.; }
+                    if (n.x - px).hypot(n.y - py) > 320. { n.x = sx; n.y = sy; }
                     self.rs.sleeping.remove(&n.id);
                 }
                 _ => {
@@ -533,12 +555,28 @@ impl Game {
             }
         }
         self.npcs = npcs;
+        self.army_separate(dt);
         self.rs.npaths = paths;
         if !work_done.is_empty() { self.work_finish(work_done); }
         self.gather = gather;
         let bonus = self.tier() as i32;
         // ทหาร/ยามตี ไม่ต้องหยุดเฟรม (hitstop) — สงวนไว้ให้การตีของเรา
         let hs = self.hitstop;
+        for (ei, dx, dy, charge) in army_hits {
+            if ei < self.en.len() && !self.en[ei].dead {
+                let (ex, ey) = (self.en[ei].x, self.en[ei].y);
+                let gen = if self.npcs.iter().any(|n| n.role == R_GENERAL && n.state == ST_HOME) { 1 } else { 0 };
+                let base = 2 + bonus + gen;
+                let dmg = if charge { base * 2 } else { base };
+                self.damage_enemy(ei, dmg, false, dx, dy);
+                if charge { self.add_float(ex, ey - 16., "พุ่งชน!", hx(0xffb04a), None); self.shake(0.7, 0.08); }
+            }
+        }
+        for (x, y, ax, ay) in arrows {
+            let (dx, dy) = (ax - x, ay - y);
+            let l = dx.hypot(dy).max(1.);
+            self.proj.push(Proj { x, y, vx: dx / l * 220., vy: dy / l * 220., kind: 0, dmg: 2 + bonus, life: 0.9, mine: true, dead: false });
+        }
         for bi in boss_hits {
             if bi < self.bosses.len() && !self.bosses[bi].dead {
                 let (bx, by) = (self.bosses[bi].x, self.bosses[bi].y - 20.);
@@ -605,6 +643,23 @@ pub fn draw_npc(g: &Game, sp: &Sprites, v: &View, i: usize, t_now: f32) {
         skin::draw_figure(sp, &body, role_parts(n.role), (sx - 6.) * v.s, (sy - 15. - bob) * v.s, v.s, 0, f, n.left, WHITE);
     }
     work::draw_work(g, sp, v, n, sx, sy - bob, t_now);
+    // v25 ทัพของเรา: ผ้าคาดสีอาณาจักรเรา · นักธนูถือคันธนู · โดนตี = วาบขาว · บาดเจ็บ = ผ้าพันหัว
+    if g.rs.war.march && g.rs.war.army.contains(&n.id) {
+        prect(v, sx - 3., sy - 9. - bob, 6., 1., hx(MY_COLOR));
+        if n.role == R_HUNTER {
+            let f = if n.left { -1. } else { 1. };
+            for j in 0..7 { let yy = sy - 14. - bob + j as f32; let bend = ((j as f32 - 3.).abs() * 0.5).round(); prect(v, sx + f * (5. - bend), yy, 1., 1., hx(0x7a4a24)); }
+            prect(v, sx + f * 5., sy - 14. - bob, 1., 7., Color::new(0.9, 0.9, 0.9, 0.5));
+        }
+        if let Some(&ht) = g.rs.war.hurt_t.get(&n.id) { war::hit_flash(v, sx, sy - bob, ht * 6.); }
+        if g.horn_on() {
+            // บัฟแตร: ประกายทองรอบตัว
+            let ph = t_now * 7. + n.id as f32;
+            prect(v, sx + ph.cos() * 7., sy - 10. - bob + ph.sin() * 5., 1., 1., hx(0xffe060));
+            prect(v, sx - ph.cos() * 6., sy - 6. - bob - ph.sin() * 4., 1., 1., hx(0xffd040));
+        }
+    }
+    if g.rs.war.wounded.contains_key(&n.id) { prect(v, sx - 3., sy - 15. * k - bob, 6., 2., hx(0xf4f0e8)); prect(v, sx + 2., sy - 14. * k - bob, 1., 1., hx(0xd04a4a)); }
     if n.married {
         prect(v, sx - 2., sy - 20. * k - bob, 2., 1., hx(0xff6688));
         prect(v, sx + 1., sy - 20. * k - bob, 2., 1., hx(0xff6688));

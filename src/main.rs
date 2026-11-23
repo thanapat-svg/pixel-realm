@@ -546,7 +546,7 @@ fn build_sprites(ov: &assets::SpriteOv) -> Sprites {
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum EK { Slime, Skel, Bat, Soldier, Scorp, Wolf, Crab, Imp }
 #[derive(Clone)]
-struct Enemy { path: Path, k: EK, x: f32, y: f32, hp: f32, spd: f32, dmg: i32, xp: i32, coin: i32, vx: f32, vy: f32, kb: f32, flash: f32, wt: f32, wdx: f32, wdy: f32, anim: f32, pal: usize, dead: bool, night: bool, burn: f32, slow: f32, stun: f32, btick: f32, sk: f32 }
+struct Enemy { path: Path, k: EK, x: f32, y: f32, hp: f32, spd: f32, dmg: i32, xp: i32, coin: i32, vx: f32, vy: f32, kb: f32, flash: f32, wt: f32, wdx: f32, wdy: f32, anim: f32, pal: usize, dead: bool, night: bool, burn: f32, slow: f32, stun: f32, btick: f32, sk: f32, fl: bool }
 struct Particle { x: f32, y: f32, vx: f32, vy: f32, l: f32, c: Color }
 struct Float { x: f32, y: f32, t: String, c: Color, l: f32, icon: Option<usize>, sz: f32 }
 struct Player { x: f32, y: f32, dir: usize, flip: bool, hp: i32, maxhp: i32, xp: i32, lvl: i32, sword: usize, pick: bool, rod: bool, elem: u8, elems: u8, inv: [i32; NI], invul: f32, kbx: f32, kby: f32, kbt: f32, atk_t: f32, atk_cd: f32, anim: f32, moving: bool, regen: f32, last_hit: f32, kills: i32, weapon: u8, bow: bool, staff: u8, armor: [u8; 3], outfit: u8, outfits: u8, sp: i32, st: [u8; 4], wplus: [u8; 3], aplus: [u8; 3], dash_t: f32, dash_cd: f32, dash_dir: Vec2, ghost_t: f32, buff_spd: f32, buff_crit: f32, can: bool, water: i32, hunger: f32, thirst: f32, rest: f32, sick: f32, starve: f32, body: Body, hides: i32, coat: bool, boat: bool, bare: bool }
@@ -560,7 +560,7 @@ impl Player {
 }
 
 #[derive(Default)]
-struct Input { hb: Option<usize>, mv: Vec2, atk: bool, eat: bool, fire: bool, menu: Option<usize>, map: bool, act: bool, swap: bool, place: bool, cancel: bool, potion: bool, aim: Option<Vec2>, dash: bool, tile_tap: Option<Vec2>, place_hold: bool, ride: bool, build_tap: Option<Vec2>, build_start: bool, build_end: bool, rot: bool }
+struct Input { hb: Option<usize>, mv: Vec2, atk: bool, eat: bool, fire: bool, menu: Option<usize>, map: bool, act: bool, swap: bool, place: bool, cancel: bool, potion: bool, aim: Option<Vec2>, dash: bool, tile_tap: Option<Vec2>, place_hold: bool, ride: bool, build_tap: Option<Vec2>, build_start: bool, build_end: bool, rot: bool, form: bool, horn: bool }
 
 // ======================= game =======================
 struct Game {
@@ -1140,6 +1140,7 @@ impl Game {
     fn kill(&mut self, e: &Enemy) {
         let c = match e.k { EK::Slime => hx(self_slime_col(e.pal)), EK::Bat => hx(0x5a4670), EK::Skel => hx(0xe8e8d8), EK::Soldier => hx(0xc8c8d0), EK::Scorp => hx(0xc8823a), EK::Wolf => hx(0xc8ccd8), EK::Crab => hx(0xd8483a), EK::Imp => hx(0xff7a30) };
         self.burst(e.x, e.y - 6., c, 8, 60.);
+        self.morale_on_kill(e);
         self.dying.push(war::Dying { k: e.k, x: e.x, y: e.y, pal: e.pal, t: 0., left: e.vx < 0., seed: (e.anim * 1000.) as u32 });
         self.beast_loot(e);
         self.p.xp += e.xp;
@@ -1289,6 +1290,21 @@ impl Game {
             let (dx, dy) = (self.p.x - e.x, self.p.y - e.y);
             let d = dx.hypot(dy).max(0.001);
             if d > 440. && self.w.dun.is_none() && !(e.k == EK::Soldier && (siege_c.is_some() || assault_on)) { e.dead = true; continue; }
+            // v25 ขวัญแตก: วิ่งหนีออกจากศึก (หนีพ้น = หายไป ไม่ดรอปของ)
+            if e.fl {
+                let l = d.max(1.);
+                let (ux, uy) = (-dx / l, -dy / l);
+                let sp = e.spd * 1.3 * dt;
+                for (ax, ay) in [(ux, uy), (ux - uy * 0.8, uy + ux * 0.8), (ux + uy * 0.8, uy - ux * 0.8)] {
+                    let (nx, ny) = (e.x + ax * sp, e.y + ay * sp);
+                    if !collide(&self.w, nx, ny) { e.x = nx; e.y = ny; if ax.abs() > 0.1 { e.vx = ax; } break; }
+                }
+                e.anim += dt;
+                e.flash = (e.flash - dt).max(0.);
+                e.sk = e.sk.min(0.) - dt;
+                if d > 220. || e.sk < -6. { e.dead = true; self.burst(e.x, e.y - 6., hx(0xb8a888), 6, 30.); }
+                continue;
+            }
             let (mut mx, mut my): (f32, f32);
             if e.kb > 0. {
                 e.kb -= dt;
@@ -1381,7 +1397,21 @@ impl Game {
             if e.k == EK::Bat && self.darkv < 0.15 && gen_range(0., 1.) < dt * 0.3 { e.dead = true; }
             let lunge = matches!(e.k, EK::Scorp | EK::Wolf) && e.kb > 0. && e.flash <= 0.;
             if d < 11. && self.p.invul <= 0. && (e.kb <= 0. || lunge) && e.stun <= 0. && !e.dead {
-                self.hurt(e.dmg, dx / d, dy / d);
+                let dm = ((e.dmg as f32 * self.morale_dmg_mul(e)).round() as i32).max(1);
+                self.hurt(dm, dx / d, dy / d);
+            }
+        }
+        // v25 กันศัตรูเดินซ้อนกันเป็นก้อน (ตารางช่อง เช็กเฉพาะช่องรอบตัว)
+        {
+            let ids: Vec<usize> = (0..en.len()).filter(|&i| !en[i].dead && en[i].k != EK::Bat && en[i].k != EK::Imp && en[i].kb <= 0.).collect();
+            if ids.len() >= 2 {
+                let pts: Vec<(f32, f32)> = ids.iter().map(|&i| (en[i].x, en[i].y)).collect();
+                let dd = war::separation(&pts, 0, 10.);
+                let k = (dt * 10.).min(1.);
+                for (j, &i) in ids.iter().enumerate() {
+                    let (nx, ny) = (en[i].x + dd[j].0 * k, en[i].y + dd[j].1 * k);
+                    if !collide(&self.w, nx, ny) { en[i].x = nx; en[i].y = ny; }
+                }
             }
         }
         en.retain(|e| !e.dead);
@@ -1414,6 +1444,8 @@ impl Game {
         if inp.ride { self.toggle_ride(); }
         prof::t("paint_tick", || self.paint_tick(inp.place_hold));
         if inp.rot { self.rotate_build(); }
+        if inp.form { self.cycle_formation(); }
+        if inp.horn { self.blow_horn(); }
         if inp.cancel && self.build_sel.is_some() { self.build_sel = None; self.toast("ยกเลิกโหมดสร้าง"); }
         if self.build_sel.is_none() { self.build_cur = None; }
         if self.build_cur.is_some() && (self.p.x - self.cur_pos.0).hypot(self.p.y - self.cur_pos.1) > 20. { self.build_cur = None; }
@@ -1581,7 +1613,7 @@ fn make_view(cam_x: f32, cam_y: f32) -> View {
     View { s, vw, vh, cx: (cam_x - vw / 2.).round(), cy: (cam_y - vh / 2. - 6.).round() }
 }
 
-enum Draw { Obj(u8, i32, i32), Enemy(usize), Animal(usize), Boss(usize), Player, Loot(usize), Comp, Npc(usize), Lost(f32, f32, u8, u8), Citizen(usize), Caravan(usize), Dying(usize) }
+enum Draw { Obj(u8, i32, i32), Enemy(usize), Animal(usize), Boss(usize), Player, Loot(usize), Comp, Npc(usize), Lost(f32, f32, u8, u8), Citizen(usize), Caravan(usize), Dying(usize), Banner }
 
 fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     let w = &g.w;
@@ -1676,6 +1708,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         if e.k == EK::Skel && g.darkv > 0.3 { lights.push((sx, sy - 11., 12., 0)); }
         if e.k == EK::Imp && g.darkv > 0.2 { lights.push((sx, sy - 14., 18., 1)); }
     }
+    if let Some(b) = g.rs.war.banner { list.push((b.1, Draw::Banner)); }
     for (i, d) in g.dying.iter().enumerate() {
         if (d.x - g.p.x).abs() < 440. && (d.y - g.p.y).abs() < 320. { list.push((d.y - 0.5, Draw::Dying(i))); }
     }
@@ -1807,7 +1840,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                     EK::Soldier => {
                         // ทหารอาณาจักร: คนใส่เกราะ + ผ้าคาดสีอาณาจักร
                         vfx::char_shadow(v, sx, sy, 8.);
-                        let body = Body::generate(1000 + (e.anim * 0.) as u32 + e.pal as u32 * 7 + (e.x as u32 % 5), false);
+                        let body = Body::generate(1000 + e.pal as u32 * 7, false);
                         let (f, wb) = vfx::walk_cycle(e.anim, 9.);
                         let sy = sy - wb;
                         let tint = if white { Color::new(2., 2., 2., 1.) } else { c };
@@ -1815,6 +1848,8 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                         let kc = if e.pal < g.w.realm.ks.len() { hx(g.w.realm.ks[e.pal].color) } else { RED };
                         prect(v, sx - 3., sy - 9., 6., 1., kc);
                         prect(v, sx - 1., sy - 18., 2., 2., kc);
+                        if white { war::hit_flash(v, sx, sy, (e.flash - 0.1) * 8.); }
+                        if e.fl { prect(v, sx + 4., sy - 24., 2., 5., WHITE); prect(v, sx + 4., sy - 18., 2., 2., WHITE); }
                     }
                     EK::Scorp | EK::Wolf | EK::Crab | EK::Imp => {
                         let tint = if white { Color::new(1., 1., 1., 1.) } else { c };
@@ -1837,6 +1872,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
             Draw::Citizen(i) => draw_citizen(g, sp, v, i),
             Draw::Caravan(i) => living::draw_caravan(g, sp, v, i, t_now),
             Draw::Dying(i) => war::draw_dying(g, sp, v, i),
+            Draw::Banner => war::draw_banner(g, sp, v, t_now),
             Draw::Lost(x, y, name, look) => draw_lost(g, sp, v, x, y, name, look, t_now),
             Draw::Player => {
                 let p = &g.p;
@@ -2332,13 +2368,13 @@ fn finish_minimap(g: &Game, img: &mut Image, tex: &Texture2D, ctr: (i32, i32), s
 }
 
 // ---------- touch controls ----------
-struct TouchUI { active: bool, joy_id: Option<u64>, joy_c: Vec2, joy_v: Vec2, atk_id: Option<u64>, aim: Vec2, flash: [f32; 10], place_id: Option<u64>, atk_start: Vec2, build_id: Option<u64> }
+struct TouchUI { active: bool, joy_id: Option<u64>, joy_c: Vec2, joy_v: Vec2, atk_id: Option<u64>, aim: Vec2, flash: [f32; 12], place_id: Option<u64>, atk_start: Vec2, build_id: Option<u64> }
 /// 0 โจมตี/เล็ง · 1 กิน · 2 กองไฟ · 3 เมนู · 4 แผนที่ · 5 สลับอาวุธ · 6 ใช้ · 7 วางสิ่งปลูกสร้าง
 /// หน่วยขนาดปุ่มทัช: อิงความสูงจอ (ปุ่มโจมตี ≈ 16 มม. บนมือถือทั่วไป) × ตัวเลือกขนาดปุ่มในตั้งค่า
 fn tunit() -> f32 {
     (screen_height() / 450.).clamp(1., 3.2) * prefs::touch_mul()
 }
-fn touch_buttons() -> [(Vec2, f32, usize); 10] {
+fn touch_buttons() -> [(Vec2, f32, usize); 12] {
     let t = tunit();
     let (sw, sh) = (screen_width(), screen_height());
     let mm = minimap_rect(false);
@@ -2354,6 +2390,8 @@ fn touch_buttons() -> [(Vec2, f32, usize); 10] {
         (vec2(sw - 80. * t, sh - 244. * t), 28. * t, 7),  // วางสิ่งปลูกสร้าง
         (vec2(sw - 170. * t, sh - 56. * t), 32. * t, 8),  // พุ่ง
         (vec2(sw - 238. * t, sh - 194. * t), 26. * t, 9), // ขึ้น/ลงม้า (มีม้าแล้วเท่านั้น)
+        (vec2(sw - 156. * t, sh - 226. * t), 26. * t, 10), // v25 จัดแถว (เฉพาะตอนยกทัพ)
+        (vec2(sw - 80. * t, sh - 250. * t), 28. * t, 11),  // v25 เป่าแตร (เฉพาะตอนยกทัพ · ตำแหน่งเดียวกับปุ่มวางของซึ่งมีแค่ตอนสร้าง)
     ]
 }
 /// รัศมีแสงที่ "หายใจ" เข้าออกอย่างนุ่มนวล (ph = เฟสของแหล่งแสง) + ประกายเล็กน้อยสำหรับไฟ
@@ -2363,7 +2401,7 @@ fn pulse_r(base: f32, t: f32, ph: f32, flick: f32) -> f32 {
 fn tile_of(v: &View, p: Vec2) -> (i32, i32) {
     (((p.x / v.s + v.cx) / 16.).floor() as i32, ((p.y / v.s + v.cy) / 16.).floor() as i32)
 }
-fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool, horse: bool, block: &[Rect]) {
+fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool, horse: bool, army: bool, block: &[Rect]) {
     let ts = touches();
     if !ts.is_empty() { tu.active = true; }
     let btns = touch_buttons();
@@ -2381,6 +2419,7 @@ fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool, horse: bool, blo
                 for (c, r, id) in btns {
                     if id == 7 && !build { continue; }
                     if id == 9 && !horse { continue; }
+                    if (id == 10 || id == 11) && (!army || build) { continue; }
                     let q = t.position.distance(c) / r;
                     if q < 1.3 && best.map_or(true, |(bq, _)| q < bq) { best = Some((q, id)); }
                 }
@@ -2397,6 +2436,8 @@ fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool, horse: bool, blo
                         6 => inp.act = true,
                         8 => inp.dash = true,
                         9 => inp.ride = true,
+                        10 => inp.form = true,
+                        11 => inp.horn = true,
                         _ => { inp.place = true; tu.place_id = Some(t.id); }
                     }
                 }
@@ -2443,7 +2484,7 @@ fn handle_touch(tu: &mut TouchUI, inp: &mut Input, build: bool, horse: bool, blo
         if tu.aim.length() > 0.5 { inp.aim = Some(tu.aim); }
     }
 }
-fn draw_touch(tu: &TouchUI, sp: &Sprites, font: &Font, build: bool, weapon: u8, dash_cd: f32, use_lab: Option<&str>, horse: (bool, bool)) {
+fn draw_touch(tu: &TouchUI, sp: &Sprites, font: &Font, build: bool, weapon: u8, dash_cd: f32, use_lab: Option<&str>, horse: (bool, bool), army: Option<(u8, f32, bool)>) {
     if !tu.active { return; }
     let u = tunit();
     const TA: f32 = 0.62;
@@ -2466,6 +2507,7 @@ fn draw_touch(tu: &TouchUI, sp: &Sprites, font: &Font, build: bool, weapon: u8, 
     for (c, r, id) in touch_buttons() {
         if id == 7 && !build { continue; }
         if id == 9 && !horse.0 { continue; }
+        if (id == 10 || id == 11) && (army.is_none() || build) { continue; }
         let held = (id == 0 && tu.atk_id.is_some()) || tu.flash[id] > 0.;
         let base = if id == 0 { Color::new(0.85, 0.25, 0.15, 0.38) } else if id == 7 { Color::new(0.1, 0.55, 0.25, 0.4) } else { Color::new(0.05, 0.05, 0.1, 0.42) };
         draw_circle(c.x, c.y, r, base);
@@ -2493,6 +2535,27 @@ fn draw_touch(tu: &TouchUI, sp: &Sprites, font: &Font, build: bool, weapon: u8, 
             3 => tc("เมนู", c.x, c.y + 5. * u, 14. * u, WHITE),
             4 => tc("แผนที่", c.x, c.y + 5. * u, 13. * u, WHITE),
             9 => tc(if horse.1 { "ลงม้า" } else { "ม้า" }, c.x, c.y + 5. * u, 13. * u, hx(0xffd8a0)),
+            10 => {
+                // ไอคอนรูปแถว: จุดเรียงตามแบบที่ใช้อยู่ + ชื่อแถว
+                let f = army.map_or(0, |a| a.0);
+                draw_circle(c.x, c.y, r, Color::new(0.15, 0.3, 0.6, 0.5));
+                let dots: Vec<(f32, f32)> = match f { 1 => vec![(0., -8.), (-5., -2.), (5., -2.), (-10., 4.), (10., 4.)], 2 => (0..6).map(|i| { let a = i as f32 * 1.047; (a.cos() * 9., a.sin() * 9. - 2.) }).collect(), _ => vec![(-10., -6.), (-5., -6.), (0., -6.), (5., -6.), (10., -6.), (-5., 2.), (5., 2.)] };
+                for (dx, dy) in dots { draw_circle(c.x + dx * u, c.y + dy * u, 2.4 * u, WHITE); }
+                if f == 2 { draw_circle(c.x, c.y - 2. * u, 2.4 * u, hx(0xffd84a)); }
+                tc(war::FORM_N[f as usize], c.x, c.y + r * 0.9, 10. * u, WHITE);
+            }
+            11 => {
+                let (cdf, on) = army.map_or((0., false), |a| (a.1, a.2));
+                draw_circle(c.x, c.y, r, if on { Color::new(0.85, 0.6, 0.1, 0.6) } else { Color::new(0.45, 0.3, 0.05, 0.5) });
+                // แตรเขาสัตว์
+                draw_triangle(vec2(c.x - 10. * u, c.y - 2. * u), vec2(c.x + 9. * u, c.y - 10. * u), vec2(c.x + 9. * u, c.y + 6. * u), hx(0xf0d080));
+                draw_circle(c.x - 10. * u, c.y - 2. * u, 3. * u, hx(0xc8a050));
+                if cdf > 0. {
+                    // คูลดาวน์: ทับสีเทาตามเวลาที่เหลือ
+                    draw_circle(c.x, c.y, r * cdf, Color::new(0.1, 0.1, 0.1, 0.55));
+                }
+                tc("แตร", c.x, c.y + r * 0.9, 11. * u, if cdf > 0. { hx(0x999999) } else { hx(0xffe8a0) });
+            }
             5 if build => {
                 // โหมดสร้าง: ปุ่มสลับกลายเป็น "เลิกสร้าง" สีแดง
                 draw_circle(c.x, c.y, r, Color::new(0.8, 0.15, 0.15, 0.55));
@@ -2536,6 +2599,7 @@ fn debug_keys(g: &mut Game) {
     if shift && is_key_pressed(KeyCode::F4) { for (j, k) in [EK::Scorp, EK::Wolf, EK::Crab, EK::Imp].into_iter().enumerate() { let (x, y) = (g.p.x - 60. + j as f32 * 40., g.p.y + 50.); g.make_enemy(k, x, y, 1., 0, false); if let Some(e) = g.en.last_mut() { e.stun = 6.; } } }
     if shift && is_key_pressed(KeyCode::F5) { let r = g.w.realm.clone(); if !g.rs.inited { g.rs.init(&r); } let (x, y) = (g.p.x + 50., g.p.y - 10.); g.spawn_champion(0, x, y); }
     if shift && is_key_pressed(KeyCode::F6) { for n in g.npcs.iter_mut() { n.role = R_SOLDIER; n.mood = 80; } g.army_call(None); }
+    if shift && is_key_pressed(KeyCode::F8) { for j in 0..40 { let q = j as f32 * 0.7; let (x, y) = (g.p.x + 90. + q.cos() * (20. + j as f32), g.p.y + q.sin() * (20. + j as f32)); if !collide(&g.w, x, y) { g.make_enemy(EK::Soldier, x, y, 1.5, 99, false); } } }
     if shift && is_key_pressed(KeyCode::F7) { let n = g.en.len(); for i in (0..n).rev() { g.damage_enemy(i, 999, false, 1., 0.); } }
     if shift && is_key_pressed(KeyCode::F3) { let d = day_of(g); let e = (d % 4) as u8; g.start_event(e, d); }
     if shift && is_key_pressed(KeyCode::F12) { g.saga.end_day = day_of(g); g.rs.ending = Some(0.); }
@@ -2669,7 +2733,7 @@ async fn main() {
     bg.w = World::new(gen_range(1, i32::MAX));
     bg.p.invul = 0.07; // ซ่อนผู้เล่นบนหน้าเมนู
     let mut state = State::Title;
-    let mut tu = TouchUI { active: false, joy_id: None, joy_c: Vec2::ZERO, joy_v: Vec2::ZERO, atk_id: None, aim: Vec2::ZERO, flash: [0.; 10], place_id: None, atk_start: Vec2::ZERO, build_id: None };
+    let mut tu = TouchUI { active: std::env::var("PIXEL_TOUCH").is_ok(), joy_id: None, joy_c: Vec2::ZERO, joy_v: Vec2::ZERO, atk_id: None, aim: Vec2::ZERO, flash: [0.; 12], place_id: None, atk_start: Vec2::ZERO, build_id: None };
     let mut ui = UiState::new();
     let mut t_now = 0f32;
     let mut mouse_armed = false;
@@ -2951,6 +3015,8 @@ async fn main() {
                     inp.place = is_key_pressed(KeyCode::R);
                     inp.place_hold = is_key_down(KeyCode::R);
                     inp.rot = is_key_pressed(KeyCode::Y) && g.build_sel.is_some();
+                    inp.form = is_key_pressed(KeyCode::V);
+                    inp.horn = is_key_pressed(KeyCode::X);
                     inp.swap = is_key_pressed(KeyCode::Tab);
                     inp.ride = is_key_pressed(KeyCode::G);
                     inp.dash = is_key_pressed(KeyCode::LeftShift) || is_key_pressed(KeyCode::K);
@@ -2968,7 +3034,7 @@ async fn main() {
                     let adv = advisor::adv_rects(g);
                     if let Some((r, _, _)) = adv { block.push(r); }
                     if !g.big_map { block.push(minimap_rect(false)); }
-                    handle_touch(&mut tu, &mut inp, g.build_sel.is_some(), g.rs.horse, &block);
+                    handle_touch(&mut tu, &mut inp, g.build_sel.is_some(), g.rs.horse, g.rs.war.march, &block);
                     // เมาส์ซ้าย = โจมตี/ยิงไปทางเมาส์ (เริ่มทำงานหลังปล่อยปุ่มครั้งแรก กันคลิกจากเมนูหลุดมา)
                     let mp: Vec2 = mouse_position().into();
                     if !is_mouse_button_down(MouseButton::Left) { mouse_armed = true; }
@@ -3149,7 +3215,7 @@ async fn main() {
                 }
                 if in_play {
                     prof::lap("L:before_touch");
-                    draw_touch(&tu, &sp, &font, g.build_sel.is_some(), if g.p.bare || (g.p.weapon == 0 && g.p.sword == 0) { 3 } else { g.p.weapon }, g.p.dash_cd, g.use_label().as_deref(), (g.rs.horse, g.rs.riding));
+                    draw_touch(&tu, &sp, &font, g.build_sel.is_some(), if g.p.bare || (g.p.weapon == 0 && g.p.sword == 0) { 3 } else { g.p.weapon }, g.p.dash_cd, g.use_label().as_deref(), (g.rs.horse, g.rs.riding), if g.rs.war.march { Some((g.rs.war.form, g.rs.war.horn_cd / war::HORN_CD, g.horn_on())) } else { None });
                     if !tu.active && g.p.weapon > 0 {
                         let (mx, my) = mouse_position();
                         let c = Color::new(1., 1., 0.6, 0.9);
@@ -3421,7 +3487,7 @@ mod tests {
         g.p.inv[ARROW] = 2;
         g.p.x = 0.; g.p.y = 0.;
         // ศัตรูทางขวา
-        g.en.push(Enemy { path: Path::default(), night: false, burn: 0., slow: 0., stun: 0., btick: 0., sk: 0., k: EK::Skel, x: 60., y: 6., hp: 4., spd: 0., dmg: 1, xp: 1, coin: 2, vx: 0., vy: 0., kb: 0., flash: 0., wt: 0., wdx: 0., wdy: 0., anim: 0., pal: 0, dead: false });
+        g.en.push(Enemy { path: Path::default(), night: false, burn: 0., slow: 0., stun: 0., btick: 0., sk: 0., fl: false, k: EK::Skel, x: 60., y: 6., hp: 4., spd: 0., dmg: 1, xp: 1, coin: 2, vx: 0., vy: 0., kb: 0., flash: 0., wt: 0., wdx: 0., wdy: 0., anim: 0., pal: 0, dead: false });
         // กันกำแพง: ล้างวัตถุในแนวยิง
         for tx in -2..8 { for ty in -2..2 { g.w.removed.insert((tx, ty)); } }
         for _ in 0..5 { g.w.tmod.insert((0, 0), 3); }

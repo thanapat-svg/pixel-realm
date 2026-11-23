@@ -1419,7 +1419,7 @@ pub fn draw_siege_hud(g: &Game, font: &Font, u: f32) {
     let left = s.total - s.spawned + alive;
     let sw = screen_width();
     let w = (sw * 0.5).min(420. * u);
-    let (x, y) = (sw / 2. - w / 2., 92. * u);
+    let (x, y) = (sw / 2. - w / 2., war::top_y(g, u));
     draw_rectangle(x, y, w, 36. * u, Color::new(0.1, 0., 0., 0.75));
     text_c(font, &format!("ศึกป้องกันเมือง: ทัพ{} · เหลือ {}/{} นาย", g.kname(s.k), left, s.total), sw / 2., y + 14. * u, 13. * u, hx(0xffb0b0));
     draw_rectangle(x + 6. * u, y + 22. * u, w - 12. * u, 8. * u, hx(0x301818));

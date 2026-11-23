@@ -164,7 +164,7 @@ impl Game {
         self.rs.adv_t -= dt;
         if self.rs.adv_t > 0. { return; }
         self.rs.adv_t = 4.;
-        if !prefs::advisor() || self.rs.adv_show.is_some() || self.tut < TUT_N { return; }
+        if !prefs::advisor() || self.rs.adv_show.is_some() || self.tut < TUT_N || war::in_combat(self) { return; }
         let now = self.time;
         let list = self.advice();
         if let Some(a) = list.into_iter().filter(|a| a.prio <= 2).find(|a| self.rs.adv_cd.get(&a.id).map_or(true, |&t| now >= t)) {
@@ -199,6 +199,7 @@ pub fn cost_str(c: &[(usize, i32)]) -> String { c.iter().map(|(i, n)| format!("{
 // ---------------------------------------------------------------- แถบคำแนะนำ (เด้งบนจอ)
 /// (แถบ, ปุ่มทำ, ปุ่มปิด)
 pub fn adv_rects(g: &Game) -> Option<(Rect, Option<Rect>, Rect)> {
+    if war::in_combat(g) { return None; }
     let (a, _) = g.rs.adv_show.as_ref()?;
     let u = ui_scale();
     let sw = screen_width();

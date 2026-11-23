@@ -101,6 +101,7 @@ pub fn top_goal(g: &Game) -> Option<TopGoal> {
     g.adv_next().map(TopGoal::Adv)
 }
 pub fn draw_adv(g: &Game, font: &Font, u: f32) {
+    if war::in_combat(g) { return; }
     let Some(goal) = top_goal(g) else { return };
     let sw = screen_width();
     let w = (420. * u).min(sw * 0.38);
