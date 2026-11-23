@@ -1210,7 +1210,7 @@ mod tests {
             assert!(mv.is_some(), "{}", k as u8);
             match k {
                 EK::Scorp | EK::Wolf => assert!(e.kb > 0. && e.vx < -100., "พุ่งเข้าหาเรา (อยู่ทางซ้าย)"),
-                EK::Imp => assert!(!g.proj.is_empty() || (e.x - (g.p.x + 30.)).abs() > 1., "ยิงลูกไฟหรือวาร์ป"),
+                EK::Imp => assert!(!g.proj.is_empty() || (e.x - (g.p.x + 30.)).abs() > 1. || (e.y - g.p.y).abs() > 1., "ยิงลูกไฟหรือวาร์ป (วาร์ปสุ่มตำแหน่ง อาจบังเอิญใกล้จุดเดิมในแกน x)"),
                 _ => { let (mx, my) = mv.unwrap(); assert!(mx.abs() > my.abs(), "ปูเดินข้าง"); }
             }
             // ไกลเกินไป = ใช้พฤติกรรมเดินเล่นเดิม
