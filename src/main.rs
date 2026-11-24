@@ -75,7 +75,7 @@ mod v34;
 use v34::{draw_bad_doors, draw_pix_axe, TOOL_AXE, TOOL_PICK};
 mod v35;
 /// เลขเวอร์ชันที่โชว์ในหน้าตั้งค่า (ตรงกับ versionName ของ APK)
-pub const GAME_VER: &str = "v38";
+pub const GAME_VER: &str = "v39";
 mod v36;
 mod arch;
 use v35::{draw_forage, J_CRAFT, J_CURE, J_FORAGE, SELF_HOME, SELF_PROJ};

@@ -203,7 +203,13 @@ impl Game {
         self.rs.build_arm = None;
         if self.rs.work.get(&id).map_or(false, |j| j.kind == J_ASK) { self.rs.work.remove(&id); }
         let nm = self.idx(id).map(|i| NPC_NAMES[self.npcs[i].name as usize]).unwrap_or("");
-        self.toast(format!("เลือกที่ให้{}: แตะพื้น 2 ครั้ง = ให้ตรงนั้น", nm));
+        // v39 บอกว่าบ้านเขาอยู่ไหน (ไร่ต้องอยู่รอบบ้านเขา)
+        let home = if a.kind == AK_FARM { self.idx(id).map(|i| self.npcs[i].bed).map(|b| {
+            let (dx, dy) = (b.0 - tfloor(self.p.x), b.1 - tfloor(self.p.y - 3.));
+            let d = dx.abs().max(dy.abs());
+            if d <= 8 { " · บ้านเขาอยู่ใกล้ๆ นี่ (หมุดเหลือง)".to_string() } else { format!(" · บ้านเขาอยู่{} {} ช่อง (ตามลูกศรเหลือง)", dir_word(dx, dy), d) }
+        }).unwrap_or_default() } else { String::new() };
+        self.toast(format!("เลือกที่ให้{}: แตะพื้น 2 ครั้ง = ให้ตรงนั้น{}", nm, home));
     }
     pub fn permit_pick_cancel(&mut self) -> bool {
         if self.rs.pm.pick.take().is_none() { return false; }
@@ -212,8 +218,36 @@ impl Game {
         self.toast("ยังไม่ได้ให้ที่ — ตอบทีหลังได้ที่หน้าของเขาในแท็บชุมชน");
         true
     }
+    /// v39 ผืนไร่: แตะไกลบ้านเขาแค่ไหนก็ตาม ดึงผืนเข้ามาในเขตรอบบ้านเขาให้เอง (จุดที่ใกล้ที่แตะที่สุด)
+    pub fn permit_at(&self, t: (i32, i32)) -> (i32, i32) {
+        let Some(id) = self.rs.pm.pick else { return t };
+        if self.ask_of(id).map_or(true, |a| a.kind != AK_FARM) { return t; }
+        let Some(i) = self.idx(id) else { return t };
+        let bed = self.npcs[i].bed;
+        let r = FIELD_R + 2;
+        let (x0, x1, y0, y1) = (bed.0 - r, bed.0 + r - (FIELD_W - 1), bed.1 - r, bed.1 + r - (FIELD_H - 1));
+        let c = (t.0.clamp(x0, x1), t.1.clamp(y0, y1));
+        if c == t { return t; }
+        // นอกเขต: เลือกจุดในเขตที่ใกล้ที่แตะที่สุดและทำไร่ได้จริง
+        let mut best: Option<(i32, (i32, i32))> = None;
+        for y in y0..=y1 { for x in x0..=x1 {
+            let d = (x - t.0).abs() + (y - t.1).abs();
+            if best.map_or(false, |b| d >= b.0) { continue; }
+            if self.farm_blocked((x, y), Some(id)).is_none() { best = Some((d, (x, y))); }
+        } }
+        best.map(|b| b.1).unwrap_or(c)
+    }
+    /// เขตที่ทำไร่ได้รอบบ้านเขา (ช่องมุมซ้ายบน, มุมขวาล่าง) + ช่องเตียง
+    pub fn permit_zone(&self) -> Option<((i32, i32), (i32, i32), (i32, i32), u32)> {
+        let id = self.rs.pm.pick?;
+        if self.ask_of(id)?.kind != AK_FARM { return None; }
+        let bed = self.npcs[self.idx(id)?].bed;
+        let r = FIELD_R + 2;
+        Some(((bed.0 - r, bed.1 - r), (bed.0 + r, bed.1 + r), bed, id))
+    }
     /// พรีวิวที่เลือก: (ช่อง, เหตุผลที่ใช้ไม่ได้)
     pub fn permit_preview(&self, t: (i32, i32)) -> Option<(Vec<(i32, i32)>, Option<String>)> {
+        let t = self.permit_at(t);
         let id = self.rs.pm.pick?;
         let a = self.ask_of(id)?;
         let i = self.idx(id)?;
@@ -221,7 +255,12 @@ impl Game {
         let cells = self.area_cells(a.kind, t, self.build_dir);
         let bad: Option<String> = if a.kind == AK_FARM {
             if farm_cells(t).iter().any(|c| (c.0 - bed.0).abs() > FIELD_R + 2 || (c.1 - bed.1).abs() > FIELD_R + 2) { Some(format!("ไกลบ้านของเขาเกินไป (ไม่เกิน {} ช่องจากเตียง)", FIELD_R)) }
-            else { self.farm_blocked(t, Some(id)).map(|s| s.to_string()) }
+            else { self.farm_blocked(t, Some(id)).map(|s| {
+                // ทั้งเขตรอบบ้านเขาไม่มีที่ไถได้เลย → บอกตรงๆ ว่าต้องแก้ยังไง
+                let r = FIELD_R + 2;
+                let any = (bed.1 - r..=bed.1 + r - (FIELD_H - 1)).any(|y| (bed.0 - r..=bed.0 + r - (FIELD_W - 1)).any(|x| self.farm_blocked((x, y), Some(id)).is_none()));
+                if any { s.to_string() } else { "รอบบ้านเขาไม่มีดินที่ไถได้เลย (หิมะ/ทราย/หิน) — ย้ายบ้านเขาไปใกล้ทุ่งหญ้า/ริมน้ำ หรือกดยังไม่ให้".to_string() }
+            }) }
         } else { self.prefab_blocked(a.kind, t, self.build_dir).or(self.land_taken(&cells, Some(id))).map(|s| s.to_string()) };
         Some((cells, bad))
     }
@@ -231,7 +270,7 @@ impl Game {
         let Some((_, bad)) = self.permit_preview(t) else { self.permit_pick_cancel(); return false };
         if let Some(why) = bad { self.toast(why); return false; }
         let Some(mut a) = self.ask_of(id).cloned() else { return false };
-        a.at = t;
+        a.at = self.permit_at(t);
         a.dir = self.build_dir;
         self.rs.pm.pick = None;
         self.build_sel = None;
@@ -343,6 +382,46 @@ pub fn draw_permit_world(g: &Game, v: &View, font: &Font, t: f32) {
 }
 /// โหมดเลือกที่ให้: พรีวิวเขียว/แดง ตามจุดที่แตะ
 pub fn draw_permit_preview(g: &Game, v: &View, font: &Font, t: f32) {
+    // v39 ทำไร่: เขตรอบบ้านเขา (กรอบเขียวจาง) + หมุดที่บ้าน + ลูกศรชี้ถ้าบ้านอยู่นอกจอ
+    if let Some((a, b, bed, id)) = g.permit_zone() {
+        let zone: Vec<(i32, i32)> = vec![a, b];
+        let (zx, zy) = ((a.0 as f32 * 16. - v.cx) * v.s, (a.1 as f32 * 16. - v.cy) * v.s);
+        let (zw, zh) = (((b.0 - a.0 + 1) * 16) as f32 * v.s, ((b.1 - a.1 + 1) * 16) as f32 * v.s);
+        draw_rectangle(zx, zy, zw, zh, Color::new(0.5, 1., 0.5, 0.07));
+        dash_rect(v, &zone, Color::new(0.6, 1., 0.6, 0.55), t);
+        let nm = g.idx(id).map(|i| NPC_NAMES[g.npcs[i].name as usize]).unwrap_or("");
+        let lbl = format!("บ้าน{} — ไร่ต้องอยู่ในกรอบเขียวนี้", nm);
+        let fs = (5.5 * v.s).max(11.);
+        let (bx, by) = (((bed.0 as f32 + 0.5) * 16. - v.cx) * v.s, ((bed.1 as f32) * 16. - v.cy) * v.s);
+        let (sw, sh) = (screen_width(), screen_height());
+        let pul = 0.7 + 0.3 * (t * 5.).sin();
+        if bx > 20. && bx < sw - 20. && by > 40. && by < sh - 20. {
+            // หมุดเหนือเตียง
+            let py = by - 10. * v.s - (t * 4.).sin().abs() * 3. * v.s;
+            draw_circle(bx, py, 4. * v.s, Color::new(1., 0.85, 0.2, pul));
+            draw_triangle(vec2(bx - 3. * v.s, py + 2. * v.s), vec2(bx + 3. * v.s, py + 2. * v.s), vec2(bx, py + 9. * v.s), Color::new(1., 0.85, 0.2, pul));
+            let d = measure_text(&lbl, Some(font), fs as u16, 1.);
+            draw_rectangle(bx - d.width / 2. - 4., py - 6. * v.s - fs - 2., d.width + 8., fs + 6., Color::new(0., 0., 0., 0.65));
+            text(font, &lbl, bx - d.width / 2., py - 6. * v.s - 2., fs, hx(0xffe066));
+        } else {
+            // ลูกศรที่ขอบจอชี้ไปทางบ้านเขา
+            let (cx, cy) = (sw / 2., sh / 2.);
+            let (dx, dy) = (bx - cx, by - cy);
+            let l = dx.hypot(dy).max(1.);
+            let (ux, uy) = (dx / l, dy / l);
+            let k = ((sw / 2. - 70.) / ux.abs().max(0.001)).min((sh / 2. - 70.) / uy.abs().max(0.001));
+            let (ax, ay) = (cx + ux * k, cy + uy * k);
+            let s = 20. * (v.s / 3.).max(1.);
+            draw_triangle(vec2(ax + ux * s, ay + uy * s), vec2(ax - uy * s * 0.7 - ux * s * 0.4, ay + ux * s * 0.7 - uy * s * 0.4), vec2(ax + uy * s * 0.7 - ux * s * 0.4, ay - ux * s * 0.7 - uy * s * 0.4), Color::new(1., 0.85, 0.2, pul));
+            let tiles = ((bed.0 - tfloor(g.p.x)).abs()).max((bed.1 - tfloor(g.p.y)).abs());
+            let l2 = format!("บ้าน{} {} ช่อง", nm, tiles);
+            let d = measure_text(&l2, Some(font), fs as u16, 1.);
+            // ป้ายอยู่ด้านในจอ ถัดจากลูกศร (ไม่ทับลูกศร)
+            let (tx, ty) = ((ax - ux * (s * 1.6 + d.width / 2. + 8.) - d.width / 2.).clamp(4., sw - d.width - 4.), (ay - uy * (s * 1.6 + fs) + fs / 2.).clamp(fs + 4., sh - 4.));
+            draw_rectangle(tx - 4., ty - fs - 2., d.width + 8., fs + 6., Color::new(0., 0., 0., 0.65));
+            text(font, &l2, tx, ty, fs, hx(0xffe066));
+        }
+    }
     let Some((cells, bad)) = g.permit_preview(g.build_target()) else { return };
     let col = if bad.is_none() { Color::new(0.45, 1., 0.5, 0.32) } else { Color::new(1., 0.4, 0.4, 0.32) };
     for c in &cells { draw_rectangle((c.0 as f32 * 16. - v.cx) * v.s, (c.1 as f32 * 16. - v.cy) * v.s, 16. * v.s, 16. * v.s, col); }
@@ -355,7 +434,7 @@ pub fn pick_line(g: &Game, touch: bool) -> Option<(String, bool)> {
     let nm = g.idx(id).map(|i| NPC_NAMES[g.npcs[i].name as usize]).unwrap_or("");
     // ตรงที่ชี้อยู่ใช้ไม่ได้ → บอกเหตุผลแทน (บรรทัดเดียว ไม่ทับพื้นที่)
     if let Some(why) = g.permit_preview(g.build_target()).and_then(|p| p.1) { return Some((format!("ตรงนี้ไม่ได้: {} · {}", why, if touch { "ปุ่มแดง = ยังไม่ให้" } else { "T = ยังไม่ให้" }), false)); }
-    Some((format!("เลือกที่{}ให้{}: แตะพื้น 2 ครั้ง = ให้ตรงนั้น{} · {}", if a.kind == AK_FARM { "ทำไร่" } else { "สร้างบ้าน" }, nm, if a.kind != AK_FARM { " · หมุน = หันประตู" } else { "" }, if touch { "ปุ่มแดง = ยังไม่ให้" } else { "T = ยังไม่ให้" }), true))
+    Some((format!("เลือกที่{}ให้{}: แตะพื้น 2 ครั้ง = ให้ตรงนั้น{} · {}", if a.kind == AK_FARM { "ทำไร่" } else { "สร้างบ้าน" }, nm, if a.kind != AK_FARM { " · หมุน = หันประตู" } else { " (ในกรอบเขียวรอบบ้านเขา · แตะนอกกรอบ = ดึงเข้ามาให้)" }, if touch { "ปุ่มแดง = ยังไม่ให้" } else { "T = ยังไม่ให้" }), true))
 }
 
 /// ตำแหน่งการ์ด: ช่องเดียวกับแถบคำแนะนำ (การ์ดขึ้น = คำแนะนำหลบ) → (กรอบ, [ให้เลย, ที่อื่น, ไม่ให้])
@@ -512,8 +591,10 @@ mod tests_v30 {
         // ทับเตียง = ไม่ได้
         assert!(!g.permit_place((sx - 1, sy)));
         assert!(g.has_ask(1));
-        // ไกลบ้านเกินไป = ไม่ได้
-        assert!(!g.permit_place((sx + 19, sy)));
+        // v39 แตะไกลบ้านเขา = กรอบไร่ถูกดึงเข้ามาในเขตรอบบ้าน (ไม่ขึ้นว่าไกลเกิน)
+        assert_eq!(g.permit_at((sx + 60, sy - 50)), (sx + FIELD_R + 2 - (FIELD_W - 1), sy - FIELD_R - 2));
+        assert!(g.permit_zone().is_some());
+        assert!(g.permit_preview((sx + 60, sy + 3)).unwrap().1.is_none(), "{:?}", g.permit_preview((sx + 60, sy + 3)));
         let spot = (sx - 6, sy + 5);
         assert!(g.permit_place(spot), "ที่ที่เลือกเอง");
         assert_eq!((g.rs.pm.fields[0].x, g.rs.pm.fields[0].y), spot);
@@ -525,6 +606,11 @@ mod tests_v30 {
         h.permit_pick_start(1);
         assert!(h.permit_pick_cancel());
         assert!(h.has_ask(1) && h.build_sel.is_none());
+        // แตะไกลมาก → ได้ไร่ติดขอบเขตรอบบ้าน
+        h.permit_pick_start(1);
+        assert!(h.permit_place((sx + 80, sy + 2)));
+        let f = &h.rs.pm.fields[0];
+        assert!(f.cells().iter().all(|c| (c.0 - sx).abs() <= FIELD_R + 2 && (c.1 - sy).abs() <= FIELD_R + 2));
     }
     #[test]
     fn ignored_asker_goes_back_to_work_and_asks_later() {
