@@ -4,9 +4,13 @@
 //  - ของชิ้นเดียว (เฟอร์นิเจอร์ กล่อง เตียง ตะเกียง บ่อน้ำ รั้ว ฯลฯ): ย้ายไปพร้อมของในกล่อง/เจ้าของเตียง
 //  - แตะผนัง/ประตู/หน้าต่าง/พื้นของบ้านที่ปิดเป็นห้อง = ย้าย "ทั้งหลัง" (ผนัง พื้น เฟอร์นิเจอร์ กล่อง เตียง) · หมุนได้ 4 ทิศ
 //  - ระหว่างยก ของยังอยู่ที่เดิม (เซฟกลางทางไม่หาย) · ย้ายจริงทีเดียวตอนวาง · ยกเลิก = อยู่ที่เดิม
+//  v37 ใช้ง่าย/เป็นระเบียบขึ้น: ต้นไม้ หิน หญ้าที่ขวางที่ใหม่ ตัดให้อัตโนมัติ (ได้วัสดุคืน) · ช่องที่ติดขัดขึ้นกากบาทแดงทีละช่อง
+//    · ลูกศรบอกทางเข้าประตู · เส้นไกด์เมื่อแนวตรงกับบ้านข้างๆ + ดูดเข้าแนวให้เอง (ห่าง 1 ช่องพอดี / ประตูแถวเดียวกัน)
+//    · กรอบที่เดิมจางๆ + เส้นประจากที่เดิมไปที่ใหม่ · ป้ายบอกขนาด/ทิศประตู
 use super::*;
 
 pub const OBJ_MOVE: u8 = 245;
+const NB4: [(i32, i32); 4] = [(0, -1), (0, 1), (-1, 0), (1, 0)];
 /// ระยะย้ายของ (ช่อง) — ไกลกว่าระยะสร้าง จะได้ไม่ต้องเดินตามของ
 pub const MOVE_REACH: f32 = 14.;
 
@@ -18,7 +22,20 @@ pub struct Carry {
     pub tiles: Vec<(i32, i32)>,
     pub building: bool,
     pub name: String,
+    /// v37 กรอบบ้านหลังอื่นรอบๆ (x0, y0, x1, y1, ประตู x, ประตู y) — ใช้ทำเส้นไกด์/ดูดเข้าแนว (คำนวณตอนยก)
+    pub guides: Vec<[i32; 6]>,
 }
+
+/// v37 สถานะช่องปลายทาง
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum CellIs { Ok, Clear(u8), Bad(&'static str) }
+
+/// เส้นไกด์ที่ตรงแนว: (แนวตั้ง?, พิกัด, ช่วงจาก, ช่วงถึง)
+pub type Guide = (bool, i32, i32, i32);
+
+/// ของธรรมชาติที่ย้ายบ้าน/ของทับแล้วตัดออกให้ได้ (ได้วัสดุคืน)
+pub fn nat_cuttable(o: u8) -> bool { arch::nat_clearable(o) || o == 2 || o == 3 || o == O_DRYGRASS }
+fn cut_refund(o: u8) -> Option<(usize, i32)> { if o == 2 { Some((BERRY, 1)) } else if o == 3 || o == O_DRYGRASS { None } else { arch::clear_refund(o) } }
 
 fn structural(o: u8) -> bool { matches!(o, 10 | 11 | 12 | 13 | O_WINDOW) }
 fn is_floor(t: u8) -> bool { t == T_FLOORW || t == T_FLOORS }
@@ -46,16 +63,16 @@ impl Game {
                 if tiles.iter().any(|t| self.site_reserved(*t)) { return Err("กำลังก่อสร้างอยู่ — รอสร้างเสร็จก่อน"); }
                 if tiles.iter().any(|t| self.crops.contains_key(t)) { return Err("มีแปลงผักในบ้าน — เก็บเกี่ยว/รื้อแปลงก่อน"); }
                 let n = tiles.iter().filter(|t| self.w.placed.contains_key(*t)).count();
-                return Ok(Carry { src: k, tiles, building: true, name: format!("บ้านทั้งหลัง ({} ชิ้น)", n) });
+                return Ok(Carry { src: k, tiles, building: true, name: format!("บ้านทั้งหลัง ({} ชิ้น)", n), guides: vec![] });
             }
         }
         self.move_single(k)
     }
     fn move_single(&self, k: (i32, i32)) -> Result<Carry, &'static str> {
         match self.w.placed.get(&k) {
-            Some(&o) if movable(o) => Ok(Carry { src: k, tiles: vec![k], building: false, name: obj_name(o).to_string() }),
+            Some(&o) if movable(o) => Ok(Carry { src: k, tiles: vec![k], building: false, name: obj_name(o).to_string(), guides: vec![] }),
             Some(_) => Err("แปลงผักย้ายไม่ได้ — ใช้ไถดินวางซ้ำเพื่อรื้อ"),
-            None if is_floor(self.w.tile_at(k.0, k.1)) && self.w.tmod.contains_key(&k) => Ok(Carry { src: k, tiles: vec![k], building: false, name: "พื้น".to_string() }),
+            None if is_floor(self.w.tile_at(k.0, k.1)) && self.w.tmod.contains_key(&k) => Ok(Carry { src: k, tiles: vec![k], building: false, name: "พื้น".to_string(), guides: vec![] }),
             None => Err("ตรงนี้ไม่มีของที่คุณสร้าง — แตะของที่สร้างแล้ว (ต้นไม้/หินธรรมชาติย้ายไม่ได้)"),
         }
     }
@@ -75,25 +92,102 @@ impl Game {
         if pairs.iter().all(|(s, d)| s == d) { return Some("ยังอยู่ที่เดิม — เลือกที่ใหม่"); }
         let src: HashSet<(i32, i32)> = c.tiles.iter().copied().collect();
         for &(s, d) in &pairs {
-            if src.contains(&d) { continue; }
-            let t = self.w.tile_at(d.0, d.1);
-            if SOLIDT[t as usize] { return Some("ทับน้ำ/ภูเขา"); }
-            if self.w.realm.city_at(d.0, d.1).map_or(false, |ci| self.city_owner(ci) != PLAYER_OWN) { return Some("อยู่ในเมืองคนอื่น"); }
-            if self.site_reserved(d) { return Some("ทับที่กำลังก่อสร้าง"); }
-            if t == T_SOIL || t == 12 || self.crops.contains_key(&d) { return Some("ทับแปลงผัก"); }
-            if self.w.tmod.get(&s).map_or(false, |x| is_floor(*x)) && self.w.tmod.contains_key(&d) && !is_floor(t) { return Some("ปูพื้นทับช่องนี้ไม่ได้"); }
-            let o = self.w.obj_at(d.0, d.1);
-            if o != 0 && o != 3 { return Some("มีของขวางอยู่"); }
-            let so = self.w.placed.get(&s).copied().unwrap_or(0);
-            if OSOLID[so as usize] && self.player_in_tile(d.0, d.1) { return Some("ถอยออกจากตรงนั้นก่อน"); }
+            if let CellIs::Bad(why) = self.move_cell(&src, s, d) { return Some(why); }
         }
         // v34 ย้ายบ้านแล้วประตูต้องไม่ชนกำแพง/บ้านอื่น
         self.move_door_blocked(c, anchor, dir)
     }
+    /// v37 ช่องปลายทางหนึ่งช่อง: วางได้ / ต้องตัดของธรรมชาติออก / ติดอะไร
+    pub fn move_cell(&self, src: &HashSet<(i32, i32)>, s: (i32, i32), d: (i32, i32)) -> CellIs {
+        if src.contains(&d) { return CellIs::Ok; }
+        let t = self.w.tile_at(d.0, d.1);
+        if SOLIDT[t as usize] { return CellIs::Bad("ทับน้ำ/ภูเขา"); }
+        if self.w.realm.city_at(d.0, d.1).map_or(false, |ci| self.city_owner(ci) != PLAYER_OWN) { return CellIs::Bad("อยู่ในเมืองคนอื่น"); }
+        if self.site_reserved(d) { return CellIs::Bad("ทับที่กำลังก่อสร้าง"); }
+        if t == T_SOIL || t == 12 || self.crops.contains_key(&d) { return CellIs::Bad("ทับแปลงผัก"); }
+        if self.w.tmod.get(&s).map_or(false, |x| is_floor(*x)) && self.w.tmod.contains_key(&d) && !is_floor(t) { return CellIs::Bad("ปูพื้นทับช่องนี้ไม่ได้ (ถนน/ที่ถม)"); }
+        let so = self.w.placed.get(&s).copied().unwrap_or(0);
+        if OSOLID[so as usize] && self.player_in_tile(d.0, d.1) { return CellIs::Bad("ถอยออกจากตรงนั้นก่อน"); }
+        if self.w.placed.contains_key(&d) { return CellIs::Bad("มีของขวางอยู่"); }
+        match self.w.obj_at(d.0, d.1) {
+            0 => CellIs::Ok,
+            o if nat_cuttable(o) => if o == 3 || o == O_DRYGRASS { CellIs::Ok } else { CellIs::Clear(o) },
+            _ => CellIs::Bad("มีของขวางอยู่"),
+        }
+    }
+    pub fn nat_clear_at(&self, t: (i32, i32)) -> bool { !self.w.placed.contains_key(&t) && nat_cuttable(self.w.obj_at(t.0, t.1)) }
+    /// v37 ประตูของบ้านที่ยก ณ ที่ใหม่: (ช่องประตู, ทิศออกนอกบ้าน)
+    pub fn move_doors(&self, c: &Carry, anchor: (i32, i32), dir: u8) -> Vec<((i32, i32), (i32, i32))> {
+        if !c.building { return vec![]; }
+        let src: HashSet<(i32, i32)> = c.tiles.iter().copied().collect();
+        let mut v = vec![];
+        for (s, d) in self.move_targets(c, anchor, dir) {
+            if !matches!(self.w.placed.get(&s), Some(12) | Some(13)) { continue; }
+            let Some(&o) = NB4.iter().find(|o| !src.contains(&(s.0 + o.0, s.1 + o.1))) else { continue };
+            v.push((d, rot_off(o, dir)));
+        }
+        v.sort();
+        v
+    }
+    /// v37 กรอบบ้านหลังอื่นรอบๆ (ไว้ทำเส้นไกด์)
+    pub fn move_guides_for(&self, c: &Carry) -> Vec<[i32; 6]> {
+        if !c.building { return vec![]; }
+        let own: HashSet<(i32, i32)> = c.tiles.iter().copied().collect();
+        let mut doors: Vec<(i32, i32)> = self.w.placed.iter().filter(|(k, &o)| (o == 12 || o == 13) && (k.0 - c.src.0).abs() <= 32 && (k.1 - c.src.1).abs() <= 32 && !own.contains(k)).map(|(k, _)| *k).collect();
+        doors.sort();
+        let mut seen: HashSet<(i32, i32)> = HashSet::new();
+        let mut out = vec![];
+        for d in doors {
+            if seen.contains(&d) { continue; }
+            let Some(r) = NB4.iter().find_map(|o| self.w.room_from((d.0 + o.0, d.1 + o.1))) else { continue };
+            let all: Vec<(i32, i32)> = r.tiles.iter().chain(r.walls.iter()).chain(r.doors.iter()).copied().collect();
+            for k in r.doors.iter() { seen.insert(*k); }
+            if all.iter().any(|k| own.contains(k)) { continue; }
+            let (x0, y0) = (all.iter().map(|k| k.0).min().unwrap(), all.iter().map(|k| k.1).min().unwrap());
+            let (x1, y1) = (all.iter().map(|k| k.0).max().unwrap(), all.iter().map(|k| k.1).max().unwrap());
+            out.push([x0, y0, x1, y1, d.0, d.1]);
+        }
+        out
+    }
+    /// v37 ดูดเข้าแนว: เลื่อนไม่เกิน 1 ช่องให้ขอบ/ประตูตรงกับบ้านข้างๆ หรือห่างกัน 1 ช่องพอดี · คืน (จุดวาง, เส้นไกด์ที่ตรง)
+    pub fn move_snap(&self, c: &Carry, anchor: (i32, i32), dir: u8) -> ((i32, i32), Vec<Guide>) {
+        if !c.building || c.guides.is_empty() { return (anchor, vec![]); }
+        let tg: Vec<(i32, i32)> = self.move_targets(c, anchor, dir).into_iter().map(|p| p.1).collect();
+        let (x0, y0) = (tg.iter().map(|k| k.0).min().unwrap(), tg.iter().map(|k| k.1).min().unwrap());
+        let (x1, y1) = (tg.iter().map(|k| k.0).max().unwrap(), tg.iter().map(|k| k.1).max().unwrap());
+        let door = self.move_doors(c, anchor, dir).first().map(|d| d.0).unwrap_or(anchor);
+        let near = |g: &[i32; 6]| g[0] - x1 <= 18 && x0 - g[2] <= 18 && g[1] - y1 <= 18 && y0 - g[3] <= 18;
+        // แกน x: (ค่าของเรา, ค่าเป้า) · แกน y เหมือนกัน
+        let fit = |vert: bool, d: i32| -> Vec<Guide> {
+            let mut v = vec![];
+            for g in c.guides.iter().filter(|g| near(g)) {
+                let (a0, a1, ad, b0, b1, bd) = if vert { (x0 + d, x1 + d, door.0 + d, g[0], g[2], g[4]) } else { (y0 + d, y1 + d, door.1 + d, g[1], g[3], g[5]) };
+                // ช่วงของอีกแกน (ไว้ลากเส้นให้ครอบทั้งสองหลัง)
+                let (o0, o1) = if vert { (y0.min(g[1]), y1.max(g[3])) } else { (x0.min(g[0]), x1.max(g[2])) };
+                let side = if vert { (y0 <= g[3] && y1 >= g[1]) } else { (x0 <= g[2] && x1 >= g[0]) };
+                for (ours, theirs) in [(a0, b0), (a1, b1), (ad, bd)] { if ours == theirs { v.push((vert, ours, o0, o1)); } }
+                // วางเรียงข้างกัน ห่าง 1 ช่อง
+                if side { if a1 + 2 == b0 { v.push((vert, a1 + 1, o0, o1)); } if a0 - 2 == b1 { v.push((vert, a0 - 1, o0, o1)); } }
+            }
+            v
+        };
+        let mut best = (anchor, vec![]);
+        let pick = |vert: bool| -> i32 { for d in [0, -1, 1] { if !fit(vert, d).is_empty() { return d; } } 0 };
+        let (dx, dy) = (pick(true), pick(false));
+        let snapped = (anchor.0 + dx, anchor.1 + dy);
+        if (dx, dy) != (0, 0) && self.move_blocked(c, snapped, dir).is_some() && self.move_blocked(c, anchor, dir).is_none() {
+            best.1 = fit(true, 0).into_iter().chain(fit(false, 0)).collect();
+            return best;
+        }
+        best.0 = snapped;
+        best.1 = fit(true, dx).into_iter().chain(fit(false, dy)).collect();
+        best
+    }
     /// ยกขึ้น (ยังไม่ขยับของจริง)
     pub fn move_pick(&mut self, k: (i32, i32)) -> bool {
         match self.move_select(k) {
-            Ok(c) => {
+            Ok(mut c) => {
+                c.guides = self.move_guides_for(&c);
                 self.toast(format!("ยกแล้ว: {} — ลากไปวาง หรือแตะที่ใหม่{}", c.name, if c.building { " · ปุ่มหมุน = หันบ้าน" } else { "" }));
                 self.build_dir = 0;
                 self.rs.carry = Some(c);
@@ -106,20 +200,37 @@ impl Game {
     /// วางที่ใหม่: ย้ายทุกอย่างทีเดียว (ของ พื้น ของในกล่อง เจ้าของเตียง ประตูอัตโนมัติ)
     pub fn move_drop(&mut self, anchor: (i32, i32)) -> bool {
         let Some(c) = self.rs.carry.clone() else { return false };
+        let anchor = self.move_snap(&c, anchor, self.build_dir).0;
         if let Some(why) = self.move_blocked(&c, anchor, self.build_dir) { self.toast(why); play(&self.sfx.deny); return false; }
-        self.move_apply(&c, anchor, self.build_dir);
+        let back = self.move_apply(&c, anchor, self.build_dir);
         self.rs.carry = None;
         self.rs.build_arm = None;
         let (x, y) = (anchor.0 as f32 * 16. + 8., anchor.1 as f32 * 16. + 8.);
         self.burst(x, y, hx(0xc8a070), 12, 50.);
         play(&self.sfx.door);
-        self.toast(format!("ย้าย{}เรียบร้อย", c.name));
+        for i in 0..NI { if back[i] > 0 { self.gain(i, back[i], x, y - 10.); } }
+        let cut: i32 = back.iter().sum();
+        self.toast(if cut > 0 { format!("ย้าย{}เรียบร้อย · ตัดของที่ขวางออกให้แล้ว", c.name) } else { format!("ย้าย{}เรียบร้อย", c.name) });
         self.save();
         true
     }
     /// v36 ย้ายจริง (ไม่เช็กอะไรแล้ว — เรียกหลัง move_blocked/move_blocked_ex ผ่าน): ของ พื้น ของในกล่อง ประตูอัตโนมัติ เจ้าของเตียง
-    pub fn move_apply(&mut self, c: &Carry, anchor: (i32, i32), dir: u8) {
+    /// v37 คืนวัสดุที่ได้จากต้นไม้/หินที่ตัดออกให้ตรงที่ใหม่
+    pub fn move_apply(&mut self, c: &Carry, anchor: (i32, i32), dir: u8) -> [i32; NI] {
         let pairs = self.move_targets(c, anchor, dir);
+        // ตัดของธรรมชาติที่ขวางที่ใหม่ (รวมช่องหน้าประตู) ก่อน
+        let mut back = [0; NI];
+        let srcs: HashSet<(i32, i32)> = pairs.iter().map(|p| p.0).collect();
+        let mut cut: Vec<(i32, i32)> = pairs.iter().map(|p| p.1).filter(|d| !srcs.contains(d)).collect();
+        for (d, o) in self.move_doors(c, anchor, dir) { cut.push((d.0 + o.0, d.1 + o.1)); }
+        for d in cut {
+            if self.w.placed.contains_key(&d) { continue; }
+            let o = self.w.obj_at(d.0, d.1);
+            if o == 0 || !nat_cuttable(o) { continue; }
+            if let Some((it, q)) = cut_refund(o) { back[it] += q; }
+            self.w.removed.insert(d);
+            self.obj_dmg.remove(&d);
+        }
         let mut objs = vec![];
         let mut floors = vec![];
         let mut chests = vec![];
@@ -160,6 +271,7 @@ impl Game {
         self.room_t = 0.;
         self.refresh_torches();
         self.doors_check(false);
+        back
     }
     pub fn move_cancel(&mut self) -> bool {
         if self.rs.carry.take().is_some() { self.rs.build_arm = None; self.toast("ยกเลิกการย้าย — ของอยู่ที่เดิม"); true } else { false }
@@ -194,32 +306,116 @@ fn obj_name(o: u8) -> &'static str {
     match o { 9 => "กองไฟ", 12 | 13 => "ประตู", 33 => "เตียง", 14 => "กล่องเก็บของ", _ => "ของ" }
 }
 
-/// พรีวิว: ช่องเดิมขอบฟ้า · ปลายทางเป็นภาพจางสีเขียว (วางได้) / แดง (มีเหตุผลบอก)
+/// พรีวิว v37: ที่เดิมเป็นกรอบประจาง · ที่ใหม่เป็นภาพจริงโปร่งๆ · ช่องติดขัด = กากบาทแดง · ต้นไม้/หินที่จะตัดให้ = เหลือง
+///   ลูกศรทางเข้าประตู · เส้นไกด์เมื่อตรงแนวบ้านข้างๆ · ป้ายบอกขนาด ทิศประตู และเหตุผลถ้าวางไม่ได้
 pub fn draw_move_preview(g: &Game, sp: &Sprites, v: &View, font: &Font, t_now: f32) {
     let (tx, ty) = g.build_target();
+    let tile = |x: i32, y: i32| ((x as f32 * 16. - v.cx) * v.s, (y as f32 * 16. - v.cy) * v.s, 16. * v.s);
     let Some(c) = &g.rs.carry else {
         // ยังไม่ได้ยก: ไฮไลต์สิ่งที่จะถูกยกถ้าแตะตรงนี้
         let (lc, list) = match g.move_select((tx, ty)) { Ok(c) => (Color::new(0.4, 0.85, 1., 0.9), c.tiles), Err(_) => (Color::new(1., 0.4, 0.4, 0.7), vec![(tx, ty)]) };
-        for &(x, y) in &list { draw_rectangle_lines((x as f32 * 16. - v.cx) * v.s, (y as f32 * 16. - v.cy) * v.s, 16. * v.s, 16. * v.s, 2., lc); }
+        for &(x, y) in &list { let (px, py, s) = tile(x, y); draw_rectangle_lines(px, py, s, s, 2., lc); }
         return;
     };
-    let pul = 0.55 + 0.25 * (t_now * 4.).sin();
-    for &(x, y) in &c.tiles { draw_rectangle_lines((x as f32 * 16. - v.cx) * v.s, (y as f32 * 16. - v.cy) * v.s, 16. * v.s, 16. * v.s, 1.5, Color::new(0.4, 0.85, 1., pul)); }
-    let bad = g.move_blocked(c, (tx, ty), g.build_dir);
-    let tint = if bad.is_none() { Color::new(0.75, 1., 0.75, 0.6) } else { Color::new(1., 0.55, 0.55, 0.55) };
-    for (s, d) in g.move_targets(c, (tx, ty), g.build_dir) {
+    let (anchor, guides) = g.move_snap(c, (tx, ty), g.build_dir);
+    let bbox = |ks: &mut dyn Iterator<Item = (i32, i32)>| -> (i32, i32, i32, i32) {
+        let mut b = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+        for k in ks { b.0 = b.0.min(k.0); b.1 = b.1.min(k.1); b.2 = b.2.max(k.0); b.3 = b.3.max(k.1); }
+        b
+    };
+    let dash = |x0: f32, y0: f32, x1: f32, y1: f32, col: Color, w: f32| {
+        let (dx, dy) = (x1 - x0, y1 - y0);
+        let len = (dx * dx + dy * dy).sqrt().max(1.);
+        let step = 6. * v.s;
+        let n = (len / step) as i32;
+        for i in (0..n).step_by(2) {
+            let (a, b) = (i as f32 * step / len, ((i + 1) as f32 * step / len).min(1.));
+            draw_line(x0 + dx * a, y0 + dy * a, x0 + dx * b, y0 + dy * b, w, col);
+        }
+    };
+    let rect_dash = |b: (i32, i32, i32, i32), col: Color, w: f32| {
+        let (x0, y0, _) = tile(b.0, b.1);
+        let (x1, y1, s) = tile(b.2, b.3);
+        let (x1, y1) = (x1 + s, y1 + s);
+        dash(x0, y0, x1, y0, col, w); dash(x0, y1, x1, y1, col, w); dash(x0, y0, x0, y1, col, w); dash(x1, y0, x1, y1, col, w);
+    };
+    // ที่เดิม
+    let ob = bbox(&mut c.tiles.iter().copied());
+    rect_dash(ob, Color::new(0.45, 0.85, 1., 0.75), 2.);
+    // ตารางจางๆ รอบที่ใหม่ (ช่วยกะระยะ)
+    let pairs = g.move_targets(c, anchor, g.build_dir);
+    let nb = bbox(&mut pairs.iter().map(|p| p.1));
+    for y in nb.1 - 3..=nb.3 + 4 { let (x0, py, _) = tile(nb.0 - 3, y); let (x1, _, s) = tile(nb.2 + 3, y); draw_line(x0, py, x1 + s, py, 1., Color::new(1., 1., 1., 0.07)); }
+    for x in nb.0 - 3..=nb.2 + 4 { let (px, y0, _) = tile(x, nb.1 - 3); let (_, y1, s) = tile(x, nb.3 + 3); draw_line(px, y0, px, y1 + s, 1., Color::new(1., 1., 1., 0.07)); }
+    // เส้นประจากที่เดิมไปที่ใหม่
+    let cen = |b: (i32, i32, i32, i32)| { let (a, bb, s) = tile(b.0, b.1); let (c2, d, _) = tile(b.2, b.3); ((a + c2 + s) / 2., (bb + d + s) / 2.) };
+    let (oc, nc) = (cen(ob), cen(nb));
+    if (oc.0 - nc.0).abs() + (oc.1 - nc.1).abs() > 20. { dash(oc.0, oc.1, nc.0, nc.1, Color::new(1., 1., 1., 0.35), 1.5); }
+    // ช่องปลายทาง
+    let src: HashSet<(i32, i32)> = c.tiles.iter().copied().collect();
+    let reason = g.move_blocked(c, anchor, g.build_dir);
+    let ok = reason.is_none();
+    let tint = if ok { Color::new(1., 1., 1., 0.72) } else { Color::new(1., 0.7, 0.7, 0.55) };
+    let mut n_cut = 0;
+    for &(s, d) in &pairs {
         let (px, py) = (d.0 as f32 * 16. - v.cx, d.1 as f32 * 16. - v.cy);
         if let Some(&t) = g.w.tmod.get(&s) { if is_floor(t) { blit(sp, v, sp.tiles[t as usize][0], px, py, false, tint); } }
         if let Some(&o) = g.w.placed.get(&s) { let r = sp.obj[o as usize]; blit(sp, v, r, px + 8. - r.w / 2., py + 16. - r.h, false, tint); }
-        else { prect(v, px, py, 16., 16., Color::new(tint.r, tint.g, tint.b, 0.12)); }
-        draw_rectangle_lines(px * v.s, py * v.s, 16. * v.s, 16. * v.s, 1., if bad.is_none() { Color::new(0.3, 1., 0.3, 0.6) } else { Color::new(1., 0.3, 0.3, 0.6) });
+        let (qx, qy, sz) = tile(d.0, d.1);
+        match g.move_cell(&src, s, d) {
+            CellIs::Ok => {}
+            CellIs::Clear(_) => { n_cut += 1; draw_rectangle(qx, qy, sz, sz, Color::new(1., 0.85, 0.2, 0.28)); draw_rectangle_lines(qx + 1., qy + 1., sz - 2., sz - 2., 1.5, Color::new(1., 0.85, 0.2, 0.8)); }
+            CellIs::Bad(_) => {
+                draw_rectangle(qx, qy, sz, sz, Color::new(1., 0.15, 0.15, 0.35));
+                draw_line(qx + 3., qy + 3., qx + sz - 3., qy + sz - 3., 2.5, Color::new(1., 0.25, 0.25, 0.95));
+                draw_line(qx + sz - 3., qy + 3., qx + 3., qy + sz - 3., 2.5, Color::new(1., 0.25, 0.25, 0.95));
+            }
+        }
     }
-    if let Some(why) = bad {
-        let (mx, my) = (((tx as f32) * 16. + 8. - v.cx) * v.s, ((ty + 1) as f32 * 16. + 4. - v.cy) * v.s);
-        let fs = (6. * v.s) as u16;
-        let d = measure_text(why, Some(font), fs, 1.);
-        draw_rectangle(mx - d.width / 2. - 6., my, d.width + 12., fs as f32 + 8., Color::new(0., 0., 0., 0.7));
-        draw_text_ex(why, mx - d.width / 2., my + fs as f32, TextParams { font: Some(font), font_size: fs, color: hx(0xff9a9a), ..Default::default() });
+    // กรอบที่ใหม่
+    let (bx0, by0, _) = tile(nb.0, nb.1);
+    let (bx1, by1, s) = tile(nb.2, nb.3);
+    let frame = if ok { Color::new(0.35, 1., 0.45, 0.9) } else { Color::new(1., 0.35, 0.35, 0.9) };
+    draw_rectangle_lines(bx0 - 1., by0 - 1., bx1 + s - bx0 + 2., by1 + s - by0 + 2., 2., frame);
+    // ประตู: ลูกศรชี้เข้าบ้าน + ช่องหน้าประตู
+    for (d, o) in g.move_doors(c, anchor, g.build_dir) {
+        let f = (d.0 + o.0, d.1 + o.1);
+        let (fx, fy, sz) = tile(f.0, f.1);
+        let clear = !g.w.placed.contains_key(&f) && !SOLIDT[g.w.tile_at(f.0, f.1) as usize];
+        draw_rectangle(fx, fy, sz, sz, if clear { Color::new(0.4, 1., 0.5, 0.18) } else { Color::new(1., 0.3, 0.3, 0.3) });
+        let (cx, cy) = (fx + sz / 2., fy + sz / 2.);
+        let (ux, uy) = (-(o.0 as f32), -(o.1 as f32));
+        let a = sz * 0.36;
+        let tip = vec2(cx + ux * a, cy + uy * a);
+        let back = vec2(cx - ux * a * 0.4, cy - uy * a * 0.4);
+        let (pxv, pyv) = (-uy * a * 0.7, ux * a * 0.7);
+        let col = Color::new(1., 1., 1., 0.55 + 0.35 * (t_now * 4.).sin().abs());
+        draw_triangle(tip, vec2(back.x + pxv, back.y + pyv), vec2(back.x - pxv, back.y - pyv), col);
+    }
+    // เส้นไกด์ (ตรงแนวบ้านข้างๆ)
+    for &(vert, at, a, b) in &guides {
+        let col = Color::new(1., 0.9, 0.3, 0.8);
+        if vert { let (px, y0, _) = tile(at, a); let (_, y1, s) = tile(at, b); let x = px + s / 2.; dash(x, y0 - s, x, y1 + 2. * s, col, 1.5); }
+        else { let (x0, py, _) = tile(a, at); let (x1, _, s) = tile(b, at); let y = py + s / 2.; dash(x0 - s, y, x1 + 2. * s, y, col, 1.5); }
+    }
+    // ป้าย
+    let w = nb.2 - nb.0 + 1;
+    let h = nb.3 - nb.1 + 1;
+    let face = g.move_doors(c, anchor, g.build_dir).first().map(|&(_, o)| match o { (0, 1) => "ประตูหันลง", (-1, 0) => "ประตูหันซ้าย", (0, -1) => "ประตูหันขึ้น", _ => "ประตูหันขวา" });
+    let mut info = if c.building { format!("{} · {}×{} ช่อง{}", c.name, w, h, face.map(|f| format!(" · {}", f)).unwrap_or_default()) } else { c.name.clone() };
+    if ok && n_cut > 0 { info += &format!(" · ตัดต้นไม้/หินให้ {} จุด", n_cut); }
+    if ok && !guides.is_empty() { info += " · ตรงแนวบ้านข้างๆ"; }
+    let fs = (6. * v.s).max(11.) as u16;
+    let mx = (bx0 + bx1 + s) / 2.;
+    let mut ly = by0 - 6.;
+    for (line, col) in [(Some(info), hx(0xeef4ff)), (reason.map(|r| r.to_string()), hx(0xff9a9a))] {
+        let Some(line) = line else { continue };
+        let d = measure_text(&line, Some(font), fs, 1.);
+        let bh = fs as f32 + 8.;
+        let y0 = ly - bh;
+        draw_rectangle(mx - d.width / 2. - 6., y0, d.width + 12., bh, Color::new(0., 0., 0., 0.7));
+        draw_text_ex(&line, mx - d.width / 2., y0 + fs as f32 + 1., TextParams { font: Some(font), font_size: fs, color: col, ..Default::default() });
+        ly = y0 - 3.;
     }
 }
 
@@ -360,5 +556,77 @@ mod tests {
         assert!(r1.has_bed && r1.tiles.len() == r0.tiles.len());
         let nb = g.npcs.last().unwrap().bed;
         assert!(r1.tiles.contains(&nb), "เจ้าของเตียงตามไปบ้านใหม่");
+    }
+    /// v37 โลกที่เป็นพื้นดิน (ไม่ต้องถมน้ำ) ยังมีต้นไม้/หินธรรมชาติอยู่
+    fn land() -> (Game, (i32, i32)) {
+        let g = Game::new_world_seed(278, Sfx::default());
+        let c = (tfloor(g.p.x), tfloor(g.p.y));
+        (g, c)
+    }
+    fn built_house(g: &mut Game, k: (i32, i32), dir: u8) {
+        for y in k.1 - 7..=k.1 + 3 { for x in k.0 - 4..=k.0 + 4 { g.w.removed.insert((x, y)); } }
+        g.p.inv[WOOD] += 80; g.p.inv[STONE] += 20;
+        let cost = PIECES.iter().find(|p| p.obj == OBJ_HOUSE_S).unwrap().cost;
+        let (px, py) = (g.p.x, g.p.y);
+        g.p.x = k.0 as f32 * 16. + 8.; g.p.y = (k.1 + 2) as f32 * 16. + 12.;
+        assert!(g.place_prefab(OBJ_HOUSE_S, k, dir, cost), "{:?}", g.prefab_blocked(OBJ_HOUSE_S, k, dir));
+        for _ in 0..(31 * 30) { g.sites_tick(1. / 30.); }
+        assert!(g.sites.is_empty());
+        g.p.x = px; g.p.y = py;
+    }
+    #[test]
+    fn v37_moving_onto_trees_cuts_them_and_gives_wood() {
+        let (mut g, c) = land();
+        let k = (c.0, c.1 + 3);
+        built_house(&mut g, k, 0);
+        let sel = g.move_select(k).unwrap();
+        let src: HashSet<(i32, i32)> = sel.tiles.iter().copied().collect();
+        // หาที่ใหม่ที่มีต้นไม้/หินธรรมชาติขวางอยู่ แต่วางได้
+        let mut found = None;
+        'o: for r in 6..40 { for dy in -r..=r { for dx in [-r, r] {
+            let to = (k.0 + dx, k.1 + dy);
+            let tg: Vec<((i32, i32), (i32, i32))> = g.move_targets(&sel, to, 0);
+            let cut = tg.iter().filter(|&&(s, d)| matches!(g.move_cell(&src, s, d), CellIs::Clear(_))).count();
+            if cut >= 2 && g.move_blocked_ex(&sel, to, 0, false).is_none() { found = Some(to); break 'o; }
+        } } }
+        let to = found.expect("มีที่ที่มีต้นไม้ขวาง");
+        let tg: Vec<(i32, i32)> = g.move_targets(&sel, to, 0).into_iter().map(|p| p.1).collect();
+        // ของที่ผู้เล่นวางเองยังบังอยู่เหมือนเดิม
+        let free = *tg.iter().find(|t| !g.w.placed.contains_key(t) && g.w.obj_at(t.0, t.1) == 0).unwrap_or(&tg[0]);
+        g.w.placed.insert(free, 14);
+        assert!(matches!(g.move_cell(&src, sel.tiles[0], free), CellIs::Bad(_)), "กล่องที่วางเองไม่ตัดทิ้ง");
+        g.w.placed.remove(&free);
+        assert!(g.move_pick(k));
+        g.p.x = to.0 as f32 * 16. + 8. + 90.; g.p.y = to.1 as f32 * 16. + 8. + 60.;
+        let w0 = g.p.inv[WOOD] + g.p.inv[STONE] + g.p.inv[GEM] + g.p.inv[BERRY];
+        assert!(g.move_drop(to), "ต้นไม้ไม่บังการย้ายแล้ว");
+        assert!(g.p.inv[WOOD] + g.p.inv[STONE] + g.p.inv[GEM] + g.p.inv[BERRY] > w0, "ได้วัสดุคืนจากของที่ตัด");
+        assert!(tg.iter().all(|t| g.w.placed.contains_key(t) || !nat_cuttable(g.w.obj_at(t.0, t.1)) || g.w.obj_at(t.0, t.1) == 3));
+        assert!(g.w.room_from((to.0, to.1 - 2)).map_or(false, |r| r.has_bed), "ที่ใหม่เป็นบ้านปิดมีเตียง");
+    }
+    #[test]
+    fn v37_snap_lines_up_with_neighbour_house() {
+        let (mut g, c) = land();
+        for y in c.1 - 20..=c.1 + 20 { for x in c.0 - 30..=c.0 + 30 { g.w.removed.insert((x, y)); } }
+        let a = (c.0 - 10, c.1 + 2);
+        built_house(&mut g, a, 0);
+        let b = (c.0 + 8, c.1 + 12);
+        built_house(&mut g, b, 0);
+        assert!(g.move_pick(b));
+        let car = g.rs.carry.clone().unwrap();
+        assert!(!car.guides.is_empty(), "เจอบ้านข้างๆ เป็นไกด์");
+        let off = car.src.0 - car.tiles.iter().map(|t| t.0).min().unwrap();
+        let x1a = car.guides.iter().map(|g| g[2]).max().unwrap();
+        // วางเยื้องจากแถวประตูบ้าน a ไป 1 ช่อง (ไม่ชิด) → ดูดให้ประตูแถวเดียวกัน
+        let (snap, gl) = g.move_snap(&car, (x1a + 6 + off, a.1 + 1), 0);
+        assert_eq!(snap.1, a.1, "ประตูแถวเดียวกับบ้านข้างๆ");
+        assert!(!gl.is_empty(), "มีเส้นไกด์");
+        // วางเกือบชิด (ห่าง 2) → ดูดให้ห่าง 1 ช่องพอดี
+        let near = (x1a + 3 + off, a.1);
+        let (sn, _) = g.move_snap(&car, near, 0);
+        assert_eq!(sn.0 - off, x1a + 2, "ห่างจากบ้านข้างๆ 1 ช่องพอดี");
+        g.p.x = sn.0 as f32 * 16. + 8.; g.p.y = (sn.1 + 3) as f32 * 16. + 8.;
+        assert!(g.move_drop(near));
+        assert_eq!(g.w.placed.get(&(sn.0 - (car.src.0 - b.0), sn.1)), Some(&12), "วางตามจุดที่ดูดเข้าแนว (ประตู)");
     }
 }

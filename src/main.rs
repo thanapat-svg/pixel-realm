@@ -1672,7 +1672,10 @@ fn prect(v: &View, x: f32, y: f32, w: f32, h: f32, c: Color) {
 }
 fn make_view(cam_x: f32, cam_y: f32) -> View {
     let (sw, sh) = (screen_width(), screen_height());
-    let s = (sw.min(sh) / 200.).floor().max(2.);
+    let mut s = (sw.min(sh) / 200.).floor().max(2.);
+    // ทดสอบบนเดสก์ท็อป: PIXEL_REALM_VIEW_S=1 ซูมออกดูทั้งเมือง
+    #[cfg(not(target_os = "android"))]
+    if let Some(z) = std::env::var("PIXEL_REALM_VIEW_S").ok().and_then(|v| v.parse::<f32>().ok()) { s = z; }
     let (vw, vh) = ((sw / s).ceil(), (sh / s).ceil());
     View { s, vw, vh, cx: (cam_x - vw / 2.).round(), cy: (cam_y - vh / 2. - 6.).round() }
 }
@@ -1718,6 +1721,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
             }
         }
     }
+    arch::draw_arch_ground(g, sp, v, t_now);
     draw_telegraphs(g, v);
     draw_interior(g, v, t_now, 0);
     let hidden = interior_hidden(g);
@@ -2028,7 +2032,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
     draw_bubbles(g, v, font);
     living::draw_living(g, v, t_now);
     permit::draw_permit_world(g, v, font, t_now);
-    arch::draw_arch_overlay(g, v, font, t_now);
+    arch::draw_arch_overlay(g, sp, v, font, t_now);
     draw_bad_doors(g, v, font, t_now);
     living::draw_caravan_labels(g, v, font);
     if let Some(sel) = g.build_sel {

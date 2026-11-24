@@ -1272,9 +1272,9 @@ fn tab_town(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
         header(font, c, y, "ผังเมือง & ช่างสถาปนิก", u);
         y += 28. * u;
         let line = match (&g.rs.ar.active, &g.rs.ar.prop) {
-            (Some(p), _) => { let (d, n) = p.progress(); format!("ช่างกำลังวางผังเมืองตามแบบ \"{}\" — ทำแล้ว {}/{}{}", arch::VARIANT_NAMES[p.variant as usize & 1], d, n, if p.shortfall().is_empty() { "" } else { " · รอวัสดุ" }) }
+            (Some(p), _) => format!("ช่างกำลังสร้างผังเมือง{} — เสร็จ {}%{}", arch::SIZE_NAMES[p.size as usize], (p.frac() * 100.) as i32, if g.rs.ar.sf.is_empty() { String::new() } else { format!(" · แบบร่างรอวัสดุ: {}", g.rs.ar.sf.iter().map(|&(i, q)| format!("{} {}", INAME[i], q)).collect::<Vec<_>>().join(" · ")) }),
             (None, Some(p)) => format!("สถาปนิกเสนอแบบ \"{}\" แล้ว (ย้ายบ้าน {} หลัง) — รอคุณตัดสินใจ", arch::VARIANT_NAMES[p.variant as usize & 1], p.count_houses()),
-            _ => "จ้างช่างมาจัดบ้าน ถนน ลานกลางเมือง บ่อน้ำ ให้เป็นระเบียบ (ค่าจ้างจ่ายเมื่อรับแบบ) · จะสร้าง/ย้ายเองต่อไปก็ได้เหมือนเดิม".to_string(),
+            _ => "จ้างช่างมาวางผังเมือง: เลือกขนาดเมือง ปูถนน ลานกลางเมือง กำแพงรอบเมือง จัดบ้านเข้าแถว (ค่าจ้างจ่ายเมื่อรับแบบ · ของไม่พอเป็นแบบร่างไว้ก่อน) · จะสร้าง/ย้ายเองก็ได้เหมือนเดิม".to_string(),
         };
         para(font, c, &mut y, &line, hx(0xc9d1e6), u);
         if visible(y, 32. * u, c) && btn(ui, font, Rect::new(c.x + 8. * u, y, 200. * u, 28. * u), "เปิดหน้าสถาปนิก", true, u) { ui.arch = true; ui.scroll = 0.; return y - top; }
@@ -1404,7 +1404,20 @@ fn tab_town(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, 
     y - top
 }
 
-/// v36 หน้าช่างสถาปนิก: เลือกหมวด → จ้าง/เสนอแบบ → รับ/ไม่รับ → ใส่วัสดุที่ขาด
+/// v36 หน้าช่างสถาปนิก: เลือกขนาดเมือง/กำแพง/หมวด → เสนอแบบ → รับ/ไม่รับ → ของไม่พอ = แบบร่าง เอาของมาเติม
+/// ปุ่มเลือกหนึ่งในหลายตัว (ตัวที่เลือกอยู่มีกรอบขาวหนา)
+fn pick_row(ui: &UiState, font: &Font, c: Rect, y: f32, labels: &[&str], sel: usize, u: f32) -> Option<usize> {
+    let n = labels.len().max(1) as f32;
+    let w = (c.w - 16. * u) / n;
+    let mut hit = None;
+    for (i, l) in labels.iter().enumerate() {
+        let r = Rect::new(c.x + 8. * u + i as f32 * w, y, w - 4. * u, 26. * u);
+        if btn(ui, font, r, l, true, u) { hit = Some(i); }
+        if i == sel { draw_rectangle_lines(r.x - 2., r.y - 2., r.w + 4., r.h + 4., 3., WHITE); }
+        else { draw_rectangle(r.x, r.y, r.w, r.h, Color::new(0., 0., 0., 0.35)); }
+    }
+    hit
+}
 fn tab_arch(g: &mut Game, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32 {
     let top = c.y - ui.scroll;
     let mut y = top;
@@ -1412,62 +1425,93 @@ fn tab_arch(g: &mut Game, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32
     y += 28. * u;
     if visible(y, 30. * u, c) && btn(ui, font, Rect::new(c.x + 8. * u, y, 110. * u, 26. * u), "ย้อนกลับ", true, u) { ui.arch = false; ui.scroll = 0.; return 0.; }
     y += 32. * u;
-    let item = |it: usize| INAME[it].to_string();
     let list = |v: &[(usize, i32)]| v.iter().map(|&(i, q)| format!("{} {}", INAME[i], q)).collect::<Vec<_>>().join(" · ");
-    let _ = item;
+    let pair = |t: (u32, u32)| format!("{}/{}", t.0, t.1);
     if let Some(p) = g.rs.ar.active.clone() {
-        // ---- ช่างกำลังทำงาน
-        let (d, n) = p.progress();
-        para(font, c, &mut y, &format!("แบบ \"{}\" — ทำแล้ว {}/{} อย่าง (ย้ายบ้าน {} หลัง) · ช่างลงมือทีละอย่างตลอดเวลา แม้เราไม่อยู่ในเมือง", arch::VARIANT_NAMES[p.variant as usize & 1], d, n, p.count_houses()), hx(0xc9d1e6), u);
-        bar(c.x + 8. * u, y, c.w - 24. * u, 8. * u, d as f32 / n.max(1) as f32, hx(0x66dd88));
+        // ---- ช่างกำลังทำงาน / แบบร่างรอของ
+        let st = p.stats();
+        para(font, c, &mut y, &format!("ผังเมือง{} · {} — เสร็จ {}% · ช่างทำงานตลอดเวลา แม้เราไม่อยู่ในเมือง", arch::SIZE_NAMES[p.size as usize], arch::VARIANT_NAMES[p.variant as usize & 1], (p.frac() * 100.) as i32), hx(0xc9d1e6), u);
+        bar(c.x + 8. * u, y, c.w - 24. * u, 8. * u, p.frac(), hx(0x66dd88));
         y += 16. * u;
-        let sf = p.shortfall();
-        if sf.is_empty() { para(font, c, &mut y, "วัสดุครบแล้ว", hx(0x88ee99), u); }
+        let mut parts = vec![];
+        if st.houses.1 > 0 { parts.push(format!("ย้ายบ้าน {}", pair(st.houses))); }
+        if st.road.1 > 0 { parts.push(format!("ถนน {} ช่อง", pair(st.road))); }
+        if st.wall.1 > 0 { parts.push(format!("{} {} ช่อง (ประตูเมือง {})", arch::WALL_NAMES[p.wallk as usize], pair(st.wall), p.gates)); }
+        if st.plaza.1 > 0 { parts.push(format!("ลาน/บ่อ/คบเพลิง {}", pair(st.plaza))); }
+        para(font, c, &mut y, &parts.join(" · "), hx(0xdde4f5), u);
+        let sf = g.arch_shortfall(&p);
+        if sf.is_empty() { para(font, c, &mut y, "วัสดุครบแล้ว — ช่างกำลังสร้างตามแบบ", hx(0x88ee99), u); }
         else {
-            para(font, c, &mut y, &format!("ช่างยังขาดวัสดุ: {} — ไปหามาแล้วกดใส่ ช่างทำส่วนอื่นไปก่อนได้ ส่วนที่ต้องใช้ของจะรอ", list(&sf)), hx(0xeedd77), u);
+            para(font, c, &mut y, &format!("แบบร่างรอวัสดุ: {} — ส่วนที่ยังไม่มีของเป็นเงาจางๆ บนพื้น ช่างสร้างทีละช่องเท่าที่ของมี", list(&sf)), hx(0xeedd77), u);
+            para(font, c, &mut y, "ส่งของให้ช่าง: ถือของเดินไปยืนที่ลานกลางเมือง (ป้ายแบบร่าง) ช่างรับไปเอง · หรือกดปุ่มด้านล่าง", hx(0x9aa2b8), u);
             let have: Vec<(usize, i32)> = sf.iter().map(|&(i, q)| (i, q.min(g.p.inv[i]))).filter(|x| x.1 > 0).collect();
             if !have.is_empty() { para(font, c, &mut y, &format!("ในกระเป๋าใส่ได้ตอนนี้: {}", list(&have)), hx(0x88ccff), u); }
         }
         if visible(y, 32. * u, c) {
-            match btn_row(ui, font, c, y, &[("ใส่วัสดุจากกระเป๋า", !sf.is_empty()), (if g.rs.ar.show { "ซ่อนแผนที่" } else { "ดูแผนที่ในเกม" }, true), ("ยกเลิกแผน", true)], u) {
+            match btn_row(ui, font, c, y, &[("ใส่จากกระเป๋า", !sf.is_empty()), ("ขนจากกล่องในเมือง", !sf.is_empty())], u) {
                 Some(0) => { g.arch_deposit(); }
-                Some(1) => { g.rs.ar.show = !g.rs.ar.show; if g.rs.ar.show { ui.close = true; } }
-                Some(2) => g.arch_cancel(),
+                Some(1) => { g.arch_deposit_chests(); }
+                _ => {}
+            }
+        }
+        y += 32. * u;
+        if visible(y, 32. * u, c) {
+            match btn_row(ui, font, c, y, &[(if g.rs.ar.show { "ซ่อนสีบนแผนที่" } else { "ดูสีบนแผนที่" }, true), ("ยกเลิกแผน", true)], u) {
+                Some(0) => { g.rs.ar.show = !g.rs.ar.show; if g.rs.ar.show { ui.close = true; } }
+                Some(1) => g.arch_cancel(),
                 _ => {}
             }
         }
         y += 34. * u;
-        if let Some(note) = p.notes.first() { para(font, c, &mut y, note, hx(0xaa9988), u); }
+        for note in &p.notes { para(font, c, &mut y, note, hx(0xaa9988), u); }
         return y - top;
     }
-    // ---- เลือกหมวด
+    // ---- ตั้งค่าแบบ
     let opts = g.arch_opts();
-    para(font, c, &mut y, "เลือกว่าจะให้ช่างจัดอะไรบ้าง แล้วขอให้เสนอแบบ — ดูแผนที่สีบนพื้นเกมก่อน ถ้าไม่ชอบก็ไม่เสียเงิน", hx(0xc9d1e6), u);
-    for (i, bit) in [arch::OPT_NPC, arch::OPT_MINE, arch::OPT_WALLS, arch::OPT_PLAZA, arch::OPT_ROAD].iter().enumerate() {
+    para(font, c, &mut y, "เลือกขนาดเมือง กำแพง และสิ่งที่ให้ช่างทำ แล้วขอให้เสนอแบบ — ดูแบบบนพื้นเกมก่อน ไม่ชอบก็ไม่เสียเงิน · ของไม่พอก็รับได้ ช่างวางแบบร่างไว้ เอาของมาเติมทีหลัง", hx(0xc9d1e6), u);
+    text(font, &format!("ขนาดเมือง: {}", arch::SIZE_DESC[g.rs.ar.size as usize]), c.x + 8. * u, y + 14. * u, 12. * u, hx(0xffcc66));
+    y += 20. * u;
+    if visible(y, 30. * u, c) { if let Some(i) = pick_row(ui, font, c, y, &arch::SIZE_NAMES, g.rs.ar.size as usize, u) { g.arch_set_size(i as u8); } }
+    y += 34. * u;
+    let wsel = if opts & arch::OPT_CITYWALL != 0 { g.rs.ar.wallk as usize + 1 } else { 0 };
+    let wcost = ["ไม่สร้าง", "ไม้ 2/ช่อง", "หิน 3/ช่อง", "หิน 8/ช่อง · นับเป็นกำแพงเมืองของอาณาจักร"];
+    text(font, &format!("กำแพงรอบเมือง (เว้นประตูเมืองตรงถนน): {}", wcost[wsel]), c.x + 8. * u, y + 14. * u, 12. * u, hx(0xffcc66));
+    y += 20. * u;
+    if visible(y, 30. * u, c) {
+        if let Some(i) = pick_row(ui, font, c, y, &["ไม่มี", arch::WALL_NAMES[0], arch::WALL_NAMES[1], arch::WALL_NAMES[2]], wsel, u) {
+            g.arch_set_wall(if i == 0 { None } else { Some(i as u8 - 1) });
+        }
+    }
+    y += 34. * u;
+    for (bit, name) in arch::OPT_LIST.iter() {
         if visible(y, 30. * u, c) {
             let on = opts & bit != 0;
             if btn(ui, font, Rect::new(c.x + 8. * u, y, 70. * u, 26. * u), if on { "เปิด" } else { "ปิด" }, true, u) { g.arch_toggle(*bit); g.rs.ar.prop = None; }
-            text(font, arch::OPT_NAMES[i], c.x + 88. * u, y + 18. * u, 12. * u, if on { hx(0xeeeeee) } else { hx(0x888899) });
+            text(font, name, c.x + 88. * u, y + 18. * u, 12. * u, if on { hx(0xeeeeee) } else { hx(0x888899) });
         }
         y += 30. * u;
     }
     if let Some(p) = g.rs.ar.prop.clone() {
         // ---- ข้อเสนอ
-        header(font, c, y, &format!("ข้อเสนอ: {}", arch::VARIANT_NAMES[p.variant as usize & 1]), u);
+        header(font, c, y, &format!("ข้อเสนอ: เมือง{} · {}", arch::SIZE_NAMES[p.size as usize], arch::VARIANT_NAMES[p.variant as usize & 1]), u);
         y += 28. * u;
+        let st = p.stats();
         let (nat, wall) = p.count_clear();
-        let places = p.steps.iter().filter(|s| matches!(s, arch::Step::Place { .. })).count();
-        let moves1 = p.steps.iter().filter(|s| matches!(s, arch::Step::MoveOne { .. })).count();
-        let roads = p.steps.iter().filter(|s| matches!(s, arch::Step::Pave { .. })).count();
-        para(font, c, &mut y, &format!("ย้ายและหมุนบ้าน {} หลัง ให้เรียงสองฝั่งถนน ประตูหันเข้าถนน · เคลียร์ต้นไม้/หิน {} จุด · รื้อกำแพงสะเปะสะปะ {} ชิ้น · ย้ายของส่วนกลาง {} ชิ้น · วางของใหม่ {} ชิ้น · ปูถนน {} สาย", p.count_houses(), nat, wall, moves1, places, roads), hx(0xdde4f5), u);
+        let mut parts = vec![format!("ย้ายและหมุนบ้าน {} หลัง เรียงสองฝั่งถนน ประตูหันเข้าถนน", st.houses.1)];
+        if st.road.1 > 0 { parts.push(format!("ปูถนน+ลาน {} ช่อง", st.road.1)); }
+        if st.wall.1 > 0 { parts.push(format!("{}รอบเมือง {} ช่อง ประตูเมือง {} ช่อง", arch::WALL_NAMES[p.wallk as usize], st.wall.1, p.gates)); }
+        if st.plaza.1 > 0 { parts.push(format!("ลานกลางเมือง (กองไฟ ท่อนไม้ บ่อน้ำ คบเพลิง) {} ชิ้น", st.plaza.1)); }
+        if nat + wall > 0 { parts.push(format!("เคลียร์ต้นไม้/หิน {} · รื้อกำแพงเกะกะ {}", nat, wall)); }
+        para(font, c, &mut y, &parts.join(" · "), hx(0xdde4f5), u);
         for n in &p.notes { para(font, c, &mut y, n, hx(0xee9988), u); }
         let fee = g.arch_fee(&p);
-        let need = p.need();
+        let need = g.arch_need(&p);
         let need_l: Vec<(usize, i32)> = (0..NI).filter(|&i| need[i] > 0).map(|i| (i, need[i])).collect();
-        para(font, c, &mut y, &format!("ค่าจ้าง {} เหรียญ (มี {}) · วัสดุที่ใช้: {}{}", fee, g.p.inv[COIN] + g.tax_pool, if need_l.is_empty() { "ไม่ต้องใช้".to_string() } else { list(&need_l) }, if p.shortfall().is_empty() { "".to_string() } else { " — รับแล้วค่อยไปหามาเพิ่มได้".to_string() }), hx(0xffee99), u);
-        para(font, c, &mut y, "บนพื้นเกม: เหลือง = บ้านที่จะย้าย · เขียว = ที่ใหม่ · แดง = เคลียร์/รื้อ · ฟ้า = ลานกลาง/บ่อ/กองไฟ · น้ำตาล = ถนน", hx(0x9aa2b8), u);
+        para(font, c, &mut y, &format!("ค่าจ้าง {} เหรียญ (มี {}) · วัสดุทั้งหมดที่ใช้: {}", fee, g.p.inv[COIN] + g.tax_pool, if need_l.is_empty() { "ไม่ต้องใช้".to_string() } else { list(&need_l) }), hx(0xffee99), u);
+        para(font, c, &mut y, "ของไม่ต้องครบตอนนี้ — รับแล้วช่างย้ายบ้านทันที ส่วนถนน/กำแพง/ลานเป็นแบบร่างรอของ", hx(0x9aa2b8), u);
+        para(font, c, &mut y, "บนพื้นเกม: เหลือง = บ้านที่จะย้าย · เขียว = ที่ใหม่ · แดง = เคลียร์/รื้อ · ฟ้า = ลาน/บ่อ · เงาจาง = ถนน/กำแพงที่จะสร้าง", hx(0x9aa2b8), u);
         if visible(y, 32. * u, c) {
-            match btn_row(ui, font, c, y, &[("รับแบบนี้", g.p.inv[COIN] + g.tax_pool >= fee), ("ไม่เอา", true), ("ดูแผนที่ในเกม", true)], u) {
+            match btn_row(ui, font, c, y, &[("รับแบบนี้", g.p.inv[COIN] + g.tax_pool >= fee), ("ไม่เอา", true), ("ดูแบบบนพื้นเกม", true)], u) {
                 Some(0) => { if g.arch_accept() { return 0.; } }
                 Some(1) => g.arch_reject(),
                 Some(2) => { g.rs.ar.show = true; ui.close = true; }
@@ -1475,7 +1519,7 @@ fn tab_arch(g: &mut Game, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32
             }
         }
         y += 34. * u;
-        para(font, c, &mut y, "อยากได้แบบอื่น: กดเสนอแบบด้านล่างอีกครั้ง", hx(0x888899), u);
+        para(font, c, &mut y, "อยากได้แบบอื่น: เปลี่ยนขนาด/กำแพง แล้วกดเสนอแบบอีกครั้ง", hx(0x888899), u);
     }
     if visible(y, 32. * u, c) {
         match btn_row(ui, font, c, y, &[("เสนอแบบ ถนนตะวันออก-ตะวันตก", true), ("เสนอแบบ ถนนเหนือ-ใต้", true)], u) {

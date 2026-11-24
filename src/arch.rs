@@ -1,9 +1,10 @@
 //! v36 ช่างสถาปนิก — จ้างมาวางผังเมืองให้เป็นระเบียบ (สำหรับคนขี้เกียจออกแบบเอง)
+//! v37 ผังเมืองจริงจัง: เลือกขนาดเมือง (เล็ก/กลาง/ใหญ่ = ถนน 1/3/5 สาย) · ปูถนนทุกสาย + ถนนตัดผ่านลาน · ลานกลางเมืองปูหิน
+//!   (กองไฟ ท่อนไม้ บ่อน้ำ คบเพลิงสี่มุม) · กำแพงรอบเมือง (รั้วไม้/กำแพงหิน/กำแพงเมือง) เว้นประตูเมืองตรงที่ถนนออก + คบเพลิงหน้าประตู
+//!   ของไม่พอ = เป็น "แบบร่าง" เงาจางๆ บนพื้นไว้ก่อน ช่างสร้างทีละช่องเท่าที่วัสดุมี · เดินไปยืนที่ลานกลางเมืองพร้อมของ = ช่างรับไปเอง
 //!
 //! ลำดับ: จ้าง → ช่างสำรวจบ้าน/กำแพง/บ่อน้ำ/ที่นั่งคุยทั้งเมือง → เสนอ "แบบ" (ถนนแนวตะวันออก-ตะวันตก หรือเหนือ-ใต้)
-//!   แต่ละแบบ: ลานกลางเมือง (วงกองไฟ + บ่อน้ำ 4 มุม) · บ้านทุกหลังย้ายไปเรียงสองฝั่งถนน หันประตูเข้าถนน · กำแพงที่สร้างสะเปะสะปะถูกรื้อ
-//!   (คืนวัสดุ) · ปูถนน (เลือกได้) → เราเลือกรับ/ไม่รับ/ปรับหมวดที่จะทำ → รับแล้วจ่ายค่าจ้าง ช่างลงมือทีละอย่าง
-//!   ของไม่พอ (บ่อน้ำใหม่ วงกองไฟ ถนน) = ไปหามาใส่ให้ครบ ช่างจะทำส่วนที่ทำได้ไปก่อน ที่เหลือรอวัสดุ
+//!   → เราเลือกรับ/ไม่รับ/ปรับหมวด → รับแล้วจ่ายค่าจ้าง ช่างลงมือทีละอย่าง
 //! ย้ายบ้านใช้แกนเดียวกับปุ่ม "ย้ายของ" (ของในกล่อง เตียง เจ้าของเตียงตามไป) · ยังสร้าง/ย้ายเองได้เหมือนเดิมตลอด
 use super::*;
 use mover::Carry;
@@ -13,20 +14,37 @@ pub const OPT_MINE: u8 = 2;
 pub const OPT_WALLS: u8 = 4;
 pub const OPT_PLAZA: u8 = 8;
 pub const OPT_ROAD: u8 = 16;
-pub const OPT_DEFAULT: u8 = OPT_NPC | OPT_WALLS | OPT_PLAZA;
-pub const OPT_NAMES: [&str; 5] = ["ย้ายบ้านชาวบ้าน", "ย้ายบ้านของเรา/บ้านว่าง", "รื้อกำแพงสะเปะสะปะ", "ลานกลางเมือง (กองไฟ+บ่อน้ำ)", "ปูถนน"];
+/// v37 กำแพงรอบเมือง
+pub const OPT_CITYWALL: u8 = 32;
+pub const OPT_DEFAULT: u8 = OPT_NPC | OPT_MINE | OPT_WALLS | OPT_PLAZA | OPT_ROAD | OPT_CITYWALL;
+pub const OPT_LIST: [(u8, &str); 5] = [
+    (OPT_NPC, "ย้ายบ้านชาวบ้านเข้าแถวริมถนน"),
+    (OPT_MINE, "ย้ายบ้านของเรา/บ้านว่างด้วย"),
+    (OPT_WALLS, "รื้อกำแพงสะเปะสะปะ (คืนวัสดุ)"),
+    (OPT_PLAZA, "ลานกลางเมือง (กองไฟ ท่อนไม้ บ่อน้ำ คบเพลิง)"),
+    (OPT_ROAD, "ปูถนนทุกสาย + ลานปูหิน"),
+];
 pub const VARIANT_NAMES: [&str; 2] = ["ถนนแนวตะวันออก-ตะวันตก", "ถนนแนวเหนือ-ใต้"];
+pub const SIZE_NAMES: [&str; 3] = ["เล็ก", "กลาง", "ใหญ่"];
+pub const SIZE_DESC: [&str; 3] = ["ถนนหลัก 1 สาย + ถนนตัด 1 สาย (บ้าน ~8 หลัง)", "ถนน 3 สาย + ถนนตัด 1 สาย (บ้าน ~40 หลัง)", "ถนน 5 สาย + ถนนตัด 3 สาย (บ้าน ~100 หลัง)"];
+pub const WALL_OBJ: [u8; 3] = [10, 11, 38];
+pub const WALL_NAMES: [&str; 3] = ["รั้วไม้", "กำแพงหิน", "กำแพงเมือง"];
 
 pub const ARCH_FEE: i32 = 30;
 pub const ARCH_FEE_HOUSE: i32 = 4;
-/// รัศมีที่ช่างสำรวจรอบใจกลางเมือง (ช่อง)
-pub const SURVEY_R: i32 = 36;
-/// ลานกลางเมือง: ครึ่งความกว้าง (9×9)
-pub const PLAZA_R: i32 = 4;
-/// ระยะห่างระหว่างถนนขนาน (ช่อง)
-pub const BLOCK: i32 = 16;
+pub const ARCH_FEE_SIZE: i32 = 15;
+/// รัศมีที่ช่างสำรวจรอบใจกลางเมือง (ช่อง) — ครอบเมืองขนาดใหญ่ได้
+pub const SURVEY_R: i32 = 50;
+/// ลานกลางเมือง (พิกัดสัมพัทธ์ u,v): -5..=6 (12×12 ถนน 2 ช่องผ่านกลางพอดี)
+pub const PLAZA_LO: i32 = -5;
+pub const PLAZA_HI: i32 = 6;
+/// ระยะห่างระหว่างถนนขนาน (ช่อง) — บ้านหลังใหญ่หันหลังชนกันได้พอดี
+pub const BLOCK: i32 = 18;
 /// ช่างลงมือหนึ่งอย่างทุกกี่วินาที
 pub const STEP_SECS: f32 = 1.2;
+/// ถนน/กำแพง: สร้างได้กี่ช่องต่อครั้ง
+const PAVE_BATCH: u32 = 10;
+const WALL_BATCH: u32 = 6;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Step {
@@ -38,14 +56,22 @@ pub enum Step {
     MoveOne { from: (i32, i32), to: (i32, i32) },
     /// วางของใหม่ (ใช้วัสดุจากกองกลาง)
     Place { obj: u8, at: (i32, i32) },
-    /// ปูถนนเป็นผืน
-    Pave { x0: i32, y0: i32, x1: i32, y1: i32 },
+    /// ปูถนนเป็นผืน (หิน 1 ก้อน / 2 ช่อง) · at = ช่องถัดไปที่ต้องทำ (ไล่แถวจากซ้ายบน)
+    Pave { x0: i32, y0: i32, x1: i32, y1: i32, at: u32 },
+    /// กำแพงรอบเมืองหนึ่งช่วง (เส้นตรง) · at = ช่องถัดไปที่ต้องทำ
+    Wall { x0: i32, y0: i32, x1: i32, y1: i32, obj: u8, at: u32 },
 }
+
+pub fn rect_len(x0: i32, y0: i32, x1: i32, y1: i32) -> u32 { ((x1 - x0 + 1).max(0) * (y1 - y0 + 1).max(0)) as u32 }
+pub fn rect_cell(x0: i32, y0: i32, x1: i32, i: u32) -> (i32, i32) { let w = (x1 - x0 + 1) as u32; (x0 + (i % w) as i32, y0 + (i / w) as i32) }
 
 #[derive(Clone, Debug, Default)]
 pub struct Plan {
     pub variant: u8,
     pub opts: u8,
+    pub size: u8,
+    pub wallk: u8,
+    /// ใจกลางลาน (ถนนหลักผ่านแถว/คอลัมน์นี้)
     pub center: (i32, i32),
     pub steps: Vec<Step>,
     /// 0 รออยู่ · 1 ทำแล้ว · 2 ข้าม (ทำไม่ได้)
@@ -53,10 +79,17 @@ pub struct Plan {
     /// วัสดุที่ใส่ไว้ให้ช่าง (รวมของที่ได้คืนจากการรื้อ)
     pub pool: [i32; NI],
     pub houses: usize,
+    /// ปูถนนไปแล้วกี่ช่อง (หิน 1 ก้อนทุก 2 ช่อง)
+    pub pave_n: u32,
+    pub gates: u8,
     pub notes: Vec<String>,
-    /// ไม่เซฟ: ช่องที่ใช้วาดแผนที่ (x, y, ชนิด: 0 บ้านเดิม · 1 บ้านใหม่ · 2 เคลียร์ · 3 ลาน/บ่อ/กองไฟ · 4 ถนน)
+    /// ไม่เซฟ: ช่องที่ใช้วาดแผนที่ (x, y, ชนิด: 0 บ้านเดิม · 1 บ้านใหม่ · 2 เคลียร์ · 3 ลาน/บ่อ/กองไฟ)
     pub overlay: Vec<(i32, i32, u8)>,
 }
+
+/// ความคืบหน้าแยกหมวด (ทำแล้ว, ทั้งหมด)
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Stats { pub houses: (u32, u32), pub road: (u32, u32), pub wall: (u32, u32), pub plaza: (u32, u32), pub clear: (u32, u32) }
 
 #[derive(Clone, Debug, Default)]
 pub struct Arch {
@@ -64,6 +97,10 @@ pub struct Arch {
     /// ผู้เล่นเคยปรับหมวดเองแล้ว (ยังไม่ปรับ = ใช้ค่าเริ่มต้น)
     pub set: bool,
     pub variant: u8,
+    /// v37 ขนาดเมือง 0 เล็ก · 1 กลาง · 2 ใหญ่
+    pub size: u8,
+    /// v37 ชนิดกำแพงรอบเมือง (ดัชนี WALL_OBJ)
+    pub wallk: u8,
     /// ข้อเสนอที่ยังไม่รับ (ไม่เซฟ)
     pub prop: Option<Plan>,
     pub active: Option<Plan>,
@@ -71,6 +108,11 @@ pub struct Arch {
     pub t: f32,
     pub stall: u32,
     pub finished: i32,
+    /// ไม่เซฟ: วัสดุที่ยังขาด (อัปเดตทุกครั้งที่ช่างลงมือ — ใช้วาดป้าย/ที่ปรึกษา)
+    pub sf: Vec<(usize, i32)>,
+    pub dep_cd: f32,
+    /// ไม่เซฟ: ขั้นย้ายบ้านที่เคยพักไว้ที่ชั่วคราวแล้ว (พักได้หลังละครั้ง)
+    pub unjammed: Vec<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -93,8 +135,32 @@ pub struct Survey {
     pub ring: Vec<(i32, i32)>,
 }
 
+/// ผังเมืองตามขนาด: ถนนขนาน (เลขบล็อก) · ถนนตัด (ออฟเซ็ตตามแนวถนน) · ครึ่งความยาวถนน
+pub struct Shape { pub streets: &'static [i32], pub avenues: &'static [i32], pub half: i32 }
+pub fn shape(size: u8) -> Shape {
+    match size {
+        0 => Shape { streets: &[0], avenues: &[0], half: 26 },
+        1 => Shape { streets: &[-1, 0, 1], avenues: &[0], half: 32 },
+        _ => Shape { streets: &[-2, -1, 0, 1, 2], avenues: &[-22, 0, 22], half: 38 },
+    }
+}
+/// กรอบกำแพง (u0, u1, v0, v1) ในพิกัดสัมพัทธ์ (u = ตามแนวถนน, v = ตั้งฉาก)
+pub fn wall_box(size: u8) -> (i32, i32, i32, i32) {
+    let s = shape(size);
+    let (smin, smax) = (*s.streets.first().unwrap(), *s.streets.last().unwrap());
+    (-(s.half + 2), s.half + 3, smin * BLOCK - 10, smax * BLOCK + 11)
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Cs { Free, Clear(u8), Blocked }
+
+/// สถานะช่องของถนน/กำแพง ตอนลงมือ
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Cst { Done, Skip, Clear(u8), Todo }
+
+/// ของธรรมชาติที่ช่างโค่น/ทุบทิ้งได้: ต้นไม้ หิน แร่ (คืนวัสดุ) — ไม่รวมต้นผลไม้ ต้นกล้า พุ่มไม้
+pub fn nat_clearable(o: u8) -> bool { o == 4 || o == 5 || o == T_DEAD || (is_tree(o) && !is_fruit_tree(o) && o != T_SAPLING) }
+fn nat_trivial(o: u8) -> bool { o == 0 || o == 3 || o == O_DRYGRASS }
 
 struct Lay<'a> {
     g: &'a Game,
@@ -116,7 +182,9 @@ impl<'a> Lay<'a> {
     }
     fn calc(&self, k: (i32, i32)) -> Cs {
         let g = self.g;
-        let t = g.w.tile_at(k.0, k.1);
+        let mut t = g.w.tile_at(k.0, k.1);
+        // พื้นบ้านที่จะถูกย้ายออก: ใต้พื้นเป็นอะไร (ย้ายออกแล้วพื้นเดิมโผล่กลับมา)
+        if (t == T_FLOORW || t == T_FLOORS) && self.gone.contains(&k) { t = g.w.gen_tile(k.0, k.1); }
         if SOLIDT[t as usize] || t == T_SOIL || t == T_WET { return Cs::Blocked; }
         if g.crops.contains_key(&k) || self.fields.contains(&k) || g.site_reserved(k) { return Cs::Blocked; }
         if g.w.realm.city_at(k.0, k.1).map_or(false, |ci| g.city_owner(ci) != PLAYER_OWN) { return Cs::Blocked; }
@@ -124,8 +192,8 @@ impl<'a> Lay<'a> {
         if g.w.placed.contains_key(&k) { return Cs::Blocked; }
         if g.w.tmod.get(&k).map_or(false, |&x| x == T_FLOORW || x == T_FLOORS) { return Cs::Blocked; }
         match g.w.obj_at(k.0, k.1) {
-            0 | 3 => Cs::Free,
-            o if o == 4 || o == T_DEAD || (is_tree(o) && !is_fruit_tree(o) && o != T_SAPLING) => Cs::Clear(o),
+            o if nat_trivial(o) => Cs::Free,
+            o if nat_clearable(o) => Cs::Clear(o),
             _ => Cs::Blocked,
         }
     }
@@ -137,25 +205,13 @@ pub fn place_cost(obj: u8) -> Vec<(usize, i32)> {
 }
 /// รื้อ/โค่นแล้วได้วัสดุคืน
 pub fn clear_refund(o: u8) -> Option<(usize, i32)> {
-    match o { 10 => Some((WOOD, 1)), 11 => Some((STONE, 2)), 4 => Some((STONE, 2)), o if is_tree(o) => Some((WOOD, 3)), _ => None }
+    match o { 10 => Some((WOOD, 1)), 11 => Some((STONE, 2)), 4 => Some((STONE, 2)), 5 => Some((GEM, 1)), o if is_tree(o) => Some((WOOD, 3)), _ => None }
 }
 fn nb4() -> [(i32, i32); 4] { [(0, -1), (0, 1), (-1, 0), (1, 0)] }
 fn face_of(v: (i32, i32)) -> u8 { match v { (0, 1) => 0, (-1, 0) => 1, (0, -1) => 2, _ => 3 } }
 fn cheb1(c: (i32, i32)) -> impl Iterator<Item = (i32, i32)> { (-1..=1).flat_map(move |dy| (-1..=1).map(move |dx| (c.0 + dx, c.1 + dy))) }
 
 impl Plan {
-    pub fn need(&self) -> [i32; NI] {
-        let mut n = [0; NI];
-        for (i, s) in self.steps.iter().enumerate() {
-            if self.done[i] != 0 { continue; }
-            match s {
-                Step::Place { obj, .. } => for (it, q) in place_cost(*obj) { n[it] += q; },
-                Step::Pave { x0, y0, x1, y1 } => n[STONE] += (x1 - x0 + 1) * (y1 - y0 + 1),
-                _ => {}
-            }
-        }
-        n
-    }
     /// วัสดุที่จะได้คืนจากการรื้อที่ยังไม่ทำ
     pub fn refund_pending(&self) -> [i32; NI] {
         let mut n = [0; NI];
@@ -165,11 +221,6 @@ impl Plan {
         }
         n
     }
-    /// ขาดอะไรอีกเท่าไร (รวมของที่จะได้คืนจากการรื้อแล้ว)
-    pub fn shortfall(&self) -> Vec<(usize, i32)> {
-        let (need, back) = (self.need(), self.refund_pending());
-        (0..NI).filter_map(|i| { let s = need[i] - self.pool[i] - back[i]; if s > 0 { Some((i, s)) } else { None } }).collect()
-    }
     pub fn progress(&self) -> (usize, usize) { (self.done.iter().filter(|&&d| d != 0).count(), self.steps.len()) }
     pub fn count_houses(&self) -> usize { self.steps.iter().filter(|s| matches!(s, Step::MoveHouse { .. })).count() }
     pub fn count_clear(&self) -> (usize, usize) {
@@ -178,6 +229,28 @@ impl Plan {
         (nat, wall)
     }
     pub fn finished(&self) -> bool { self.done.iter().all(|&d| d != 0) }
+    pub fn stats(&self) -> Stats {
+        let mut s = Stats::default();
+        let add = |t: &mut (u32, u32), d: u32, n: u32| { t.0 += d; t.1 += n; };
+        for (i, st) in self.steps.iter().enumerate() {
+            let fin = self.done[i] != 0;
+            match st {
+                Step::Clear { .. } => add(&mut s.clear, fin as u32, 1),
+                Step::MoveHouse { .. } => add(&mut s.houses, fin as u32, 1),
+                Step::MoveOne { .. } | Step::Place { .. } => add(&mut s.plaza, fin as u32, 1),
+                Step::Pave { x0, y0, x1, y1, at } => { let n = rect_len(*x0, *y0, *x1, *y1); add(&mut s.road, if fin { n } else { (*at).min(n) }, n) }
+                Step::Wall { x0, y0, x1, y1, at, .. } => { let n = rect_len(*x0, *y0, *x1, *y1); add(&mut s.wall, if fin { n } else { (*at).min(n) }, n) }
+            }
+        }
+        s
+    }
+    /// 0..1 รวมทุกหมวด (ถ่วงตามปริมาณงาน)
+    pub fn frac(&self) -> f32 {
+        let s = self.stats();
+        let d = s.houses.0 * 8 + s.plaza.0 * 2 + s.clear.0 + s.road.0 / 2 + s.wall.0;
+        let n = s.houses.1 * 8 + s.plaza.1 * 2 + s.clear.1 + s.road.1 / 2 + s.wall.1;
+        if n == 0 { 1. } else { d as f32 / n as f32 }
+    }
 }
 
 impl Game {
@@ -187,8 +260,17 @@ impl Game {
         self.rs.ar.opts = o;
         self.rs.ar.set = true;
     }
+    /// v37 ตั้งขนาดเมือง / ชนิดกำแพง (None = ไม่มีกำแพงรอบเมือง)
+    pub fn arch_set_size(&mut self, s: u8) { self.rs.ar.size = s.min(2); self.rs.ar.prop = None; }
+    pub fn arch_set_wall(&mut self, k: Option<u8>) {
+        let o = self.arch_opts();
+        self.rs.ar.opts = match k { Some(_) => o | OPT_CITYWALL, None => o & !OPT_CITYWALL };
+        if let Some(k) = k { self.rs.ar.wallk = k.min(2); }
+        self.rs.ar.set = true;
+        self.rs.ar.prop = None;
+    }
     /// ค่าจ้าง
-    pub fn arch_fee(&self, plan: &Plan) -> i32 { ARCH_FEE + ARCH_FEE_HOUSE * plan.count_houses() as i32 }
+    pub fn arch_fee(&self, plan: &Plan) -> i32 { ARCH_FEE + ARCH_FEE_HOUSE * plan.count_houses() as i32 + ARCH_FEE_SIZE * plan.size as i32 }
 
     // ---------------------------------------------------------------- สำรวจ
     pub fn arch_survey(&self) -> Option<Survey> {
@@ -198,7 +280,7 @@ impl Game {
         let mut outside: HashSet<(i32, i32)> = HashSet::new();
         let mut inside: HashSet<(i32, i32)> = HashSet::new();
         let mut room_walls: HashSet<(i32, i32)> = HashSet::new();
-        let mut walls_all: Vec<(i32, i32)> = self.w.placed.iter().filter(|(k, &o)| near(k) && is_wall_obj(o)).map(|(k, _)| *k).collect();
+        let mut walls_all: Vec<(i32, i32)> = self.w.placed.iter().filter(|(k, &o)| near(k) && is_wall_obj(o) && o != 38).map(|(k, _)| *k).collect();
         walls_all.sort();
         for &w in &walls_all {
             for dy in -1..=1 { for dx in -1..=1 {
@@ -233,7 +315,7 @@ impl Game {
         }
         sv.houses.sort_by_key(|h| h.door);
         let house_tiles: HashSet<(i32, i32)> = sv.houses.iter().flat_map(|h| h.carry.tiles.iter().copied()).collect();
-        // กำแพงสะเปะสะปะ: ไม่ได้เป็นส่วนของห้องปิดใดเลย
+        // กำแพงสะเปะสะปะ: ไม่ได้เป็นส่วนของห้องปิดใดเลย (กำแพงเมือง 38 ไม่นับ — ตั้งใจสร้างเป็นแนวป้องกัน)
         sv.walls = walls_all.iter().copied().filter(|k| matches!(self.w.placed.get(k), Some(10) | Some(11)) && !room_walls.contains(k) && !house_tiles.contains(k) && !self.site_reserved(*k)).collect();
         // บ่อน้ำกลางแจ้ง
         let mut wells: Vec<(i32, i32)> = self.w.placed.iter().filter(|(k, &o)| near(k) && (o == 39 || o == O_BIGWELL) && !inside.contains(k)).map(|(k, _)| *k).collect();
@@ -250,110 +332,130 @@ impl Game {
     }
 
     // ---------------------------------------------------------------- วางแผน
-    /// ข้อเสนอของช่างตามแบบ (variant) และหมวดที่เลือก (None = ยังไม่มีบ้านในเมือง)
-    pub fn arch_plan(&self, variant: u8, opts: u8) -> Option<Plan> {
+    /// ข้อเสนอของช่างตามแบบ (variant) ขนาดเมือง และหมวดที่เลือก (None = ยังไม่มีบ้านในเมือง/ไม่มีอะไรให้ทำ)
+    pub fn arch_plan(&self, variant: u8, opts: u8) -> Option<Plan> { self.arch_plan_ex(variant, opts, self.rs.ar.size, self.rs.ar.wallk) }
+    pub fn arch_plan_ex(&self, variant: u8, opts: u8, size: u8, wallk: u8) -> Option<Plan> {
         let sv = self.arch_survey()?;
         if sv.houses.is_empty() { return None; }
+        let size = size.min(2);
+        let wobj = WALL_OBJ[wallk.min(2) as usize];
+        let sh = shape(size);
+        let (bu0, bu1, bv0, bv1) = wall_box(size);
+        let ew = variant == 0;
         let mut lay = Lay::new(self);
         let sel: Vec<&Hs> = sv.houses.iter().filter(|h| if h.mine { opts & OPT_MINE != 0 } else { opts & OPT_NPC != 0 }).collect();
         for h in &sel { lay.gone.extend(h.carry.tiles.iter().copied()); }
         if opts & OPT_WALLS != 0 { lay.gone.extend(sv.walls.iter().copied()); }
-        let mut plan = Plan { variant, opts, center: sv.c, ..Default::default() };
+
+        // ---- ใจกลางลาน: ใกล้ใจกลางเมือง ที่ลาน 12×12 โดนของขวางน้อยที่สุด
+        let mut best: Option<(i32, (i32, i32))> = None;
+        for oy in -16..=16 { for ox in -16..=16 {
+            let pc = (sv.c.0 + ox, sv.c.1 + oy);
+            let mut bad = 0;
+            for dv in PLAZA_LO - 1..=PLAZA_HI + 1 { for du in PLAZA_LO - 1..=PLAZA_HI + 1 {
+                if lay.cs((pc.0 + du, pc.1 + dv)) == Cs::Blocked { bad += 1; }
+            } }
+            let sc = bad * 60 + ox.abs() + oy.abs();
+            if best.map_or(true, |b| sc < b.0) { best = Some((sc, pc)); }
+        } }
+        let pc = best.map(|b| b.1).unwrap_or(sv.c);
+        let at = |u: i32, v: i32| if ew { (pc.0 + u, pc.1 + v) } else { (pc.0 + v, pc.1 + u) };
+
+        let mut plan = Plan { variant, opts, size, wallk: wallk.min(2), center: pc, ..Default::default() };
         let mut clears: Vec<Step> = vec![];
         let mut cleared: HashSet<(i32, i32)> = HashSet::new();
         let mut rsv: HashSet<(i32, i32)> = HashSet::new();
         let mut fp_all: HashSet<(i32, i32)> = HashSet::new();
         let mut overlay: Vec<(i32, i32, u8)> = vec![];
         let mut plaza_steps: Vec<Step> = vec![];
-        let mut pc = sv.c;
-        let mut note = |p: &mut Plan, s: String| p.notes.push(s);
 
-        // ---- ลานกลางเมือง
-        let mut ring_cells: Vec<(i32, i32)> = vec![];
+        // ---- ถนน (จองก่อน บ้านจะได้ไม่ลงทับ)
+        let road_on = opts & OPT_ROAD != 0;
+        let wall_on = opts & OPT_CITYWALL != 0;
+        let ext = if wall_on { 2 } else { 0 };
+        let mut road_rects: Vec<(i32, i32, i32, i32)> = vec![]; // (u0, v0, u1, v1)
+        road_rects.push((PLAZA_LO, PLAZA_LO, PLAZA_HI, PLAZA_HI));
+        for &s in sh.streets { road_rects.push((bu0 - ext, s * BLOCK, bu1 + ext, s * BLOCK + 1)); }
+        for &a in sh.avenues { road_rects.push((a, bv0 - ext, a + 1, bv1 + ext)); }
+        let mut road_cells: HashSet<(i32, i32)> = HashSet::new();
+        for &(u0, v0, u1, v1) in &road_rects { for v in v0..=v1 { for u in u0..=u1 { road_cells.insert(at(u, v)); } } }
+        rsv.extend(road_cells.iter().copied());
+        for dv in PLAZA_LO - 1..=PLAZA_HI + 1 { for du in PLAZA_LO - 1..=PLAZA_HI + 1 { rsv.insert(at(du, dv)); } }
+        let inside_box = |k: (i32, i32)| -> bool {
+            let (u, v) = if ew { (k.0 - pc.0, k.1 - pc.1) } else { (k.1 - pc.1, k.0 - pc.0) };
+            u >= bu0 + 2 && u <= bu1 - 2 && v >= bv0 + 2 && v <= bv1 - 2
+        };
+
+        // ---- ลานกลางเมือง: วงกองไฟกลางลาน · บ่อน้ำ 4 มุม · คบเพลิงขอบลาน
         if opts & OPT_PLAZA != 0 {
             let ring_off = [(0, 0), (-2, 0), (2, 0), (0, -2), (0, 2)];
-            let mut sites: Vec<(i32, i32)> = (-6..=6).flat_map(|dy| (-6..=6).map(move |dx| (dx, dy))).collect();
-            sites.sort_by_key(|o| (o.0.abs() + o.1.abs(), *o));
-            // ถ้ามีวงกองไฟเดิม ก็ให้ลานอยู่ที่วงเดิมได้ถ้าอยู่ใกล้ใจกลาง (ไม่ต้องขนไปไกล)
-            let mut found = None;
-            for o in sites {
-                let s = (sv.c.0 + o.0, sv.c.1 + o.1);
-                let ok = ring_off.iter().all(|r| { let k = (s.0 + r.0, s.1 + r.1); !matches!(lay.cs(k), Cs::Blocked) || sv.ring.contains(&k) });
-                if ok { found = Some(s); break; }
-            }
-            if let Some(s) = found {
-                pc = s;
-                for dy in -PLAZA_R..=PLAZA_R { for dx in -PLAZA_R..=PLAZA_R { rsv.insert((pc.0 + dx, pc.1 + dy)); } }
-                // วงกองไฟ
-                let spots: Vec<(i32, i32)> = ring_off.iter().map(|r| (pc.0 + r.0, pc.1 + r.1)).collect();
-                if sv.ring.is_empty() {
-                    plaza_steps.push(Step::Place { obj: 9, at: spots[0] });
-                    for &k in &spots[1..] { plaza_steps.push(Step::Place { obj: O_LOG, at: k }); }
-                } else {
-                    // จับคู่ท่อนไม้เดิมกับตำแหน่งใหม่ที่ใกล้ที่สุด
-                    let mut free: Vec<(i32, i32)> = spots[1..].to_vec();
-                    let mut moves: Vec<((i32, i32), (i32, i32))> = vec![(sv.ring[0], spots[0])];
-                    for &l in &sv.ring[1..] {
-                        let (i, _) = free.iter().enumerate().min_by_key(|(_, s)| (s.0 - l.0).abs() + (s.1 - l.1).abs()).unwrap();
-                        moves.push((l, free.remove(i)));
-                    }
-                    for (f, t) in moves { if f != t { plaza_steps.push(Step::MoveOne { from: f, to: t }); lay.gone.insert(f); } }
-                    for k in free { plaza_steps.push(Step::Place { obj: O_LOG, at: k }); }
-                }
-                ring_cells = spots;
-                // บ่อน้ำ 4 มุมลาน: ของเดิมย้ายมา ไม่พอก็วางใหม่ (อย่างน้อย 1 บ่อ และ 1 บ่อต่อ 5 หลัง)
-                let corners = [(-3, -3), (3, -3), (-3, 3), (3, 3)].map(|o| (pc.0 + o.0, pc.1 + o.1));
-                let want = (sv.wells.len().max((sv.houses.len() + 4) / 5).max(1)).min(4);
-                let mut left: Vec<(i32, i32)> = corners.to_vec();
-                let mut wells = sv.wells.clone();
-                wells.sort_by_key(|w| (w.0 - pc.0).abs() + (w.1 - pc.1).abs());
-                let mut n_done = 0;
-                for w in wells {
-                    if n_done >= want || left.is_empty() { break; }
-                    let (i, _) = left.iter().enumerate().min_by_key(|(_, s)| (s.0 - w.0).abs() + (s.1 - w.1).abs()).unwrap();
-                    let t = left.remove(i);
-                    if w != t { plaza_steps.push(Step::MoveOne { from: w, to: t }); lay.gone.insert(w); }
-                    n_done += 1;
-                }
-                while n_done < want && !left.is_empty() { plaza_steps.push(Step::Place { obj: 39, at: left.remove(0) }); n_done += 1; }
-                // ช่องที่ต้องเคลียร์ก่อน (ต้นไม้ในลาน)
-                for s in &plaza_steps {
-                    let at = match s { Step::MoveOne { to, .. } => *to, Step::Place { at, .. } => *at, _ => continue };
-                    if let Cs::Clear(o) = lay.cs(at) { if cleared.insert(at) { clears.push(Step::Clear { at, obj: o }); } }
-                    overlay.push((at.0, at.1, 3));
-                }
+            let spots: Vec<(i32, i32)> = ring_off.iter().map(|r| at(r.0, r.1)).collect();
+            if sv.ring.is_empty() {
+                plaza_steps.push(Step::Place { obj: 9, at: spots[0] });
+                for &k in &spots[1..] { plaza_steps.push(Step::Place { obj: O_LOG, at: k }); }
             } else {
-                note(&mut plan, "ไม่มีที่โล่งพอทำลานกลางเมือง — ข้ามส่วนลาน".to_string());
+                let mut free: Vec<(i32, i32)> = spots[1..].to_vec();
+                let mut moves: Vec<((i32, i32), (i32, i32))> = vec![(sv.ring[0], spots[0])];
+                for &l in &sv.ring[1..] {
+                    let (i, _) = free.iter().enumerate().min_by_key(|(_, s)| (s.0 - l.0).abs() + (s.1 - l.1).abs()).unwrap();
+                    moves.push((l, free.remove(i)));
+                }
+                for (f, t) in moves { if f != t { plaza_steps.push(Step::MoveOne { from: f, to: t }); lay.gone.insert(f); } }
+                for k in free { plaza_steps.push(Step::Place { obj: O_LOG, at: k }); }
+            }
+            let corners = [(-4, -4), (5, -4), (-4, 5), (5, 5)].map(|o| at(o.0, o.1));
+            let want = (sv.wells.len().max((sv.houses.len() + 4) / 5).max(1)).min(4);
+            let mut left: Vec<(i32, i32)> = corners.to_vec();
+            let mut wells = sv.wells.clone();
+            wells.sort_by_key(|w| (w.0 - pc.0).abs() + (w.1 - pc.1).abs());
+            let mut n_done = 0;
+            for w in wells {
+                if n_done >= want || left.is_empty() { break; }
+                let (i, _) = left.iter().enumerate().min_by_key(|(_, s)| (s.0 - w.0).abs() + (s.1 - w.1).abs()).unwrap();
+                let t = left.remove(i);
+                if w != t { plaza_steps.push(Step::MoveOne { from: w, to: t }); lay.gone.insert(w); }
+                n_done += 1;
+            }
+            while n_done < want && !left.is_empty() { plaza_steps.push(Step::Place { obj: 39, at: left.remove(0) }); n_done += 1; }
+            for o in [(PLAZA_LO, PLAZA_LO), (PLAZA_HI, PLAZA_LO), (PLAZA_LO, PLAZA_HI), (PLAZA_HI, PLAZA_HI)] { plaza_steps.push(Step::Place { obj: 18, at: at(o.0, o.1) }); }
+            for s in &plaza_steps {
+                let k = match s { Step::MoveOne { to, .. } => *to, Step::Place { at, .. } => *at, _ => continue };
+                if let Cs::Clear(o) = lay.cs(k) { if cleared.insert(k) { clears.push(Step::Clear { at: k, obj: o }); } }
+                overlay.push((k.0, k.1, 3));
             }
         }
         if opts & OPT_WALLS != 0 { for &w in &sv.walls { clears.push(Step::Clear { at: w, obj: *self.w.placed.get(&w).unwrap_or(&10) }); cleared.insert(w); overlay.push((w.0, w.1, 2)); } }
 
-        // ---- แปลงบ้านเป็นล็อตริมถนน
+        // ---- คบเพลิงหน้าประตูเมือง (จองไว้ก่อนวางบ้าน)
+        let mut gate_torches: Vec<(i32, i32)> = vec![];
+        let mut gates = 0u8;
+        if wall_on {
+            for &s in sh.streets { for u in [bu0 + 1, bu1 - 1] { gates += 1; for v in [s * BLOCK - 1, s * BLOCK + 2] { gate_torches.push(at(u, v)); } } }
+            for &a in sh.avenues { for v in [bv0 + 1, bv1 - 1] { gates += 1; for u in [a - 1, a + 2] { gate_torches.push(at(u, v)); } } }
+            gate_torches.retain(|k| !road_cells.contains(k));
+            rsv.extend(gate_torches.iter().copied());
+        }
+
+        // ---- บ้านเรียงสองฝั่งถนน ไล่จากลานออกไป (หลังที่อยู่ใกล้ลานเดิมได้ล็อตใกล้ลาน)
         let mut order: Vec<&Hs> = sel.clone();
         order.sort_by_key(|h| ((h.door.0 - pc.0).abs() + (h.door.1 - pc.1).abs(), h.door));
-        let ew = variant == 0;
         let mut moves: Vec<(Step, Vec<(i32, i32)>, Vec<(i32, i32)>)> = vec![]; // (step, ช่องใหม่, ช่องเดิม)
-        let mut street_ext: HashMap<i32, (i32, i32)> = HashMap::new();
         let mut unplaced = 0;
         for h in order {
-            let mut best: Option<(i32, (i32, i32), u8, Vec<(i32, i32)>, Vec<(i32, i32)>, i32)> = None;
-            for s in [0i32, -1, 1, -2, 2] {
+            let mut best: Option<(i32, (i32, i32), u8, Vec<(i32, i32)>, Vec<(i32, i32)>)> = None;
+            for &s in sh.streets {
                 for side in 0..2u8 {
                     for dir in [1i32, -1] {
-                        let base = if ew { pc.0 } else { pc.1 };
-                        let mut u = base + if s == 0 { 2 * dir } else if dir > 0 { 0 } else { -1 };
-                        for _ in 0..40 {
-                            if (u - base).abs() > 38 { break; }
+                        let mut u = if dir > 0 { 0 } else { -1 };
+                        while u >= bu0 && u <= bu1 {
                             let (door, face) = if ew {
-                                let sy = pc.1 + s * BLOCK;
-                                if side == 0 { ((u, sy - 1), 0u8) } else { ((u, sy + 2), 2u8) }
-                            } else {
-                                let sx = pc.0 + s * BLOCK;
-                                if side == 0 { ((sx - 1, u), 3u8) } else { ((sx + 2, u), 1u8) }
-                            };
-                            if let Some((fp, cl)) = Self::try_lot(&mut lay, &rsv, &fp_all, h, door, face) {
-                                let cost = (door.0 - h.door.0).abs() + (door.1 - h.door.1).abs() + s.abs() * 4;
-                                if best.as_ref().map_or(true, |b| cost < b.0) { best = Some((cost, door, face, fp, cl, s)); }
+                                if side == 0 { (at(u, s * BLOCK - 1), 0u8) } else { (at(u, s * BLOCK + 2), 2u8) }
+                            } else if side == 0 { (at(u, s * BLOCK - 1), 3u8) } else { (at(u, s * BLOCK + 2), 1u8) };
+                            if let Some((fp, cl)) = Self::try_lot(&mut lay, &rsv, &fp_all, h, door, face, &inside_box) {
+                                // ใกล้ลานก่อน (เมืองกระชับ) · เสมอกัน = ใกล้ที่เดิม
+                                let d0 = (door.0 - h.door.0).abs() + (door.1 - h.door.1).abs();
+                                let cost = (u.abs() + s.abs() * 14) * 16 + d0;
+                                if best.as_ref().map_or(true, |b| cost < b.0) { best = Some((cost, door, face, fp, cl)); }
                                 break;
                             }
                             u += dir;
@@ -361,17 +463,14 @@ impl Game {
                     }
                 }
             }
-            let Some((_, door, face, fp, cl, s)) = best else { unplaced += 1; continue };
+            let Some((_, door, face, fp, cl)) = best else { unplaced += 1; continue };
             let rot = (face + 4 - h.face) % 4;
             for &c in &fp { for n in cheb1(c) { rsv.insert(n); } fp_all.insert(c); overlay.push((c.0, c.1, 1)); }
             for &t in &h.carry.tiles { overlay.push((t.0, t.1, 0)); }
             for at in cl { if let Cs::Clear(obj) = lay.cs(at) { if cleared.insert(at) { clears.push(Step::Clear { at, obj }); overlay.push((at.0, at.1, 2)); } } }
-            let e = street_ext.entry(s).or_insert((i32::MAX, i32::MIN));
-            let u = if ew { door.0 } else { door.1 };
-            e.0 = e.0.min(u); e.1 = e.1.max(u);
             moves.push((Step::MoveHouse { door: h.door, to: door, rot }, fp, h.carry.tiles.clone()));
         }
-        if unplaced > 0 { note(&mut plan, format!("หาที่ลงให้บ้านไม่ได้ {} หลัง (ที่ไม่พอ/มีของขวาง) — ปล่อยไว้ที่เดิม", unplaced)); }
+        if unplaced > 0 { plan.notes.push(format!("ล็อตริมถนนไม่พอ/มีของขวาง {} หลัง — ปล่อยไว้ที่เดิม (ลองเมืองขนาดใหญ่ขึ้น หรืออีกแนวถนน)", unplaced)); }
         // เรียงลำดับย้ายบ้าน: หลังที่ปลายทางไม่ทับบ้านที่ยังไม่ย้าย ไปก่อน
         let mut ordered: Vec<(Step, Vec<(i32, i32)>, Vec<(i32, i32)>)> = vec![];
         while !moves.is_empty() {
@@ -381,41 +480,59 @@ impl Game {
         }
         plan.houses = ordered.len();
 
-        // ---- ถนน
+        // ---- ถนน: ลานก่อน แล้วถนนหลัก ถนนตัด
         let mut roads: Vec<Step> = vec![];
-        if opts & OPT_ROAD != 0 {
-            let mut keys: Vec<i32> = street_ext.keys().copied().collect();
-            keys.sort();
-            for s in keys {
-                let (a, b) = street_ext[&s];
-                let cu = if ew { pc.0 } else { pc.1 };
-                let (mut a, mut b) = (a - 2, b + 2);
-                if s == 0 { a = a.min(cu - PLAZA_R); b = b.max(cu + PLAZA_R); }
-                let (x0, y0, x1, y1) = if ew { let sy = pc.1 + s * BLOCK; (a, sy, b, sy + 1) } else { let sx = pc.0 + s * BLOCK; (sx, a, sx + 1, b) };
-                roads.push(Step::Pave { x0, y0, x1, y1 });
-                for y in y0..=y1 { for x in x0..=x1 { overlay.push((x, y, 4)); } }
+        if road_on {
+            for &(u0, v0, u1, v1) in &road_rects {
+                let (a, b) = (at(u0, v0), at(u1, v1));
+                roads.push(Step::Pave { x0: a.0.min(b.0), y0: a.1.min(b.1), x1: a.0.max(b.0), y1: a.1.max(b.1), at: 0 });
             }
         }
+        // ---- กำแพงรอบเมือง: 4 ด้าน เว้นช่องตรงถนน = ประตูเมือง
+        let mut walls: Vec<Step> = vec![];
+        if wall_on {
+            let mut sides: Vec<Vec<(i32, i32)>> = vec![];
+            sides.push((bu0..=bu1).map(|u| (u, bv0)).collect());
+            sides.push((bu0..=bu1).map(|u| (u, bv1)).collect());
+            sides.push((bv0 + 1..bv1).map(|v| (bu0, v)).collect());
+            sides.push((bv0 + 1..bv1).map(|v| (bu1, v)).collect());
+            for side in sides {
+                let mut run: Vec<(i32, i32)> = vec![];
+                let flush = |run: &mut Vec<(i32, i32)>, walls: &mut Vec<Step>| {
+                    if run.is_empty() { return; }
+                    let (a, b) = (run[0], *run.last().unwrap());
+                    walls.push(Step::Wall { x0: a.0.min(b.0), y0: a.1.min(b.1), x1: a.0.max(b.0), y1: a.1.max(b.1), obj: wobj, at: 0 });
+                    run.clear();
+                };
+                for (u, v) in side {
+                    let k = at(u, v);
+                    if road_cells.contains(&k) { flush(&mut run, &mut walls); } else { run.push(k); }
+                }
+                flush(&mut run, &mut walls);
+            }
+            for k in &gate_torches { plaza_steps.push(Step::Place { obj: 18, at: *k }); }
+            plan.gates = gates;
+        }
 
-        plan.steps = clears.into_iter().chain(ordered.into_iter().map(|m| m.0)).chain(plaza_steps).chain(roads).collect();
+        plan.steps = clears.into_iter().chain(ordered.into_iter().map(|m| m.0)).chain(plaza_steps).chain(roads).chain(walls).collect();
         plan.done = vec![0; plan.steps.len()];
         plan.overlay = overlay;
-        let _ = ring_cells;
         if plan.steps.is_empty() { return None; }
         Some(plan)
     }
 
     /// ล็อตนี้ลงบ้านหลังนี้ได้ไหม: (ช่องตัวบ้านใหม่, ช่องที่ต้องเคลียร์) — None = ไม่ได้
-    fn try_lot(lay: &mut Lay, rsv: &HashSet<(i32, i32)>, fp_all: &HashSet<(i32, i32)>, h: &Hs, door: (i32, i32), face: u8) -> Option<(Vec<(i32, i32)>, Vec<(i32, i32)>)> {
+    fn try_lot(lay: &mut Lay, rsv: &HashSet<(i32, i32)>, fp_all: &HashSet<(i32, i32)>, h: &Hs, door: (i32, i32), face: u8, inside: &dyn Fn((i32, i32)) -> bool) -> Option<(Vec<(i32, i32)>, Vec<(i32, i32)>)> {
         let k = (face + 4 - h.face) % 4;
         let mut fp: Vec<(i32, i32)> = vec![];
         let mut cl: Vec<(i32, i32)> = vec![];
+        let has_floor = h.carry.tiles.iter().any(|t| lay.g.w.tmod.get(t).map_or(false, |&x| x == T_FLOORW || x == T_FLOORS));
         for t in &h.carry.tiles {
             let o = rot_off((t.0 - h.door.0, t.1 - h.door.1), k);
             let c = (door.0 + o.0, door.1 + o.1);
-            if rsv.contains(&c) { return None; }
+            if rsv.contains(&c) || !inside(c) { return None; }
             // ช่องที่ถูกดัดแปลงพื้น (ถมน้ำ/ปูถนน) ปูพื้นบ้านทับไม่ได้ (กติกาเดียวกับตอนย้ายของ)
-            if lay.g.w.tmod.get(&c).map_or(false, |&x| x != T_FLOORW && x != T_FLOORS) && h.carry.tiles.iter().any(|t| lay.g.w.tmod.get(t).map_or(false, |&x| x == T_FLOORW || x == T_FLOORS)) { return None; }
+            if has_floor && lay.g.w.tmod.get(&c).map_or(false, |&x| x != T_FLOORW && x != T_FLOORS) && !h.carry.tiles.contains(&c) { return None; }
             match lay.cs(c) { Cs::Blocked => return None, Cs::Clear(_) => cl.push(c), Cs::Free => {} }
             fp.push(c);
         }
@@ -431,6 +548,62 @@ impl Game {
         Some((fp, cl))
     }
 
+    // ---------------------------------------------------------------- สถานะช่องถนน/กำแพง
+    fn arch_fields(&self) -> HashSet<(i32, i32)> { self.rs.pm.fields.iter().flat_map(|f| f.cells()).collect() }
+    fn cell_hard(&self, k: (i32, i32), fields: &HashSet<(i32, i32)>) -> bool {
+        let t = self.w.tile_at(k.0, k.1);
+        SOLIDT[t as usize] || t == T_SOIL || t == T_WET || t == T_FLOORW || t == T_FLOORS
+            || self.crops.contains_key(&k) || fields.contains(&k) || self.site_reserved(k)
+            || self.w.realm.city_at(k.0, k.1).map_or(false, |ci| self.city_owner(ci) != PLAYER_OWN)
+    }
+    pub fn cell_road(&self, k: (i32, i32), fields: &HashSet<(i32, i32)>) -> Cst {
+        if self.w.tile_at(k.0, k.1) == T_ROAD { return Cst::Done; }
+        if self.cell_hard(k, fields) { return Cst::Skip; }
+        // ของที่วางไว้ (กองไฟ ท่อนไม้ บ่อ คบเพลิง) ปูถนนใต้ของได้ ลานจะได้ไม่เป็นรูๆ · ประตูไม่ปู (ไม่ให้พื้นหน้าบ้านเพี้ยน)
+        if let Some(&o) = self.w.placed.get(&k) { return if matches!(o, 12 | 13) { Cst::Skip } else { Cst::Todo }; }
+        match self.w.obj_at(k.0, k.1) { o if nat_trivial(o) => Cst::Todo, o if nat_clearable(o) => Cst::Clear(o), _ => Cst::Skip }
+    }
+    pub fn cell_wall(&self, k: (i32, i32), obj: u8, fields: &HashSet<(i32, i32)>) -> Cst {
+        if self.w.placed.get(&k) == Some(&obj) { return Cst::Done; }
+        // ถนนเดิมที่ตัดผ่านแนวกำแพง = ประตูเมืองโดยธรรมชาติ
+        if self.w.tile_at(k.0, k.1) == T_ROAD || self.cell_hard(k, fields) || self.w.placed.contains_key(&k) { return Cst::Skip; }
+        match self.w.obj_at(k.0, k.1) { o if nat_trivial(o) => Cst::Todo, o if nat_clearable(o) => Cst::Clear(o), _ => Cst::Skip }
+    }
+    /// วัสดุที่ยังต้องใช้ (นับจากของในโลกจริง: ช่องที่ทำแล้ว/ทำไม่ได้ ไม่นับ)
+    pub fn arch_need(&self, p: &Plan) -> [i32; NI] {
+        let mut n = [0; NI];
+        let fields = self.arch_fields();
+        let mut road: HashSet<(i32, i32)> = HashSet::new();
+        for (i, s) in p.steps.iter().enumerate() {
+            if p.done[i] != 0 { continue; }
+            match s {
+                Step::Place { obj, at } => if self.w.placed.get(at) != Some(obj) { for (it, q) in place_cost(*obj) { n[it] += q; } },
+                Step::Pave { x0, y0, x1, y1, at } => for j in *at..rect_len(*x0, *y0, *x1, *y1) {
+                    let k = rect_cell(*x0, *y0, *x1, j);
+                    if matches!(self.cell_road(k, &fields), Cst::Todo | Cst::Clear(_)) { road.insert(k); }
+                },
+                Step::Wall { x0, y0, x1, y1, obj, at } => {
+                    let c = place_cost(*obj);
+                    for j in *at..rect_len(*x0, *y0, *x1, *y1) {
+                        if matches!(self.cell_wall(rect_cell(*x0, *y0, *x1, j), *obj, &fields), Cst::Todo | Cst::Clear(_)) { for &(it, q) in &c { n[it] += q; } }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let rn = road.len() as i32 + (p.pave_n % 2) as i32;
+        n[STONE] += rn / 2 + rn % 2 - (p.pave_n % 2) as i32;
+        n
+    }
+    /// ขาดอะไรอีกเท่าไร (หักของในกองกลาง + ที่จะได้คืนจากการรื้อแล้ว)
+    pub fn arch_shortfall(&self, p: &Plan) -> Vec<(usize, i32)> {
+        let (need, back) = (self.arch_need(p), p.refund_pending());
+        (0..NI).filter_map(|i| { let s = need[i] - p.pool[i] - back[i]; if s > 0 { Some((i, s)) } else { None } }).collect()
+    }
+    fn arch_refresh_sf(&mut self) {
+        self.rs.ar.sf = match &self.rs.ar.active { Some(p) => self.arch_shortfall(p), None => vec![] };
+    }
+
     // ---------------------------------------------------------------- ข้อเสนอ → รับ/ปฏิเสธ
     pub fn arch_hire(&mut self, variant: u8) -> bool {
         if self.w.dun.is_some() { self.toast("จ้างช่างในดันเจี้ยนไม่ได้"); return false; }
@@ -439,8 +612,8 @@ impl Game {
         match self.arch_plan(variant, opts) {
             Some(p) => {
                 self.rs.ar.variant = variant;
-                let (h, (nat, wall)) = (p.count_houses(), p.count_clear());
-                self.toast(format!("สถาปนิกเสนอแบบ \"{}\": ย้ายบ้าน {} หลัง เคลียร์ {} · รื้อกำแพง {}", VARIANT_NAMES[variant as usize & 1], h, nat, wall));
+                let st = p.stats();
+                self.toast(format!("สถาปนิกเสนอผังเมือง{} \"{}\": ย้ายบ้าน {} หลัง · ถนน {} ช่อง · กำแพง {} ช่อง", SIZE_NAMES[p.size as usize], VARIANT_NAMES[variant as usize & 1], st.houses.1, st.road.1, st.wall.1));
                 self.rs.ar.prop = Some(p);
                 self.rs.ar.show = true;
                 true
@@ -452,7 +625,7 @@ impl Game {
             }
         }
     }
-    pub fn arch_reject(&mut self) { if self.rs.ar.prop.take().is_some() { self.toast("ปฏิเสธแบบนี้ — ไม่เสียค่าจ้าง"); } }
+    pub fn arch_reject(&mut self) { if self.rs.ar.prop.take().is_some() { self.rs.ar.show = false; self.toast("ปฏิเสธแบบนี้ — ไม่เสียค่าจ้าง"); } }
     pub fn arch_accept(&mut self) -> bool {
         let Some(p) = self.rs.ar.prop.clone() else { return false };
         let fee = self.arch_fee(&p);
@@ -463,82 +636,196 @@ impl Game {
         self.rs.ar.prop = None;
         self.rs.ar.stall = 0;
         self.rs.ar.t = 0.;
-        self.rs.ar.finished += 0;
-        let sf = p.shortfall();
+        self.rs.ar.unjammed.clear();
         self.rs.ar.active = Some(p);
+        self.arch_refresh_sf();
         self.news_add(format!("จ้างสถาปนิกวางผังเมือง (ค่าจ้าง {} เหรียญ)", fee));
-        self.toast(if sf.is_empty() { "ช่างเริ่มงานแล้ว!".to_string() } else { "ช่างเริ่มงาน — บางอย่างรอวัสดุ (ดูรายการที่ขาดในแท็บชุมชน)".to_string() });
+        self.toast(if self.rs.ar.sf.is_empty() { "ช่างเริ่มงานแล้ว!".to_string() } else { "ช่างเริ่มงาน — ส่วนที่ของยังไม่พอเป็นแบบร่างจางๆ บนพื้นไว้ก่อน เอาของมาที่ลานกลางเมืองแล้วช่างสร้างต่อเอง".to_string() });
         play(&self.sfx.click);
         true
     }
-    /// ใส่วัสดุที่ช่างยังขาด จากกระเป๋าเรา
+    /// ใส่วัสดุที่ช่างยังขาด จากกระเป๋าเรา (คืนรายการที่ใส่)
     pub fn arch_deposit(&mut self) -> bool {
-        let Some(p) = self.rs.ar.active.as_mut() else { return false };
-        let mut any = false;
-        for (it, q) in p.shortfall() {
+        let Some(p) = self.rs.ar.active.as_ref() else { return false };
+        let sf = self.arch_shortfall(p);
+        let mut got: Vec<(usize, i32)> = vec![];
+        for (it, q) in sf {
             let give = q.min(self.p.inv[it]);
-            if give > 0 { self.p.inv[it] -= give; p.pool[it] += give; any = true; }
+            if give > 0 { self.p.inv[it] -= give; got.push((it, give)); }
         }
-        if any { play(&self.sfx.click); } else { self.toast("ในกระเป๋าไม่มีของที่ช่างขาด"); }
-        any
+        if let Some(p) = self.rs.ar.active.as_mut() { for &(it, q) in &got { p.pool[it] += q; } }
+        self.arch_refresh_sf();
+        if got.is_empty() { self.toast("ในกระเป๋าไม่มีของที่ช่างขาด"); return false; }
+        self.toast(format!("ส่งวัสดุให้ช่าง: {}", got.iter().map(|&(i, q)| format!("{} {}", INAME[i], q)).collect::<Vec<_>>().join(" · ")));
+        play(&self.sfx.click);
+        true
+    }
+    /// v37 ขนวัสดุที่ช่างขาดจากกล่องเก็บของในเมือง (ไม้/หินที่ชาวบ้านตัด-ขุดมาเก็บไว้)
+    pub fn arch_deposit_chests(&mut self) -> bool {
+        let Some(p) = self.rs.ar.active.as_ref() else { return false };
+        let c = p.center;
+        let mut sf = self.arch_shortfall(p);
+        let mut keys: Vec<(i32, i32)> = self.chests.keys().copied().filter(|k| (k.0 - c.0).abs() <= SURVEY_R && (k.1 - c.1).abs() <= SURVEY_R).collect();
+        keys.sort_by_key(|k| ((k.0 - c.0).abs() + (k.1 - c.1).abs(), *k));
+        let mut got = [0; NI];
+        for k in keys {
+            let Some(inv) = self.chests.get_mut(&k) else { continue };
+            for (it, q) in sf.iter_mut() {
+                let t = (*q).min(inv[*it]);
+                if t > 0 { inv[*it] -= t; *q -= t; got[*it] += t; }
+            }
+        }
+        if let Some(p) = self.rs.ar.active.as_mut() { for i in 0..NI { p.pool[i] += got[i]; } }
+        self.arch_refresh_sf();
+        let l: Vec<String> = (0..NI).filter(|&i| got[i] > 0).map(|i| format!("{} {}", INAME[i], got[i])).collect();
+        if l.is_empty() { self.toast("กล่องในเมืองไม่มีของที่ช่างขาด"); return false; }
+        self.toast(format!("ขนจากกล่องในเมืองให้ช่าง: {}", l.join(" · ")));
+        play(&self.sfx.click);
+        true
     }
     /// ยกเลิกแผนที่กำลังทำ: ของที่ทำไปแล้วอยู่อย่างนั้น วัสดุที่เหลือคืนกระเป๋า
     pub fn arch_cancel(&mut self) {
         if let Some(p) = self.rs.ar.active.take() {
             for i in 0..NI { self.p.inv[i] += p.pool[i]; }
-            let (d, n) = p.progress();
-            self.toast(format!("ยกเลิกแผนวางผัง (ทำไปแล้ว {}/{}) — คืนวัสดุที่เหลือให้แล้ว", d, n));
+            self.rs.ar.sf.clear();
+            self.toast(format!("ยกเลิกแผนวางผัง (ทำไปแล้ว {}%) — คืนวัสดุที่เหลือให้แล้ว", (p.frac() * 100.) as i32));
         }
     }
 
     // ---------------------------------------------------------------- ช่างลงมือ
-    fn arch_run_step(&mut self, step: &Step) -> Option<bool> {
-        // คืน: Some(true) ทำสำเร็จ · Some(false) ทำไม่ได้แน่ๆ (ข้าม) · None = ยังทำไม่ได้ตอนนี้ (รอ)
+    fn arch_clear_nat(&mut self, k: (i32, i32), o: u8) {
+        if let Some((it, q)) = clear_refund(o) { if let Some(p) = self.rs.ar.active.as_mut() { p.pool[it] += q; } }
+        self.w.removed.insert(k);
+        self.obj_dmg.remove(&k);
+        self.burst(k.0 as f32 * 16. + 8., k.1 as f32 * 16. + 8., hx(0xc8a070), 5, 30.);
+    }
+    fn someone_on(&self, k: (i32, i32)) -> bool {
+        self.player_in_tile(k.0, k.1) || self.npcs.iter().any(|n| tfloor(n.x) == k.0 && tfloor(n.y - 3.) == k.1)
+    }
+    /// ยังมีงานย้าย/รื้อค้างอยู่ไหม (ของใหม่/ถนน/กำแพงรอให้ย้ายเสร็จก่อน ไม่งั้นช่องที่บ้านเดิมตั้งอยู่จะกลายเป็นรู)
+    fn arch_moves_pending(&self) -> bool {
+        self.rs.ar.active.as_ref().map_or(false, |p| p.steps.iter().zip(&p.done).any(|(s, &d)| d == 0 && matches!(s, Step::Clear { .. } | Step::MoveHouse { .. } | Step::MoveOne { .. })))
+    }
+    /// ย้ายบ้านติดกันเอง (บ้าน A จะไปลงที่ B ตั้งอยู่ และ B จะไปที่ A): พักบ้านหลังหนึ่งไว้ที่ว่างชั่วคราวก่อน แล้วค่อยย้ายเข้าที่จริง
+    fn arch_unjam(&mut self) -> bool {
+        let Some(p) = self.rs.ar.active.clone() else { return false };
+        let mut taken: HashSet<(i32, i32)> = HashSet::new();
+        let mut cands: Vec<(usize, Carry, (i32, i32))> = vec![];
+        for (i, s) in p.steps.iter().enumerate() {
+            if p.done[i] != 0 { continue; }
+            if let Step::MoveHouse { door, to, rot } = s {
+                if let Ok(c) = self.move_select(*door) {
+                    for (_, d) in self.move_targets(&c, *to, *rot) { taken.insert(d); }
+                    cands.push((i, c, *door));
+                }
+            }
+        }
+        for (i, c, door) in cands {
+            if self.rs.ar.unjammed.contains(&i) { continue; }
+            self.rs.ar.unjammed.push(i);
+            for r in 3..=40i32 {
+                for k in 0..8 * r {
+                    let (dx, dy) = match k / (2 * r) { 0 => (-r + k % (2 * r), -r), 1 => (r, -r + k % (2 * r)), 2 => (r - k % (2 * r), r), _ => (-r, r - k % (2 * r)) };
+                    let a = (door.0 + dx, door.1 + dy);
+                    if self.move_targets(&c, a, 0).iter().any(|(_, d)| taken.contains(d)) { continue; }
+                    if self.move_blocked_ex(&c, a, 0, false).is_some() { continue; }
+                    let back = self.move_apply(&c, a, 0);
+                    if let Some(p) = self.rs.ar.active.as_mut() {
+                        for q in 0..NI { p.pool[q] += back[q]; }
+                        if let Step::MoveHouse { door, .. } = &mut p.steps[i] { *door = a; }
+                        p.overlay.clear();
+                    }
+                    self.burst(a.0 as f32 * 16. + 8., a.1 as f32 * 16. + 8., hx(0xc8a070), 10, 45.);
+                    return true;
+                }
+            }
+        }
+        false
+    }
+    /// ลงมือหนึ่งขั้น: 1 ทำเสร็จ · 2 ข้าม · 3 ทำไปบางส่วน · 0 ยังทำไม่ได้ (รอ)
+    fn arch_run_step(&mut self, i: usize) -> u8 {
+        let Some(step) = self.rs.ar.active.as_ref().map(|p| p.steps[i].clone()) else { return 0 };
         match step {
             Step::Clear { at, .. } => {
                 let o = self.w.obj_at(at.0, at.1);
-                if o == 0 { return Some(true); }
+                if o == 0 { return 1; }
                 if let Some((it, q)) = clear_refund(o) { if let Some(p) = self.rs.ar.active.as_mut() { p.pool[it] += q; } }
-                if self.w.placed.remove(at).is_none() { self.w.removed.insert(*at); }
-                self.obj_dmg.remove(at);
+                if self.w.placed.remove(&at).is_none() { self.w.removed.insert(at); }
+                self.obj_dmg.remove(&at);
                 self.burst(at.0 as f32 * 16. + 8., at.1 as f32 * 16. + 8., hx(0xc8a070), 6, 30.);
-                Some(true)
+                1
             }
             Step::MoveHouse { door, to, rot } => {
-                let Ok(c) = self.move_select(*door) else { return None };
-                if !c.building { return Some(false); }
-                if self.move_blocked_ex(&c, *to, *rot, false).is_some() { return None; }
-                self.move_apply(&c, *to, *rot);
+                let Ok(c) = self.move_select(door) else { return 0 };
+                if !c.building { return 2; }
+                if self.move_blocked_ex(&c, to, rot, false).is_some() { return 0; }
+                let back = self.move_apply(&c, to, rot);
+                if let Some(p) = self.rs.ar.active.as_mut() { for k in 0..NI { p.pool[k] += back[k]; } }
                 self.burst(to.0 as f32 * 16. + 8., to.1 as f32 * 16. + 8., hx(0xc8a070), 14, 55.);
-                Some(true)
+                1
             }
             Step::MoveOne { from, to } => {
-                let Ok(c) = self.move_select(*from) else { return Some(false) };
-                if self.move_blocked_ex(&c, *to, 0, false).is_some() { return None; }
-                self.move_apply(&c, *to, 0);
+                let Ok(c) = self.move_select(from) else { return 2 };
+                if self.move_blocked_ex(&c, to, 0, false).is_some() { return 0; }
+                let back = self.move_apply(&c, to, 0);
+                if let Some(p) = self.rs.ar.active.as_mut() { for k in 0..NI { p.pool[k] += back[k]; } }
                 self.burst(to.0 as f32 * 16. + 8., to.1 as f32 * 16. + 8., hx(0xc8a070), 8, 40.);
-                Some(true)
+                1
             }
             Step::Place { obj, at } => {
-                let cost = place_cost(*obj);
-                if let Some(p) = self.rs.ar.active.as_ref() { if cost.iter().any(|&(it, q)| p.pool[it] < q) { return None; } }
-                if !self.can_place_at(at.0, at.1) { return None; }
-                if self.w.obj_at(at.0, at.1) == 3 { self.w.removed.insert(*at); }
-                self.w.placed.insert(*at, *obj);
+                if self.arch_moves_pending() { return 0; }
+                match self.w.placed.get(&at) { Some(&o) if o == obj => return 1, Some(_) => return 2, None => {} }
+                let t = self.w.tile_at(at.0, at.1);
+                if SOLIDT[t as usize] || self.site_reserved(at) { return 2; }
+                let o = self.w.obj_at(at.0, at.1);
+                if !nat_trivial(o) && !nat_clearable(o) { return 2; }
+                if self.someone_on(at) { return 0; }
+                let cost = place_cost(obj);
+                if let Some(p) = self.rs.ar.active.as_ref() { if cost.iter().any(|&(it, q)| p.pool[it] < q) { return 0; } }
+                if nat_clearable(o) { self.arch_clear_nat(at, o); } else if o != 0 { self.w.removed.insert(at); }
+                self.w.placed.insert(at, obj);
                 if let Some(p) = self.rs.ar.active.as_mut() { for (it, q) in cost { p.pool[it] -= q; } }
                 self.burst(at.0 as f32 * 16. + 8., at.1 as f32 * 16. + 8., hx(0xc8a070), 8, 40.);
-                self.refresh_torches();
-                Some(true)
+                if obj == 18 { self.refresh_torches(); }
+                1
             }
-            Step::Pave { x0, y0, x1, y1 } => {
-                let cells: Vec<(i32, i32)> = (*y0..=*y1).flat_map(|y| (*x0..=*x1).map(move |x| (x, y)))
-                    .filter(|&(x, y)| { let t = self.w.tile_at(x, y); !SOLIDT[t as usize] && t != T_ROAD && t != T_SOIL && t != T_WET && t != T_FLOORW && t != T_FLOORS && !self.w.placed.contains_key(&(x, y)) && !self.crops.contains_key(&(x, y)) && !self.site_reserved((x, y)) && self.w.realm.city_at(x, y).is_none() })
-                    .collect();
-                let n = cells.len() as i32;
-                if let Some(p) = self.rs.ar.active.as_ref() { if p.pool[STONE] < n { return None; } }
-                for c in cells { self.w.tmod.insert(c, T_ROAD); }
-                if let Some(p) = self.rs.ar.active.as_mut() { p.pool[STONE] -= n; }
-                Some(true)
+            Step::Pave { x0, y0, x1, y1, at } | Step::Wall { x0, y0, x1, y1, at, .. } => {
+                // ถนน/กำแพงรอให้ย้ายบ้าน/เคลียร์ของเสร็จก่อน (ไม่งั้นช่องที่บ้านเดิมตั้งอยู่จะกลายเป็นรู)
+                if self.arch_moves_pending() { return 0; }
+                let wall = if let Step::Wall { obj, .. } = step { Some(obj) } else { None };
+                let fields = self.arch_fields();
+                let len = rect_len(x0, y0, x1, y1);
+                let (mut j, mut built, mut did) = (at, 0u32, false);
+                while j < len {
+                    let k = rect_cell(x0, y0, x1, j);
+                    let st = match wall { Some(o) => self.cell_wall(k, o, &fields), None => self.cell_road(k, &fields) };
+                    match st {
+                        Cst::Done | Cst::Skip => { j += 1; continue; }
+                        _ => {}
+                    }
+                    if built >= if wall.is_some() { WALL_BATCH } else { PAVE_BATCH } { break; }
+                    // ค่าวัสดุ
+                    let cost: Vec<(usize, i32)> = match wall { Some(o) => place_cost(o), None => if self.rs.ar.active.as_ref().map_or(0, |p| p.pave_n) % 2 == 0 { vec![(STONE, 1)] } else { vec![] } };
+                    if wall.is_some() && self.someone_on(k) { break; }
+                    let pool_ok = self.rs.ar.active.as_ref().map_or(false, |p| cost.iter().all(|&(it, q)| p.pool[it] >= q));
+                    if !pool_ok { break; }
+                    if let Cst::Clear(o) = st { self.arch_clear_nat(k, o); }
+                    let o = self.w.obj_at(k.0, k.1);
+                    if o != 0 && !self.w.placed.contains_key(&k) { self.w.removed.insert(k); }
+                    match wall { Some(ob) => { self.w.placed.insert(k, ob); self.obj_dmg.remove(&k); } None => { self.w.tmod.insert(k, T_ROAD); } }
+                    if let Some(p) = self.rs.ar.active.as_mut() { for (it, q) in cost { p.pool[it] -= q; } if wall.is_none() { p.pave_n += 1; } }
+                    built += 1;
+                    did = true;
+                    j += 1;
+                }
+                if j != at { did = true; }
+                if let Some(p) = self.rs.ar.active.as_mut() { match &mut p.steps[i] { Step::Pave { at, .. } | Step::Wall { at, .. } => *at = j, _ => {} } }
+                if built > 0 {
+                    let k = rect_cell(x0, y0, x1, j.saturating_sub(1));
+                    self.burst(k.0 as f32 * 16. + 8., k.1 as f32 * 16. + 8., hx(0xb0a080), 6, 30.);
+                    if wall.is_some() { self.room_t = 0.; }
+                }
+                if j >= len { 1 } else if did { 3 } else { 0 }
             }
         }
     }
@@ -547,70 +834,77 @@ impl Game {
         let Some(plan) = self.rs.ar.active.as_ref() else { return false };
         let pending: Vec<usize> = (0..plan.steps.len()).filter(|&i| plan.done[i] == 0).collect();
         for i in pending {
-            let step = self.rs.ar.active.as_ref().unwrap().steps[i].clone();
-            match self.arch_run_step(&step) {
-                Some(ok) => {
-                    if let Some(p) = self.rs.ar.active.as_mut() { p.done[i] = if ok { 1 } else { 2 }; }
+            let is_clear = matches!(self.rs.ar.active.as_ref().unwrap().steps[i], Step::Clear { .. });
+            match self.arch_run_step(i) {
+                0 => continue,
+                r => {
+                    if r != 3 { if let Some(p) = self.rs.ar.active.as_mut() { p.done[i] = r; } }
                     // เคลียร์ต้นไม้/รื้อกำแพงทำรวดเดียวทั้งชุด (ไม่ต้องรอทีละชิ้น)
-                    if matches!(step, Step::Clear { .. }) {
+                    if is_clear {
                         for j in i + 1..self.rs.ar.active.as_ref().map_or(0, |p| p.steps.len()) {
-                            let (is_clear, d) = { let p = self.rs.ar.active.as_ref().unwrap(); (matches!(p.steps[j], Step::Clear { .. }), p.done[j]) };
-                            if !is_clear { break; }
+                            let (c, d) = { let p = self.rs.ar.active.as_ref().unwrap(); (matches!(p.steps[j], Step::Clear { .. }), p.done[j]) };
+                            if !c { break; }
                             if d != 0 { continue; }
-                            let st = self.rs.ar.active.as_ref().unwrap().steps[j].clone();
-                            if let Some(ok) = self.arch_run_step(&st) { if let Some(p) = self.rs.ar.active.as_mut() { p.done[j] = if ok { 1 } else { 2 }; } }
+                            let r = self.arch_run_step(j);
+                            if r == 1 || r == 2 { if let Some(p) = self.rs.ar.active.as_mut() { p.done[j] = r; } }
                         }
                     }
                     return true;
                 }
-                None => continue,
             }
         }
         false
     }
     pub fn arch_tick(&mut self, dt: f32) {
         if self.rs.ar.active.is_none() || self.w.dun.is_some() { return; }
-        if self.rs.ar.active.as_ref().map_or(false, |p| p.overlay.is_empty() && !p.steps.is_empty()) { self.arch_rebuild_overlay(); }
+        if self.rs.ar.active.as_ref().map_or(false, |p| p.overlay.is_empty() && !p.steps.is_empty()) { self.arch_rebuild_overlay(); self.arch_refresh_sf(); }
+        // ยืนที่ลานกลางเมืองพร้อมของที่ช่างขาด = ช่างรับไปเอง
+        self.rs.ar.dep_cd -= dt;
+        if self.rs.ar.dep_cd <= 0. {
+            self.rs.ar.dep_cd = 1.5;
+            let c = self.rs.ar.active.as_ref().unwrap().center;
+            let (px, py) = (tfloor(self.p.x), tfloor(self.p.y - 3.));
+            if (px - c.0).abs() <= 6 && (py - c.1).abs() <= 6 && self.rs.ar.sf.iter().any(|&(it, _)| self.p.inv[it] > 0) { self.arch_deposit(); }
+        }
         self.rs.ar.t -= dt;
         if self.rs.ar.t > 0. { return; }
         self.rs.ar.t = STEP_SECS;
         if self.arch_step_once() {
             self.rs.ar.stall = 0;
+            self.arch_refresh_sf();
             if self.rs.ar.active.as_ref().map_or(false, |p| p.finished()) { self.arch_finish(); }
             return;
         }
-        // ทำอะไรไม่ได้เลย: รอวัสดุ หรือ ติดขัด
-        let waiting = {
+        self.arch_refresh_sf();
+        // ทำอะไรไม่ได้เลย: เหลือแต่งานที่ต้องใช้วัสดุ = แบบร่างรอของ (รอได้เรื่อยๆ) · ถ้ามีงานย้าย/รื้อค้าง = ติดขัด
+        let stuck = {
             let p = self.rs.ar.active.as_ref().unwrap();
-            (0..p.steps.len()).any(|i| p.done[i] == 0 && matches!(p.steps[i], Step::Place { .. } | Step::Pave { .. }) && !p.shortfall().is_empty())
+            (0..p.steps.len()).any(|i| p.done[i] == 0 && matches!(p.steps[i], Step::Clear { .. } | Step::MoveHouse { .. } | Step::MoveOne { .. }))
         };
-        let only_mat = {
-            let p = self.rs.ar.active.as_ref().unwrap();
-            (0..p.steps.len()).all(|i| p.done[i] != 0 || matches!(p.steps[i], Step::Place { .. } | Step::Pave { .. }))
-        };
-        if waiting && only_mat { return; }
+        if !stuck { return; }
         self.rs.ar.stall += 1;
-        if self.rs.ar.stall >= 4 {
-            // ติดกันเอง/ของขวาง: ข้ามงานที่ยังย้ายไม่ได้ ที่เหลือทำต่อ
+        if self.rs.ar.stall >= 2 && self.arch_unjam() { self.rs.ar.stall = 0; return; }
+        if self.rs.ar.stall >= 6 {
             let mut skipped = 0;
             if let Some(p) = self.rs.ar.active.as_mut() {
-                for i in 0..p.steps.len() { if p.done[i] == 0 && !matches!(p.steps[i], Step::Place { .. } | Step::Pave { .. }) { p.done[i] = 2; skipped += 1; } }
-                if skipped == 0 { for i in 0..p.steps.len() { if p.done[i] == 0 { p.done[i] = 2; skipped += 1; } } }
+                for i in 0..p.steps.len() { if p.done[i] == 0 && matches!(p.steps[i], Step::Clear { .. } | Step::MoveHouse { .. } | Step::MoveOne { .. }) { p.done[i] = 2; skipped += 1; } }
             }
             self.rs.ar.stall = 0;
-            if skipped > 0 { self.news_add(format!("ช่างทำต่อไม่ได้ {} อย่าง (มีของขวาง/ติดกัน) — ลองให้ช่างวางผังใหม่อีกรอบ", skipped)); }
+            if skipped > 0 { self.news_add(format!("ช่างย้าย/รื้อไม่ได้ {} อย่าง (มีของขวาง/ติดกัน) — ข้ามไปทำถนน กำแพง ลานต่อ", skipped)); }
             if self.rs.ar.active.as_ref().map_or(false, |p| p.finished()) { self.arch_finish(); }
         }
     }
     fn arch_finish(&mut self) {
         let Some(p) = self.rs.ar.active.take() else { return };
         let moved = p.steps.iter().zip(&p.done).filter(|(s, d)| matches!(s, Step::MoveHouse { .. }) && **d == 1).count();
-        let skipped = p.done.iter().filter(|&&d| d == 2).count();
+        let skipped = p.steps.iter().zip(&p.done).filter(|(s, d)| matches!(s, Step::MoveHouse { .. } | Step::MoveOne { .. } | Step::Place { .. }) && **d == 2).count();
+        let st = p.stats();
         for i in 0..NI { self.p.inv[i] += p.pool[i]; }
         self.rs.ar.finished += 1;
         self.rs.ar.show = false;
+        self.rs.ar.sf.clear();
         for n in self.npcs.iter_mut().filter(|n| n.state == ST_HOME) { n.mood = (n.mood + 3).min(100); }
-        self.news_add(format!("ช่างสถาปนิกวางผังเมืองเสร็จแล้ว: ย้ายบ้าน {} หลัง{} — ชาวบ้านชอบเมืองที่เป็นระเบียบ", moved, if skipped > 0 { format!(" (ข้าม {} อย่าง)", skipped) } else { String::new() }));
+        self.news_add(format!("ผังเมือง{}เสร็จแล้ว: ย้ายบ้าน {} หลัง · ถนน {} ช่อง · กำแพง {} ช่อง{} — ชาวบ้านชอบเมืองที่เป็นระเบียบ", SIZE_NAMES[p.size as usize], moved, st.road.1, st.wall.1, if skipped > 0 { format!(" (ข้าม {} อย่าง)", skipped) } else { String::new() }));
         self.toast("ผังเมืองใหม่เสร็จแล้ว! วัสดุที่เหลือคืนกระเป๋าแล้ว");
         play(&self.sfx.lvl);
     }
@@ -629,7 +923,7 @@ impl Game {
                     }
                 }
                 Step::MoveOne { to, .. } | Step::Place { at: to, .. } => ov.push((to.0, to.1, 3)),
-                Step::Pave { x0, y0, x1, y1 } => { for y in *y0..=*y1 { for x in *x0..=*x1 { ov.push((x, y, 4)); } } }
+                _ => {}
             }
         }
         if ov.is_empty() { ov.push((i32::MIN, i32::MIN, 9)); }
@@ -640,9 +934,9 @@ impl Game {
     pub fn arch_save(&self) -> String {
         let a = &self.rs.ar;
         let mut s = String::new();
-        if a.set || a.finished > 0 { s += &format!("arch {} {} {}\n", a.opts, a.variant, a.finished); }
+        if a.set || a.finished > 0 || a.size != 0 || a.wallk != 0 { s += &format!("arch {} {} {} {} {}\n", a.opts, a.variant, a.finished, a.size, a.wallk); }
         if let Some(p) = &a.active {
-            s += &format!("archplan {},{},{},{},{}", p.variant, p.opts, p.center.0, p.center.1, p.houses);
+            s += &format!("archplan {},{},{},{},{},{},{},{},{}", p.variant, p.opts, p.center.0, p.center.1, p.houses, p.size, p.wallk, p.pave_n, p.gates);
             for (i, &q) in p.pool.iter().enumerate() { if q != 0 { s += &format!(" p{}:{}", i, q); } }
             for (i, st) in p.steps.iter().enumerate() {
                 let d = p.done[i];
@@ -651,7 +945,8 @@ impl Game {
                     Step::MoveHouse { door, to, rot } => format!(" h,{},{},{},{},{},{}", door.0, door.1, to.0, to.1, rot, d),
                     Step::MoveOne { from, to } => format!(" m,{},{},{},{},{}", from.0, from.1, to.0, to.1, d),
                     Step::Place { obj, at } => format!(" a,{},{},{},{}", obj, at.0, at.1, d),
-                    Step::Pave { x0, y0, x1, y1 } => format!(" r,{},{},{},{},{}", x0, y0, x1, y1, d),
+                    Step::Pave { x0, y0, x1, y1, at } => format!(" r,{},{},{},{},{},{}", x0, y0, x1, y1, at, d),
+                    Step::Wall { x0, y0, x1, y1, obj, at } => format!(" w,{},{},{},{},{},{},{}", x0, y0, x1, y1, obj, at, d),
                 };
             }
             s += "\n";
@@ -661,16 +956,21 @@ impl Game {
     pub fn arch_load(&mut self, tag: &str, r: &[&str]) {
         if tag == "arch" {
             let n = |i: usize| r.get(i).and_then(|v| v.parse::<i32>().ok()).unwrap_or(0);
-            self.rs.ar.opts = (n(0) as u8) & 31;
+            self.rs.ar.opts = (n(0) as u8) & 63;
+            // เซฟจาก v36 (ยังไม่มีขนาดเมือง): เปิดถนน+กำแพงเมืองให้ตามค่าเริ่มต้นใหม่
+            if r.len() < 4 { self.rs.ar.opts |= OPT_ROAD | OPT_CITYWALL; }
             self.rs.ar.set = true;
             self.rs.ar.variant = (n(1) as u8).min(1);
             self.rs.ar.finished = n(2);
+            self.rs.ar.size = (n(3) as u8).min(2);
+            self.rs.ar.wallk = (n(4) as u8).min(2);
             return;
         }
         let Some(head) = r.first() else { return };
         let h: Vec<i32> = head.split(',').filter_map(|v| v.parse().ok()).collect();
         if h.len() < 5 { return; }
-        let mut p = Plan { variant: h[0] as u8, opts: h[1] as u8, center: (h[2], h[3]), houses: h[4] as usize, ..Default::default() };
+        let g = |i: usize| h.get(i).copied().unwrap_or(0);
+        let mut p = Plan { variant: h[0] as u8, opts: h[1] as u8, center: (h[2], h[3]), houses: h[4] as usize, size: (g(5) as u8).min(2), wallk: (g(6) as u8).min(2), pave_n: g(7).max(0) as u32, gates: g(8) as u8, ..Default::default() };
         for t in &r[1..] {
             if let Some(v) = t.strip_prefix('p') {
                 let mut it = v.split(':');
@@ -684,7 +984,9 @@ impl Game {
                 ('h', 6) => (Step::MoveHouse { door: (v[0], v[1]), to: (v[2], v[3]), rot: v[4] as u8 }, v[5]),
                 ('m', 5) => (Step::MoveOne { from: (v[0], v[1]), to: (v[2], v[3]) }, v[4]),
                 ('a', 4) => (Step::Place { obj: v[0] as u8, at: (v[1], v[2]) }, v[3]),
-                ('r', 5) => (Step::Pave { x0: v[0], y0: v[1], x1: v[2], y1: v[3] }, v[4]),
+                ('r', 5) => (Step::Pave { x0: v[0], y0: v[1], x1: v[2], y1: v[3], at: 0 }, v[4]),
+                ('r', 6) => (Step::Pave { x0: v[0], y0: v[1], x1: v[2], y1: v[3], at: v[4].max(0) as u32 }, v[5]),
+                ('w', 7) => (Step::Wall { x0: v[0], y0: v[1], x1: v[2], y1: v[3], obj: v[4] as u8, at: v[5].max(0) as u32 }, v[6]),
                 _ => continue,
             };
             p.steps.push(st);
@@ -694,33 +996,104 @@ impl Game {
     }
 }
 
-/// แผนที่ซ้อนในโลก: เหลือง = บ้านที่จะย้าย · เขียว = ที่ใหม่ · แดง = เคลียร์/รื้อ · ฟ้า = ลาน/บ่อ/กองไฟ · น้ำตาล = ถนน
-pub fn draw_arch_overlay(g: &Game, v: &View, _font: &Font, t: f32) {
-    if !g.rs.ar.show || g.w.dun.is_some() { return; }
-    let Some(p) = g.rs.ar.active.as_ref().or(g.rs.ar.prop.as_ref()) else { return };
-    let pul = 0.5 + 0.2 * (t * 3.).sin();
-    for &(x, y, k) in &p.overlay {
-        if x == i32::MIN { continue; }
-        let (px, py) = ((x as f32 * 16. - v.cx) * v.s, (y as f32 * 16. - v.cy) * v.s);
-        if px < -20. || py < -20. || px > screen_width() || py > screen_height() { continue; }
-        let s = 16. * v.s;
-        let c = match k {
-            0 => Color::new(1., 0.85, 0.2, 0.22),
-            1 => Color::new(0.3, 1., 0.4, 0.28 * pul + 0.1),
-            2 => Color::new(1., 0.25, 0.25, 0.35),
-            3 => Color::new(0.4, 0.8, 1., 0.35),
-            _ => Color::new(0.8, 0.6, 0.35, 0.22),
-        };
-        draw_rectangle(px, py, s, s, c);
-        if k == 0 || k == 1 { draw_rectangle_lines(px, py, s, s, 1., Color::new(c.r, c.g, c.b, 0.6)); }
+// ---------------------------------------------------------------- วาด
+fn view_tiles(v: &View) -> (i32, i32, i32, i32) {
+    ((v.cx / 16.).floor() as i32 - 1, (v.cy / 16.).floor() as i32 - 1, ((v.cx + screen_width() / v.s) / 16.).ceil() as i32 + 1, ((v.cy + screen_height() / v.s) / 16.).ceil() as i32 + 2)
+}
+/// แผนที่ที่ต้องวาดตอนนี้: แผนที่กำลังทำ (เห็นตลอด = แบบร่าง) หรือข้อเสนอ (เฉพาะตอนกดดู)
+fn plan_to_draw(g: &Game) -> Option<(&Plan, bool)> {
+    if g.w.dun.is_some() { return None; }
+    if let Some(p) = g.rs.ar.active.as_ref() { return Some((p, true)); }
+    if g.rs.ar.show { if let Some(p) = g.rs.ar.prop.as_ref() { return Some((p, false)); } }
+    None
+}
+/// แบบร่างบนพื้น (วาดใต้ตัวละคร/ของ): ถนนที่ยังไม่ได้ปูเป็นลายถนนจางๆ
+pub fn draw_arch_ground(g: &Game, sp: &Sprites, v: &View, t: f32) {
+    let Some((p, _)) = plan_to_draw(g) else { return };
+    let (vx0, vy0, vx1, vy1) = view_tiles(v);
+    let a = 0.32 + 0.06 * (t * 2.).sin();
+    let road = sp.tiles[T_ROAD as usize][0];
+    for (i, s) in p.steps.iter().enumerate() {
+        if p.done[i] != 0 { continue; }
+        let Step::Pave { x0, y0, x1, y1, at } = *s else { continue };
+        for y in y0.max(vy0)..=y1.min(vy1) { for x in x0.max(vx0)..=x1.min(vx1) {
+            let idx = ((y - y0) * (x1 - x0 + 1) + (x - x0)) as u32;
+            if idx < at || g.w.tile_at(x, y) == T_ROAD { continue; }
+            blit(sp, v, road, x as f32 * 16. - v.cx, y as f32 * 16. - v.cy, false, Color::new(1., 0.95, 0.85, a));
+        } }
     }
 }
 
-#[cfg(test)]
+/// แผนที่ซ้อนในโลก + เงาสิ่งก่อสร้างที่ยังไม่ได้สร้าง (แบบร่าง) + ป้ายกลางลาน
+pub fn draw_arch_overlay(g: &Game, sp: &Sprites, v: &View, font: &Font, t: f32) {
+    let Some((p, active)) = plan_to_draw(g) else { return };
+    let (vx0, vy0, vx1, vy1) = view_tiles(v);
+    let pul = 0.5 + 0.2 * (t * 3.).sin();
+    if g.rs.ar.show {
+        for &(x, y, k) in &p.overlay {
+            if x == i32::MIN || x < vx0 || x > vx1 || y < vy0 || y > vy1 { continue; }
+            let (px, py) = ((x as f32 * 16. - v.cx) * v.s, (y as f32 * 16. - v.cy) * v.s);
+            let s = 16. * v.s;
+            let c = match k {
+                0 => Color::new(1., 0.85, 0.2, 0.22),
+                1 => Color::new(0.3, 1., 0.4, 0.28 * pul + 0.1),
+                2 => Color::new(1., 0.25, 0.25, 0.35),
+                _ => Color::new(0.4, 0.8, 1., 0.35),
+            };
+            draw_rectangle(px, py, s, s, c);
+            if k == 0 || k == 1 { draw_rectangle_lines(px, py, s, s, 1., Color::new(c.r, c.g, c.b, 0.6)); }
+        }
+    }
+    // เงาของที่ยังไม่ได้สร้าง: กำแพง/คบเพลิง/บ่อ/กองไฟ
+    let ghost = Color::new(0.65, 0.85, 1., 0.38 + 0.08 * (t * 2.).sin());
+    let draw_obj = |o: u8, x: i32, y: i32| {
+        let r = sp.obj[o as usize];
+        let (px, py) = (x as f32 * 16. - v.cx, y as f32 * 16. - v.cy);
+        blit(sp, v, r, px + 8. - r.w / 2., py + 16. - r.h, false, ghost);
+    };
+    for (i, s) in p.steps.iter().enumerate() {
+        if p.done[i] != 0 { continue; }
+        match *s {
+            Step::Wall { x0, y0, x1, y1, obj, at } => {
+                for y in y0.max(vy0)..=y1.min(vy1) { for x in x0.max(vx0)..=x1.min(vx1) {
+                    let idx = ((y - y0) * (x1 - x0 + 1) + (x - x0)) as u32;
+                    if idx < at || g.w.placed.contains_key(&(x, y)) { continue; }
+                    draw_obj(obj, x, y);
+                } }
+            }
+            Step::Place { obj, at } => {
+                if at.0 < vx0 || at.0 > vx1 || at.1 < vy0 || at.1 > vy1 || g.w.placed.contains_key(&at) { continue; }
+                draw_obj(obj, at.0, at.1);
+            }
+            _ => {}
+        }
+    }
+    // ป้ายกลางลาน
+    if active {
+        let c = p.center;
+        let (sx, sy) = (((c.0 as f32 + 0.5) * 16. - v.cx) * v.s, ((c.1 as f32 - 2.6) * 16. - v.cy) * v.s);
+        if sx > -300. && sx < screen_width() + 300. && sy > -60. && sy < screen_height() + 60. {
+            let sf = &g.rs.ar.sf;
+            let l1 = format!("แบบร่างผังเมือง{} · เสร็จ {}%", SIZE_NAMES[p.size as usize], (p.frac() * 100.) as i32);
+            let l2 = if sf.is_empty() { "ช่างกำลังสร้างตามแบบ".to_string() } else { format!("ขาด {} — ยืนตรงนี้พร้อมของ ช่างรับไปเอง", sf.iter().map(|&(i, q)| format!("{} {}", INAME[i], q)).collect::<Vec<_>>().join(" · ")) };
+            let fs = (6. * v.s).max(11.) as u16;
+            let w1 = measure_text(&l1, Some(font), fs, 1.).width;
+            let w2 = measure_text(&l2, Some(font), fs, 1.).width;
+            let w = w1.max(w2) + 14.;
+            let h = fs as f32 * 2. + 16.;
+            draw_rectangle(sx - w / 2., sy - h, w, h, Color::new(0.08, 0.1, 0.16, 0.78));
+            draw_rectangle_lines(sx - w / 2., sy - h, w, h, 1.5, if sf.is_empty() { hx(0x88ee99) } else { hx(0xffcc66) });
+            draw_text_ex(&l1, sx - w1 / 2., sy - h + fs as f32 + 4., TextParams { font: Some(font), font_size: fs, color: hx(0xffe9a8), ..Default::default() });
+            draw_text_ex(&l2, sx - w2 / 2., sy - 7., TextParams { font: Some(font), font_size: fs, color: if sf.is_empty() { hx(0xbff5c8) } else { hx(0xffd27a) }, ..Default::default() });
+        }
+    }
+}
+
 mod tests {
     use super::*;
     fn town() -> (Game, (i32, i32)) {
-        let mut g = Game::new_world_seed(4242, Sfx::default());
+        // โลกที่รอบจุดเกิดเป็นพื้นดินเกือบทั้งหมด (ไม่ต้องถมน้ำ — บ้านที่มีพื้นลงบนช่องถมไม่ได้)
+        let mut g = Game::new_world_seed(278, Sfx::default());
         g.npcs.clear();
         let c = (tfloor(g.p.x), tfloor(g.p.y));
         for y in c.1 - 50..=c.1 + 50 { for x in c.0 - 50..=c.0 + 50 {
@@ -750,7 +1123,7 @@ mod tests {
         }
         beds
     }
-    fn run_all(g: &mut Game) { for _ in 0..400 { g.arch_tick(STEP_SECS + 0.01); if g.rs.ar.active.is_none() { break; } } }
+    fn run_all(g: &mut Game) { for _ in 0..1500 { g.arch_tick(STEP_SECS + 0.01); if g.rs.ar.active.is_none() { break; } } }
     fn beds_of(g: &Game) -> Vec<(i32, i32)> { g.npcs.iter().map(|n| n.bed).collect() }
     fn rooms_ok(g: &Game) -> usize { g.npcs.iter().filter(|n| g.w.room_from(n.bed).map_or(false, |r| r.has_bed)).count() }
 
@@ -809,7 +1182,7 @@ mod tests {
         let n_obj = g.w.placed.len();
         let p = g.arch_plan(0, OPT_DEFAULT).unwrap();
         g.rs.ar.active = Some(p.clone());
-        g.p.inv[WOOD] = 200; g.p.inv[STONE] = 200;
+        g.p.inv[WOOD] = 3000; g.p.inv[STONE] = 3000;
         assert!(g.arch_deposit());
         run_all(&mut g);
         assert!(g.rs.ar.active.is_none(), "แผนเสร็จ");
@@ -819,7 +1192,7 @@ mod tests {
         // บ้านเป็นระเบียบ: ประตูทุกบานโล่ง
         assert!(g.blocked_doors().is_empty(), "ประตูต้องไม่ถูกบัง");
         assert!(g.w.placed.len() >= n_obj, "ของครบ (และมีวงกองไฟ/บ่อน้ำเพิ่ม)");
-        assert!(g.news.iter().any(|n| n.1.contains("วางผังเมืองเสร็จ")));
+        assert!(g.news.iter().any(|n| n.1.contains("ผังเมือง") && n.1.contains("เสร็จแล้ว")));
         let _ = p;
     }
     #[test]
@@ -830,10 +1203,10 @@ mod tests {
         let p = g.arch_plan(0, OPT_DEFAULT).unwrap();
         let (_, walls) = p.count_clear();
         assert_eq!(walls, 6, "รื้อกำแพงหิน 6 ชิ้น");
-        let sf = p.shortfall();
+        let sf = g.arch_shortfall(&p);
         assert!(sf.iter().any(|&(i, _)| i == WOOD), "ต้องใช้ไม้ทำวงกองไฟ/บ่อ — ขาดของ: {:?}", sf);
         g.rs.ar.active = Some(p);
-        g.p.inv[WOOD] = 100; g.p.inv[STONE] = 100;
+        g.p.inv[WOOD] = 3000; g.p.inv[STONE] = 3000;
         assert!(g.arch_deposit());
         run_all(&mut g);
         assert!(g.rs.ar.active.is_none());
@@ -864,8 +1237,19 @@ mod tests {
         let a = g.rs.ar.active.as_ref().expect("ยังไม่เสร็จ รอวัสดุ");
         assert!(a.steps.iter().zip(&a.done).any(|(s, d)| matches!(s, Step::Place { .. }) && *d == 0), "ของใหม่ยังไม่ได้วาง");
         assert!(a.steps.iter().zip(&a.done).filter(|(s, _)| matches!(s, Step::MoveHouse { .. })).all(|(_, d)| *d == 1), "ย้ายบ้านเสร็จแล้ว ไม่ต้องรอวัสดุ");
-        assert!(!a.shortfall().is_empty());
-        g.p.inv[WOOD] = 60; g.p.inv[STONE] = 60;
+        assert!(!g.arch_shortfall(a).is_empty());
+        // แบบร่าง: กำแพง/ถนนยังไม่ได้เริ่ม (ไม่มีหิน/ไม้)
+        assert!(a.steps.iter().any(|s| matches!(s, Step::Wall { at: 0, .. })), "กำแพงรอของ");
+        assert!(a.steps.iter().any(|s| matches!(s, Step::Pave { at: 0, .. })), "ถนนรอของ");
+        // ใส่ของนิดหน่อย = สร้างไปบางส่วน แบบร่างยังอยู่
+        g.p.inv[WOOD] = 30; g.p.inv[STONE] = 30;
+        assert!(g.arch_deposit());
+        for _ in 0..200 { g.arch_tick(STEP_SECS + 0.01); }
+        let a = g.rs.ar.active.as_ref().expect("ของไม่พอ = ยังเป็นแบบร่างต่อ");
+        let st = a.stats();
+        assert!(st.road.0 > 0 || st.wall.0 > 0, "สร้างไปบางส่วนตามของที่มี {:?}", st);
+        assert!(!g.rs.ar.sf.is_empty());
+        g.p.inv[WOOD] = 3000; g.p.inv[STONE] = 3000;
         assert!(g.arch_deposit());
         run_all(&mut g);
         assert!(g.rs.ar.active.is_none(), "ใส่วัสดุแล้วเสร็จ");
@@ -884,7 +1268,7 @@ mod tests {
         g.p.inv[WOOD] = 30;
         assert!(g.arch_deposit());
         let w = g.rs.ar.active.as_ref().unwrap().pool[WOOD];
-        assert!(w > 0 && w <= 30);
+        assert!(w > 0 && w <= 30, "{}", w);
         g.arch_cancel();
         assert!(g.rs.ar.active.is_none());
         assert_eq!(g.p.inv[WOOD], 30, "ยกเลิก = คืนวัสดุที่ใส่ไว้");
@@ -924,10 +1308,12 @@ mod tests {
         g.rs.ar.active = Some(p);
         g.rs.ar.set = true; g.rs.ar.opts = OPT_DEFAULT | OPT_ROAD; g.rs.ar.finished = 2;
         for _ in 0..6 { g.arch_tick(STEP_SECS + 0.01); }
+        // ถนนทำไปบางส่วน (at ไม่ใช่ 0) ต้องเซฟ/โหลดกลับมาได้
+        if let Some(p) = g.rs.ar.active.as_mut() { for s in p.steps.iter_mut() { if let Step::Pave { at, .. } | Step::Wall { at, .. } = s { *at = 3; } } p.pave_n = 5; }
         let a = g.rs.ar.active.clone().unwrap();
         g.rs.ar.active.as_mut().unwrap().pool[STONE] = 7;
         let s = g.arch_save();
-        let mut h = Game::new_world_seed(4242, Sfx::default());
+        let mut h = Game::new_world_seed(278, Sfx::default());
         for line in s.lines() {
             let mut it = line.split(' ');
             let tag = it.next().unwrap();
@@ -938,7 +1324,101 @@ mod tests {
         assert_eq!(b.steps, a.steps);
         assert_eq!(b.done, a.done);
         assert_eq!(b.pool[STONE], 7);
+        assert_eq!((b.pave_n, b.size, b.wallk), (a.pave_n, a.size, a.wallk));
         assert_eq!((h.rs.ar.set, h.rs.ar.opts, h.rs.ar.finished), (true, OPT_DEFAULT | OPT_ROAD, 2));
         assert!(Game::new_world_seed(1, Sfx::default()).arch_save().is_empty(), "ไม่เคยใช้ = ไม่เขียนอะไรลงเซฟ");
+    }
+
+    fn box_world(p: &Plan) -> impl Fn(i32, i32) -> (i32, i32) + '_ {
+        move |u, v| if p.variant == 0 { (p.center.0 + u, p.center.1 + v) } else { (p.center.0 + v, p.center.1 + u) }
+    }
+    #[test]
+    fn v37_bigger_town_more_streets_walls_with_gates_and_everything_built() {
+        let (mut g, c) = town();
+        scattered(&mut g, c);
+        let mut walls_n = vec![];
+        for size in 0..3u8 {
+            g.rs.ar.size = size;
+            let p = g.arch_plan(0, OPT_DEFAULT).unwrap();
+            assert_eq!(p.size, size);
+            let st = p.stats();
+            assert!(st.road.1 > 0 && st.wall.1 > 0, "มีถนน+กำแพงเสมอ (ค่าเริ่มต้น)");
+            walls_n.push(st.wall.1);
+            let n_pave = p.steps.iter().filter(|s| matches!(s, Step::Pave { .. })).count();
+            let sh = shape(size);
+            assert_eq!(n_pave, 1 + sh.streets.len() + sh.avenues.len(), "ลาน + ถนนหลัก + ถนนตัด");
+        }
+        assert!(walls_n[0] < walls_n[1] && walls_n[1] < walls_n[2], "เมืองใหญ่ขึ้น กำแพงยาวขึ้น {:?}", walls_n);
+        // สร้างจริงเมืองขนาดกลาง แนวเหนือ-ใต้ ด้วยกำแพงหิน
+        g.rs.ar.size = 1; g.rs.ar.wallk = 1;
+        let p = g.arch_plan(1, OPT_DEFAULT).unwrap();
+        assert_eq!(p.count_houses(), 5);
+        g.rs.ar.active = Some(p.clone());
+        g.p.inv[WOOD] = 5000; g.p.inv[STONE] = 5000;
+        assert!(g.arch_deposit());
+        run_all(&mut g);
+        assert!(g.rs.ar.active.is_none(), "เสร็จทั้งแผน");
+        let w = box_world(&p);
+        let (u0, u1, v0, v1) = wall_box(1);
+        // ถนนหลักปูจริงตลอดแนว · ทะลุประตูเมืองออกไปข้างนอก
+        for &s in shape(1).streets { for u in [u0 - 1, u0, -12, 3, 15, u1, u1 + 1] { let k = w(u, s * BLOCK); assert_eq!(g.w.tile_at(k.0, k.1), T_ROAD, "ถนน s={} u={}", s, u); } }
+        // ลานปูหิน มีกองไฟกลางลาน
+        let k = w(PLAZA_LO, PLAZA_LO + 1); assert_eq!(g.w.tile_at(k.0, k.1), T_ROAD, "ลานปูหิน");
+        let k = w(0, 0); assert_eq!(g.w.placed.get(&k), Some(&9));
+        // กำแพงหินรอบเมือง · เว้นช่องประตูตรงถนน · คบเพลิงหน้าประตู
+        let k = w(u0, 6); assert_eq!(g.w.placed.get(&k), Some(&11), "กำแพงหินด้านข้าง");
+        let k = w(-7, v0); assert_eq!(g.w.placed.get(&k), Some(&11), "กำแพงด้านบน");
+        let k = w(u1, v1); assert_eq!(g.w.placed.get(&k), Some(&11), "มุมกำแพง");
+        for &s in shape(1).streets { for v in [s * BLOCK, s * BLOCK + 1] { let k = w(u0, v); assert!(!g.w.placed.contains_key(&k), "ประตูเมืองโล่ง"); } }
+        let k = w(0, v0); assert!(!g.w.placed.contains_key(&k), "ประตูเมืองตรงถนนตัด");
+        let k = w(u0 + 1, -1); assert_eq!(g.w.placed.get(&k), Some(&18), "คบเพลิงหน้าประตู");
+        // บ้านทุกหลังอยู่ในกำแพง ประตูหันเข้าถนนที่ปูแล้ว
+        assert_eq!(rooms_ok(&g), 5);
+        for n in &g.npcs {
+            let (u, v) = (n.bed.1 - p.center.1, n.bed.0 - p.center.0);
+            assert!(u > u0 && u < u1 && v > v0 && v < v1, "บ้านอยู่ในกำแพง {:?}", n.bed);
+        }
+        assert!(g.blocked_doors().is_empty());
+    }
+    #[test]
+    fn v37_blueprint_waits_and_standing_at_plaza_hands_over_materials() {
+        let (mut g, c) = town();
+        scattered(&mut g, c);
+        let p = g.arch_plan(0, OPT_DEFAULT).unwrap();
+        g.rs.ar.prop = Some(p); g.p.inv[COIN] = 999;
+        assert!(g.arch_accept());
+        for _ in 0..60 { g.arch_tick(STEP_SECS + 0.01); }
+        assert!(g.rs.ar.active.is_some(), "ไม่มีของ = เป็นแบบร่างค้างไว้ ไม่ถูกข้าม/ยกเลิก");
+        let sf = g.rs.ar.sf.clone();
+        assert!(sf.iter().any(|&(i, _)| i == STONE), "ขาดหิน {:?}", sf);
+        let need_stone = sf.iter().find(|x| x.0 == STONE).unwrap().1;
+        // เดินไปยืนกลางลานพร้อมหิน 40 → ช่างรับไปเอง
+        let pc = g.rs.ar.active.as_ref().unwrap().center;
+        g.p.x = pc.0 as f32 * 16. + 8.; g.p.y = (pc.1 + 3) as f32 * 16. + 12.;
+        g.p.inv[STONE] = 40;
+        g.rs.ar.dep_cd = 0.;
+        g.arch_tick(0.01);
+        assert_eq!(g.p.inv[STONE], 0, "ส่งหินให้ช่างแล้ว");
+        assert_eq!(g.rs.ar.active.as_ref().unwrap().pool[STONE], 40);
+        assert!(g.rs.ar.sf.iter().find(|x| x.0 == STONE).map_or(0, |x| x.1) <= need_stone - 40 + 2);
+        // ขนจากกล่องในเมืองได้ด้วย
+        let mut inv = [0; NI]; inv[WOOD] = 500; inv[STONE] = 500;
+        g.chests.insert((pc.0 + 9, pc.1 + 9), inv);
+        assert!(g.arch_deposit_chests());
+        assert!(g.chests[&(pc.0 + 9, pc.1 + 9)][STONE] < 500);
+    }
+    #[test]
+    fn v37_old_v36_settings_turn_on_roads_and_walls() {
+        let mut g = Game::new_world_seed(3, Sfx::default());
+        g.arch_load("arch", &["13", "1", "0"]);
+        assert!(g.arch_opts() & OPT_ROAD != 0 && g.arch_opts() & OPT_CITYWALL != 0);
+        g.arch_set_wall(None);
+        assert_eq!(g.arch_opts() & OPT_CITYWALL, 0);
+        g.arch_set_size(2); g.arch_set_wall(Some(2));
+        let s = g.arch_save();
+        let mut h = Game::new_world_seed(3, Sfx::default());
+        let parts: Vec<&str> = s.trim().split(' ').collect();
+        h.arch_load(parts[0], &parts[1..]);
+        assert_eq!((h.rs.ar.size, h.rs.ar.wallk, h.arch_opts() & OPT_CITYWALL), (2, 2, OPT_CITYWALL));
     }
 }

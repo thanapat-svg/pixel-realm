@@ -241,7 +241,8 @@ impl Game {
             let blocked = |t: (i32, i32)| -> bool {
                 if foot.contains(&t) { return true; }
                 if src.contains(&t) { return false; }
-                self.walk_blocked(t, &HashSet::new())
+                // v37 ต้นไม้/หินธรรมชาติหน้าประตู ระบบย้ายตัดให้เอง ไม่นับว่าบัง
+                self.walk_blocked(t, &HashSet::new()) && !self.nat_clear_at(t)
             };
             if blocked(f) { return Some("ประตูจะติดกำแพง/ของอื่น — เลื่อนหรือหมุนบ้านให้ประตูโล่ง"); }
             let mut seen: HashSet<(i32, i32)> = HashSet::new();
