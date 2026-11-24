@@ -272,10 +272,11 @@ impl Game {
         if SOLIDT[t as usize] { self.toast("ปูพื้นบนน้ำ/ภูเขาไม่ได้"); return false; }
         if t == T_SOIL || t == 12 || self.crops.contains_key(&k) { self.toast("รื้อแปลงผักก่อน (ใช้ไถดินวางซ้ำ)"); return false; }
         // ช่องที่ถูกดัดแปลงไว้แล้ว (ลาวาที่เย็นเป็นหิน ฯลฯ) ห้ามปูทับ — รื้อพื้นจะได้คืนดินเดิมเสมอ
-        if self.w.tmod.contains_key(&k) && t != T_FLOORW && t != T_FLOORS { self.toast("ปูพื้นตรงนี้ไม่ได้"); return false; }
+        if self.w.tmod.contains_key(&k) && t != T_FLOORW && t != T_FLOORS && t != T_ROAD { self.toast("ปูพื้นตรงนี้ไม่ได้"); return false; }
         let o = self.w.obj_at(k.0, k.1);
-        if o != 0 && o != 3 && !self.w.placed.contains_key(&k) { self.toast("มีของขวางอยู่"); return false; }
+        if o != 0 && o != 3 && !self.w.placed.contains_key(&k) && !mover::nat_cuttable(o) { self.toast("มีของขวางอยู่"); return false; }
         if self.p.inv[it] < n { self.toast("วัสดุไม่พอ"); return false; }
+        self.cut_for_build(k);
         if o == 3 && !self.w.placed.contains_key(&k) { self.w.removed.insert(k); }
         if (27..=32).contains(&o) { self.toast("รื้อแปลงผักก่อน"); return false; }
         self.p.inv[it] -= n;
@@ -378,12 +379,13 @@ impl Game {
         for ((x, y), c) in self.prefab_cells(kind, k, dir) {
             let t = self.w.tile_at(x, y);
             if SOLIDT[t as usize] { return Some("พื้นที่ติดน้ำ/ภูเขา — หาที่โล่งกว้างกว่านี้"); }
-            if self.w.tmod.contains_key(&(x, y)) && t != T_FLOORW && t != T_FLOORS { return Some("ทับแปลงผัก/ดินที่ขุดไว้ — หาที่อื่น"); }
+            if self.w.tmod.contains_key(&(x, y)) && t != T_FLOORW && t != T_FLOORS && t != T_ROAD { return Some("ทับแปลงผัก/ดินที่ขุดไว้ — หาที่อื่น"); }
             if self.crops.contains_key(&(x, y)) { return Some("ทับแปลงผัก — หาที่อื่น"); }
             if self.site_reserved((x, y)) { return Some("ทับที่ที่กำลังก่อสร้างอยู่"); }
             if self.w.realm.city_at(x, y).map_or(false, |ci| self.city_owner(ci) != PLAYER_OWN) { return Some("สร้างในเมืองของอาณาจักรอื่นไม่ได้"); }
             let o = self.w.obj_at(x, y);
-            if !(o == 0 || ((o == 2 || o == 3 || o == O_DRYGRASS) && !self.w.placed.contains_key(&(x, y)))) { return Some("มีต้นไม้/หิน/ของวางอยู่ในพื้นที่ — ตีออกก่อน หรือหาที่โล่ง"); }
+            // v40 ต้นไม้/พุ่ม/หินธรรมชาติถางให้ตอนวาง · ของที่วางเอง (กล่อง กำแพง) ยังบังอยู่
+            if !(o == 0 || (mover::nat_cuttable(o) && !self.w.placed.contains_key(&(x, y)))) { return Some("มีของที่วางไว้อยู่ในพื้นที่ — ย้าย/รื้อออกก่อน หรือหาที่โล่ง"); }
             let solid_cell = match c { Cell::Wall(_) => true, Cell::Floor(_, f) | Cell::Ground(f) => f != 0 && OSOLID[f as usize] };
             if solid_cell && (self.player_in_tile(x, y) || (x, y) == (ptx, pty)) { return Some("ถอยออกมาหน่อย ตัวละครยืนขวางอยู่"); }
         }
@@ -396,6 +398,7 @@ impl Game {
         if !can_pay(&self.p, cost) { self.toast("วัสดุไม่พอ"); return false; }
         for &(it, n) in cost { self.p.inv[it] -= n; }
         for ((x, y), _) in self.prefab_cells(kind, k, dir) {
+            self.cut_for_build((x, y));
             if !self.w.placed.contains_key(&(x, y)) && self.w.nat_obj(x, y) != 0 { self.w.removed.insert((x, y)); }
             self.obj_dmg.remove(&(x, y));
             if gen_range(0., 1.) < 0.5 { self.burst(x as f32 * 16. + 8., y as f32 * 16. + 10., hx(0xc8a070), 3, 30.); }
@@ -495,8 +498,9 @@ impl Game {
         if !matches!(o, 10 | 11 | 38 | O_WINDOW) { return; }
         match self.paint_last {
             Some(prev) if prev != cur => {
-                if self.can_place_at(prev.0, prev.1) && can_pay(&self.p, pc.cost) {
+                if self.can_build_at(prev.0, prev.1) && can_pay(&self.p, pc.cost) {
                     for &(it, n) in pc.cost { self.p.inv[it] -= n; }
+                    self.cut_for_build(prev);
                     self.w.placed.insert(prev, o);
                     self.obj_dmg.remove(&prev);
                     self.room_t = 0.;
@@ -513,9 +517,10 @@ impl Game {
         let t = self.w.tile_at(k.0, k.1);
         let (it, want) = if obj == OBJ_FLOOR_W { (WOOD, T_FLOORW) } else { (STONE, T_FLOORS) };
         if SOLIDT[t as usize] || self.p.inv[it] < 1 || self.crops.contains_key(&k) { return false; }
-        if self.w.tmod.contains_key(&k) && t != T_FLOORW && t != T_FLOORS { return false; }
+        if self.w.tmod.contains_key(&k) && t != T_FLOORW && t != T_FLOORS && t != T_ROAD { return false; }
         let o = self.w.obj_at(k.0, k.1);
-        if o != 0 && o != 3 && !self.w.placed.contains_key(&k) { return false; }
+        if o != 0 && o != 3 && !self.w.placed.contains_key(&k) && !mover::nat_cuttable(o) { return false; }
+        self.cut_for_build(k);
         self.p.inv[it] -= 1;
         if t == T_FLOORW || t == T_FLOORS { self.p.inv[if t == T_FLOORW { WOOD } else { STONE }] += 1; }
         self.w.tmod.insert(k, want);

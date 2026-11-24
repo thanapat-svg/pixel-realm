@@ -166,8 +166,8 @@ enum Cs { Free, Clear(u8), Blocked }
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Cst { Done, Skip, Clear(u8), Todo }
 
-/// ของธรรมชาติที่ช่างโค่น/ทุบทิ้งได้: ต้นไม้ หิน แร่ (คืนวัสดุ) — ไม่รวมต้นผลไม้ ต้นกล้า พุ่มไม้
-pub fn nat_clearable(o: u8) -> bool { o == 4 || o == 5 || o == T_DEAD || (is_tree(o) && !is_fruit_tree(o) && o != T_SAPLING) }
+/// ของธรรมชาติที่โค่น/ถางทิ้งได้ตอนสร้างทับ (v40: ทุกต้น ทุกพุ่ม หิน แร่ กระบองเพชร ต้นอ้อ เห็ด — คืนวัสดุ)
+pub fn nat_clearable(o: u8) -> bool { is_tree(o) || matches!(o, 2 | 4 | 5 | 7 | O_REED | O_SHROOM) }
 fn nat_trivial(o: u8) -> bool { o == 0 || o == 3 || o == O_DRYGRASS }
 
 struct Lay<'a> {
@@ -213,7 +213,7 @@ pub fn place_cost(obj: u8) -> Vec<(usize, i32)> {
 }
 /// รื้อ/โค่นแล้วได้วัสดุคืน
 pub fn clear_refund(o: u8) -> Option<(usize, i32)> {
-    match o { 10 => Some((WOOD, 1)), 11 => Some((STONE, 2)), 4 => Some((STONE, 2)), 5 => Some((GEM, 1)), o if is_tree(o) => Some((WOOD, 3)), _ => None }
+    match o { 10 => Some((WOOD, 1)), 11 => Some((STONE, 2)), 4 => Some((STONE, 2)), 5 => Some((GEM, 1)), 2 => Some((BERRY, 1)), O_SHROOM => Some((SHROOM, 1)), T_SAPLING => None, o if is_tree(o) => Some((WOOD, 3)), _ => None }
 }
 fn nb4() -> [(i32, i32); 4] { [(0, -1), (0, 1), (-1, 0), (1, 0)] }
 fn face_of(v: (i32, i32)) -> u8 { match v { (0, 1) => 0, (-1, 0) => 1, (0, -1) => 2, _ => 3 } }
@@ -945,6 +945,63 @@ impl Game {
         if let Some(a) = self.rs.ar.active.as_mut() { a.overlay = ov; }
     }
 
+    // ---------------------------------------------------------------- v40 ซ่อมกำแพง/ถนนที่แหว่ง
+    /// หาช่องโหว่ในแนวกำแพง (ช่องว่าง 1–4 ช่องระหว่างกำแพงชนิดเดียวกันในแนวตรง ไม่ใช่ถนน/ประตู)
+    /// และในแนวถนน (ช่องที่ไม่ได้ปูระหว่างถนนสองฝั่ง) รอบเมือง → เป็นแผนให้ช่างเติม
+    pub fn arch_repair_plan(&self) -> Option<Plan> {
+        let c = self.town_center()?;
+        let near = |k: &(i32, i32)| (k.0 - c.0).abs() <= SURVEY_R && (k.1 - c.1).abs() <= SURVEY_R;
+        let fields = self.arch_fields();
+        let mut walls: Vec<((i32, i32), u8)> = self.w.placed.iter().filter(|(k, &o)| near(k) && matches!(o, 10 | 11 | 38)).map(|(k, &o)| (*k, o)).collect();
+        walls.sort();
+        let mut fill: HashMap<(i32, i32), u8> = HashMap::new();
+        for &(w, o) in &walls {
+            for d in [(1, 0), (0, 1)] {
+                let mut gap = vec![];
+                let mut k = (w.0 + d.0, w.1 + d.1);
+                while gap.len() <= 4 {
+                    if self.w.placed.get(&k) == Some(&o) { break; }
+                    if matches!(self.cell_wall(k, o, &fields), Cst::Todo | Cst::Clear(_)) { gap.push(k); } else { gap.clear(); break; }
+                    k = (k.0 + d.0, k.1 + d.1);
+                }
+                // ช่องในบ้าน (ห้องปิด) ไม่ใช่รูของกำแพง
+                if !gap.is_empty() && gap.len() <= 4 && self.w.placed.get(&k) == Some(&o) && gap.iter().all(|g| self.w.room_from(*g).is_none()) { for g in gap { fill.insert(g, o); } }
+            }
+        }
+        let road = |k: (i32, i32)| self.w.tile_at(k.0, k.1) == T_ROAD;
+        let mut roads: Vec<(i32, i32)> = vec![];
+        for y in c.1 - SURVEY_R..=c.1 + SURVEY_R { for x in c.0 - SURVEY_R..=c.0 + SURVEY_R {
+            let k = (x, y);
+            if road(k) || fill.contains_key(&k) { continue; }
+            let h = road((x - 1, y)) && (road((x + 1, y)) || road((x + 2, y)));
+            let v = road((x, y - 1)) && (road((x, y + 1)) || road((x, y + 2)));
+            if (h || v) && matches!(self.cell_road(k, &fields), Cst::Todo | Cst::Clear(_)) && !self.w.placed.contains_key(&k) { roads.push(k); }
+        } }
+        if fill.is_empty() && roads.is_empty() { return None; }
+        let mut ks: Vec<((i32, i32), u8)> = fill.into_iter().collect();
+        ks.sort();
+        let mut p = Plan { center: c, size: self.rs.ar.size, wallk: self.rs.ar.wallk, ..Default::default() };
+        p.notes.push(format!("ซ่อมแซม: เติมกำแพง {} ช่อง · ปูถนน {} ช่อง", ks.len(), roads.len()));
+        for (k, o) in ks { p.steps.push(Step::Place { obj: o, at: k }); }
+        for k in roads { p.steps.push(Step::Pave { x0: k.0, y0: k.1, x1: k.0, y1: k.1, at: 0 }); }
+        p.done = vec![0; p.steps.len()];
+        Some(p)
+    }
+    /// จ้างช่างซ่อม (ค่าจ้าง 10 เหรียญ) — ของไม่พอเป็นแบบร่างเหมือนแผนใหญ่
+    pub fn arch_repair(&mut self) -> bool {
+        if self.rs.ar.active.is_some() { self.toast("ช่างกำลังทำแผนอื่นอยู่"); return false; }
+        let Some(p) = self.arch_repair_plan() else { self.toast("ไม่เจอกำแพง/ถนนที่แหว่งรอบเมือง"); return false; };
+        let fee = 10;
+        if self.p.inv[COIN] + self.tax_pool < fee { self.toast("ค่าซ่อม 10 เหรียญ — เงินไม่พอ"); return false; }
+        let b = self.p.inv[COIN].min(fee); self.p.inv[COIN] -= b; self.tax_pool -= fee - b;
+        let n = p.steps.len();
+        self.rs.ar.active = Some(p);
+        self.rs.ar.stall = 0; self.rs.ar.t = 0.; self.rs.ar.unjammed.clear(); self.rs.ar.helped = [0; NI];
+        self.arch_refresh_sf();
+        self.toast(format!("ช่างเริ่มเติมช่องที่แหว่ง {} ช่อง (ถางต้นไม้/พุ่มไม้ที่ขวางให้)", n));
+        true
+    }
+
     // ---------------------------------------------------------------- v38 ชาวบ้านช่วยหาวัสดุ
     /// ช่างยังขาดของชิ้นนี้ไหม (และเปิดให้ชาวบ้านช่วย)
     pub fn arch_wants(&self, it: usize) -> bool {
@@ -1334,7 +1391,7 @@ mod tests {
         assert!(sel.building);
     }
     #[test]
-    fn natural_trees_and_rocks_are_clearable_but_fruit_trees_bushes_and_water_are_not() {
+    fn v40_every_natural_plant_and_rock_is_clearable_but_water_is_not() {
         let g = Game::new_world_seed(4242, Sfx::default());
         let c = (tfloor(g.p.x), tfloor(g.p.y));
         let mut lay = Lay::new(&g);
@@ -1350,8 +1407,11 @@ mod tests {
         let (t, o) = tree.expect("มีต้นไม้ในโลก");
         assert_eq!(lay.cs(t), Cs::Clear(o));
         if let Some(r) = rock { assert_eq!(lay.cs(r), Cs::Clear(4)); }
-        if let Some(b) = bush { assert_eq!(lay.cs(b), Cs::Blocked, "พุ่มไม้ (เบอร์รี่) เป็นอาหาร ไม่เคลียร์"); }
-        if let Some(f) = fruit { assert_eq!(lay.cs(f), Cs::Blocked, "ต้นผลไม้ไม่เคลียร์"); }
+        // v40 สร้างทับได้ทุกอย่างที่เป็นธรรมชาติ (ไม่ให้กำแพง/พื้นแหว่ง)
+        if let Some(b) = bush { assert_eq!(lay.cs(b), Cs::Clear(2)); assert_eq!(clear_refund(2), Some((BERRY, 1))); }
+        if let Some(f) = fruit { assert!(matches!(lay.cs(f), Cs::Clear(_))); }
+        let w = (c.1 - 150..c.1 + 150).flat_map(|y| (c.0 - 150..c.0 + 150).map(move |x| (x, y))).find(|k| g.w.tile_at(k.0, k.1) == 1);
+        if let Some(w) = w { assert_eq!(lay.cs(w), Cs::Blocked, "น้ำ"); }
         assert_eq!(clear_refund(1), Some((WOOD, 3)));
         assert_eq!(clear_refund(10), Some((WOOD, 1)));
         assert_eq!(clear_refund(11), Some((STONE, 2)));
@@ -1525,4 +1585,28 @@ mod tests {
         assert!(g.rs.ar.active.is_none());
         assert_eq!(g.p.inv[4], s0 + 9, "คืนวัสดุ");
     }
+    #[test]
+    fn v40_repair_fills_gaps_left_by_trees_in_walls_and_roads() {
+        let (mut g, c) = town();
+        scattered(&mut g, c);
+        let y = c.1 + 30;
+        for x in c.0 - 10..=c.0 + 10 { if x != c.0 && x != c.0 + 1 { g.w.placed.insert((x, y), 38); } }
+        // ช่องว่าง 2 ช่องกลางแนว (ต้นไม้เคยขวาง) — ประตูเมือง (ถนน) ไม่เติม
+        g.w.placed.remove(&(c.0 - 5, y)); g.w.placed.remove(&(c.0 - 4, y));
+        g.w.tmod.insert((c.0, y), T_ROAD); g.w.tmod.insert((c.0 + 1, y), T_ROAD);
+        for x in c.0 - 8..=c.0 + 8 { if x != c.0 + 3 { g.w.tmod.insert((x, y + 4), T_ROAD); } }
+        let p = g.arch_repair_plan().expect("เจอช่องแหว่ง");
+        let places: Vec<(i32, i32)> = p.steps.iter().filter_map(|s| if let Step::Place { at, obj: 38 } = s { Some(*at) } else { None }).collect();
+        assert!(places.contains(&(c.0 - 5, y)) && places.contains(&(c.0 - 4, y)));
+        assert!(!places.contains(&(c.0, y)), "ประตูเมืองไม่ปิด");
+        assert!(p.steps.iter().any(|s| matches!(s, Step::Pave { x0, y0, .. } if (*x0, *y0) == (c.0 + 3, y + 4))));
+        g.p.inv[COIN] = 50; g.p.inv[STONE] = 100;
+        assert!(g.arch_repair());
+        g.arch_deposit();
+        for _ in 0..60 { g.arch_tick(STEP_SECS + 0.01); }
+        assert_eq!(g.w.placed.get(&(c.0 - 5, y)), Some(&38));
+        assert_eq!(g.w.tile_at(c.0 + 3, y + 4), T_ROAD);
+        assert!(g.rs.ar.active.is_none());
+    }
 }
+

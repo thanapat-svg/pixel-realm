@@ -16,7 +16,7 @@ lto = true
 [package.metadata.android]
 label = "Pixel Realm"
 # CI ใส่ version_code เพิ่มขึ้นทุก build (ให้ Android อัปเดตทับได้ครบ)
-version_name = "v39"
+version_name = "v40"
 fullscreen = true
 icon = "@mipmap/ic_launcher"
 res = "android_res"

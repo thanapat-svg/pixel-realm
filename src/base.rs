@@ -87,6 +87,23 @@ impl Game {
         !SOLIDT[self.w.tile_at(tx, ty) as usize] && (o == 0 || o == 3) && !self.player_in_tile(tx, ty) && !self.site_reserved((tx, ty))
             && self.w.realm.city_at(tx, ty).map_or(true, |ci| self.city_owner(ci) == PLAYER_OWN)
     }
+    /// v40 ผู้เล่นสร้างได้ไหม: เหมือน can_place_at แต่ต้นไม้/พุ่ม/หิน/หญ้าธรรมชาติไม่บัง (ถางให้ตอนวาง)
+    pub fn can_build_at(&self, tx: i32, ty: i32) -> bool {
+        let k = (tx, ty);
+        let o = self.w.obj_at(tx, ty);
+        let ok_obj = o == 0 || o == 3 || (!self.w.placed.contains_key(&k) && mover::nat_cuttable(o));
+        !SOLIDT[self.w.tile_at(tx, ty) as usize] && ok_obj && !self.player_in_tile(tx, ty) && !self.site_reserved(k)
+            && self.w.realm.city_at(tx, ty).map_or(true, |ci| self.city_owner(ci) == PLAYER_OWN)
+    }
+    /// v40 ถางของธรรมชาติตรงช่องนี้ก่อนสร้างทับ (ได้วัสดุคืน)
+    pub fn cut_for_build(&mut self, k: (i32, i32)) {
+        if self.w.placed.contains_key(&k) { return; }
+        let o = self.w.obj_at(k.0, k.1);
+        if o == 0 || !mover::nat_cuttable(o) { return; }
+        self.w.removed.insert(k);
+        self.obj_dmg.remove(&k);
+        if let Some((it, q)) = mover::cut_refund(o) { self.p.inv[it] += q; }
+    }
     pub fn place_piece(&mut self) {
         if self.w.dun.is_some() {
             self.toast("สร้างในดันเจี้ยนไม่ได้");
@@ -135,10 +152,11 @@ impl Game {
             return;
         }
         let (tx, ty) = self.build_target();
-        if !self.can_place_at(tx, ty) {
+        if !self.can_build_at(tx, ty) {
             self.toast("วางตรงนี้ไม่ได้");
             return;
         }
+        if pc.obj != T_SAPLING { self.cut_for_build((tx, ty)); }
         if pc.obj == T_SAPLING {
             if !self.plant_sapling((tx, ty)) { return; }
             for &(it, n) in pc.cost { self.p.inv[it] -= n; }

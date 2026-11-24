@@ -12,7 +12,7 @@ use super::*;
 pub const OBJ_MOVE: u8 = 245;
 const NB4: [(i32, i32); 4] = [(0, -1), (0, 1), (-1, 0), (1, 0)];
 /// ระยะย้ายของ (ช่อง) — ไกลกว่าระยะสร้าง จะได้ไม่ต้องเดินตามของ
-pub const MOVE_REACH: f32 = 14.;
+pub const MOVE_REACH: f32 = 20.;
 
 #[derive(Clone, Debug)]
 pub struct Carry {
@@ -24,6 +24,8 @@ pub struct Carry {
     pub name: String,
     /// v37 กรอบบ้านหลังอื่นรอบๆ (x0, y0, x1, y1, ประตู x, ประตู y) — ใช้ทำเส้นไกด์/ดูดเข้าแนว (คำนวณตอนยก)
     pub guides: Vec<[i32; 6]>,
+    /// v40 แปลงผัก/ผืนไร่ทั้งผืน (ดินไถ + ต้นพืช + เขตไร่ย้ายตามกัน)
+    pub field: bool,
 }
 
 /// v37 สถานะช่องปลายทาง
@@ -35,7 +37,7 @@ pub type Guide = (bool, i32, i32, i32);
 
 /// ของธรรมชาติที่ย้ายบ้าน/ของทับแล้วตัดออกให้ได้ (ได้วัสดุคืน)
 pub fn nat_cuttable(o: u8) -> bool { arch::nat_clearable(o) || o == 2 || o == 3 || o == O_DRYGRASS }
-fn cut_refund(o: u8) -> Option<(usize, i32)> { if o == 2 { Some((BERRY, 1)) } else if o == 3 || o == O_DRYGRASS { None } else { arch::clear_refund(o) } }
+pub fn cut_refund(o: u8) -> Option<(usize, i32)> { if o == 3 || o == O_DRYGRASS { None } else { arch::clear_refund(o) } }
 
 fn structural(o: u8) -> bool { matches!(o, 10 | 11 | 12 | 13 | O_WINDOW) }
 fn is_floor(t: u8) -> bool { t == T_FLOORW || t == T_FLOORS }
@@ -44,9 +46,30 @@ fn movable(o: u8) -> bool { !(27..=32).contains(&o) }
 
 impl Game {
     /// เลือกว่าจะยกอะไร จากช่องที่แตะ (Err = เหตุผลที่ยกไม่ได้)
+    /// v40 แตะดินไถ/ต้นพืช = ยกแปลงผักทั้งแปลง (ผืนไร่ที่ให้ชาวบ้าน = ทั้งผืน · แปลงของเราเอง = ดินไถที่ติดกันทั้งหมด)
+    pub fn move_field(&self, k: (i32, i32)) -> Option<Carry> {
+        let soil = |k: (i32, i32)| matches!(self.w.tmod.get(&k), Some(&T_SOIL) | Some(&T_WET)) || self.crops.contains_key(&k);
+        if !soil(k) { return None; }
+        if let Some(f) = self.rs.pm.fields.iter().find(|f| f.cells().contains(&k)) {
+            let nm = self.idx(f.by).map(|i| format!("ไร่ของ{}", NPC_NAMES[self.npcs[i].name as usize])).unwrap_or_else(|| "ผืนไร่".to_string());
+            let tiles = f.cells();
+            return Some(Carry { src: k, name: format!("{} ({} ช่อง)", nm, tiles.len()), tiles, building: false, guides: vec![], field: true });
+        }
+        let mut seen: HashSet<(i32, i32)> = HashSet::new();
+        let mut q = vec![k];
+        seen.insert(k);
+        while let Some(c) = q.pop() {
+            if seen.len() >= 64 { break; }
+            for o in NB4 { let n = (c.0 + o.0, c.1 + o.1); if !seen.contains(&n) && soil(n) && !self.rs.pm.fields.iter().any(|f| f.cells().contains(&n)) { seen.insert(n); q.push(n); } }
+        }
+        let mut tiles: Vec<(i32, i32)> = seen.into_iter().collect();
+        tiles.sort();
+        Some(Carry { src: k, name: format!("แปลงผัก ({} ช่อง)", tiles.len()), tiles, building: false, guides: vec![], field: true })
+    }
     pub fn move_select(&self, k: (i32, i32)) -> Result<Carry, &'static str> {
         if self.w.dun.is_some() { return Err("ย้ายของในดันเจี้ยนไม่ได้"); }
         if self.site_reserved(k) { return Err("กำลังก่อสร้างอยู่ — รอสร้างเสร็จก่อน"); }
+        if let Some(c) = self.move_field(k) { return Ok(c); }
         let placed = self.w.placed.get(&k).copied();
         let floor = is_floor(self.w.tile_at(k.0, k.1)) && self.w.tmod.contains_key(&k);
         let is_struct = placed.map_or(false, structural) || (floor && placed.is_none());
@@ -63,16 +86,16 @@ impl Game {
                 if tiles.iter().any(|t| self.site_reserved(*t)) { return Err("กำลังก่อสร้างอยู่ — รอสร้างเสร็จก่อน"); }
                 if tiles.iter().any(|t| self.crops.contains_key(t)) { return Err("มีแปลงผักในบ้าน — เก็บเกี่ยว/รื้อแปลงก่อน"); }
                 let n = tiles.iter().filter(|t| self.w.placed.contains_key(*t)).count();
-                return Ok(Carry { src: k, tiles, building: true, name: format!("บ้านทั้งหลัง ({} ชิ้น)", n), guides: vec![] });
+                return Ok(Carry { src: k, tiles, building: true, name: format!("บ้านทั้งหลัง ({} ชิ้น)", n), guides: vec![], field: false });
             }
         }
         self.move_single(k)
     }
     fn move_single(&self, k: (i32, i32)) -> Result<Carry, &'static str> {
         match self.w.placed.get(&k) {
-            Some(&o) if movable(o) => Ok(Carry { src: k, tiles: vec![k], building: false, name: obj_name(o).to_string(), guides: vec![] }),
+            Some(&o) if movable(o) => Ok(Carry { src: k, tiles: vec![k], building: false, name: obj_name(o).to_string(), guides: vec![], field: false }),
             Some(_) => Err("แปลงผักย้ายไม่ได้ — ใช้ไถดินวางซ้ำเพื่อรื้อ"),
-            None if is_floor(self.w.tile_at(k.0, k.1)) && self.w.tmod.contains_key(&k) => Ok(Carry { src: k, tiles: vec![k], building: false, name: "พื้น".to_string(), guides: vec![] }),
+            None if is_floor(self.w.tile_at(k.0, k.1)) && self.w.tmod.contains_key(&k) => Ok(Carry { src: k, tiles: vec![k], building: false, name: "พื้น".to_string(), guides: vec![], field: false }),
             None => Err("ตรงนี้ไม่มีของที่คุณสร้าง — แตะของที่สร้างแล้ว (ต้นไม้/หินธรรมชาติย้ายไม่ได้)"),
         }
     }
@@ -105,7 +128,8 @@ impl Game {
         if self.w.realm.city_at(d.0, d.1).map_or(false, |ci| self.city_owner(ci) != PLAYER_OWN) { return CellIs::Bad("อยู่ในเมืองคนอื่น"); }
         if self.site_reserved(d) { return CellIs::Bad("ทับที่กำลังก่อสร้าง"); }
         if t == T_SOIL || t == 12 || self.crops.contains_key(&d) { return CellIs::Bad("ทับแปลงผัก"); }
-        if self.w.tmod.get(&s).map_or(false, |x| is_floor(*x)) && self.w.tmod.contains_key(&d) && !is_floor(t) { return CellIs::Bad("ปูพื้นทับช่องนี้ไม่ได้ (ถนน/ที่ถม)"); }
+        // พื้น/ดินไถลงทับถนนได้ · ที่ถม/ลาวาเย็นไม่ได้ (ย้ายออกแล้วพื้นเดิมจะหาย)
+        if self.w.tmod.get(&s).map_or(false, |x| is_floor(*x) || *x == T_SOIL || *x == T_WET) && self.w.tmod.get(&d).map_or(false, |&x| !is_floor(x) && x != T_ROAD) { return CellIs::Bad("วางทับช่องนี้ไม่ได้ (ที่ถม)"); }
         let so = self.w.placed.get(&s).copied().unwrap_or(0);
         if OSOLID[so as usize] && self.player_in_tile(d.0, d.1) { return CellIs::Bad("ถอยออกจากตรงนั้นก่อน"); }
         if self.w.placed.contains_key(&d) { return CellIs::Bad("มีของขวางอยู่"); }
@@ -235,9 +259,11 @@ impl Game {
         let mut floors = vec![];
         let mut chests = vec![];
         let mut autos = vec![];
+        let mut crops = vec![];
         for &(s, d) in &pairs {
             if let Some(o) = self.w.placed.remove(&s) { objs.push((d, o)); }
-            if let Some(&t) = self.w.tmod.get(&s) { if is_floor(t) { self.w.tmod.remove(&s); floors.push((d, t)); } }
+            if let Some(&t) = self.w.tmod.get(&s) { if is_floor(t) || (c.field && (t == T_SOIL || t == T_WET)) { self.w.tmod.remove(&s); floors.push((d, t)); } }
+            if let Some(cr) = self.crops.remove(&s) { crops.push((d, cr)); }
             if let Some(inv) = self.chests.remove(&s) { chests.push((d, inv)); }
             if self.auto_doors.remove(&s) { autos.push(d); }
             self.obj_dmg.remove(&s);
@@ -254,6 +280,18 @@ impl Game {
             self.obj_dmg.remove(&d);
         }
         for (d, inv) in chests { self.chests.insert(d, inv); }
+        for (d, cr) in crops { self.crops.insert(d, cr); }
+        // ผืนไร่ของชาวบ้านย้ายตามไปด้วย (คนไถยังทำต่อที่ใหม่)
+        if c.field {
+            for f in self.rs.pm.fields.iter_mut() {
+                let cs = f.cells();
+                if !cs.iter().all(|k| old.contains(k)) { continue; }
+                let nt: Vec<(i32, i32)> = cs.iter().filter_map(|k| bed_map.get(k).copied()).collect();
+                let (x0, y0) = (nt.iter().map(|k| k.0).min().unwrap(), nt.iter().map(|k| k.1).min().unwrap());
+                let (x1, y1) = (nt.iter().map(|k| k.0).max().unwrap(), nt.iter().map(|k| k.1).max().unwrap());
+                f.x = x0; f.y = y0; f.w = x1 - x0 + 1; f.h = y1 - y0 + 1;
+            }
+        }
         for d in autos { self.auto_doors.insert(d); }
         // เจ้าของเตียงตามไปด้วย (ถ้ายืนอยู่ในบ้านเดิมตอนนั้น ก็ย้ายตัวไปที่เตียงใหม่ด้วย ไม่ให้ยืนค้างกลางที่โล่ง/ในผนังใหม่)
         for n in self.npcs.iter_mut() {
@@ -359,7 +397,7 @@ pub fn draw_move_preview(g: &Game, sp: &Sprites, v: &View, font: &Font, t_now: f
     let mut n_cut = 0;
     for &(s, d) in &pairs {
         let (px, py) = (d.0 as f32 * 16. - v.cx, d.1 as f32 * 16. - v.cy);
-        if let Some(&t) = g.w.tmod.get(&s) { if is_floor(t) { blit(sp, v, sp.tiles[t as usize][0], px, py, false, tint); } }
+        if let Some(&t) = g.w.tmod.get(&s) { if is_floor(t) || (c.field && (t == T_SOIL || t == T_WET)) { blit(sp, v, sp.tiles[t as usize][0], px, py, false, tint); } }
         if let Some(&o) = g.w.placed.get(&s) { let r = sp.obj[o as usize]; blit(sp, v, r, px + 8. - r.w / 2., py + 16. - r.h, false, tint); }
         let (qx, qy, sz) = tile(d.0, d.1);
         match g.move_cell(&src, s, d) {
@@ -628,5 +666,59 @@ mod tests {
         g.p.x = sn.0 as f32 * 16. + 8.; g.p.y = (sn.1 + 3) as f32 * 16. + 8.;
         assert!(g.move_drop(near));
         assert_eq!(g.w.placed.get(&(sn.0 - (car.src.0 - b.0), sn.1)), Some(&12), "วางตามจุดที่ดูดเข้าแนว (ประตู)");
+    }
+    #[test]
+    fn v40_move_a_whole_field_with_crops_and_owner_record() {
+        let (mut g, c) = land();
+        for y in c.1 - 20..=c.1 + 20 { for x in c.0 - 20..=c.0 + 20 { g.w.removed.insert((x, y)); } }
+        let f0 = (c.0 + 2, c.1 + 2);
+        g.rs.pm.fields.push(permit::LandField { by: 7, x: f0.0, y: f0.1, w: 3, h: 2 });
+        for k in permit::farm_cells(f0) {
+            g.w.tmod.insert(k, T_WET);
+            let cr = Crop { kind: 0, grown: 5., wet: 3. };
+            g.w.placed.insert(k, cr.obj());
+            g.crops.insert(k, cr);
+        }
+        // แปลงของเราเอง (ไม่ใช่ผืนไร่ชาวบ้าน) ติดกัน 2 ช่อง
+        g.w.tmod.insert((c.0 - 6, c.1), T_SOIL); g.w.tmod.insert((c.0 - 5, c.1), T_SOIL);
+        let mine = g.move_select((c.0 - 6, c.1)).unwrap();
+        assert!(mine.field && mine.tiles.len() == 2);
+        let sel = g.move_select(f0).unwrap();
+        assert!(sel.field && sel.tiles.len() == 6, "{:?}", sel.name);
+        assert!(g.move_pick(f0));
+        let to = (c.0 + 2, c.1 - 8);
+        g.p.x = c.0 as f32 * 16.; g.p.y = c.1 as f32 * 16.;
+        assert!(g.move_drop(to), "ย้ายแปลงผักได้");
+        for dy in 0..2 { for dx in 0..3 {
+            let k = (to.0 + dx, to.1 + dy);
+            assert_eq!(g.w.tile_at(k.0, k.1), T_WET, "ดินไถย้ายตาม");
+            assert!(g.crops.contains_key(&k) && g.w.placed.contains_key(&k), "ต้นพืชย้ายตาม");
+        } }
+        assert!(!g.crops.contains_key(&f0) && g.w.tmod.get(&f0).is_none(), "ที่เดิมว่าง");
+        let f = &g.rs.pm.fields[0];
+        assert_eq!((f.x, f.y, f.w, f.h, f.by), (to.0, to.1, 3, 2, 7), "เขตไร่ของชาวบ้านย้ายตาม");
+    }
+    #[test]
+    fn v40_walls_and_floors_build_over_trees_and_bushes() {
+        let (mut g, c) = land();
+        let mut spots = vec![];
+        for y in c.1 - 30..c.1 + 30 { for x in c.0 - 30..c.0 + 30 {
+            let o = g.w.obj_at(x, y);
+            if (is_tree(o) || o == 2 || o == 4) && !g.w.placed.contains_key(&(x, y)) && !SOLIDT[g.w.tile_at(x, y) as usize] && g.w.realm.city_at(x, y).is_none() && g.w.tmod.get(&(x, y)).is_none() { spots.push((x, y)); }
+        } }
+        assert!(spots.len() >= 2);
+        let (a, b) = (spots[0], spots[1]);
+        assert!(g.can_build_at(a.0, a.1), "ต้นไม้ไม่บังการวางกำแพง");
+        g.build_sel = PIECES.iter().position(|p| p.obj == 10);
+        g.p.inv[WOOD] = 50;
+        g.p.x = a.0 as f32 * 16. + 8. + 40.; g.p.y = a.1 as f32 * 16. + 8.;
+        g.build_cur = Some(a);
+        g.place_piece();
+        assert_eq!(g.w.obj_at(a.0, a.1), 10, "กำแพงขึ้นแทนต้นไม้");
+        g.p.inv[STONE] = 5;
+        g.p.x = b.0 as f32 * 16. + 8. + 40.; g.p.y = b.1 as f32 * 16. + 8.;
+        assert!(g.place_floor(b, OBJ_FLOOR_S));
+        assert_eq!(g.w.tile_at(b.0, b.1), T_FLOORS);
+        assert_eq!(g.w.obj_at(b.0, b.1), 0, "ไม่มีต้นไม้โผล่บนพื้น");
     }
 }

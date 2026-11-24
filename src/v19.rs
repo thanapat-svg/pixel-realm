@@ -204,8 +204,9 @@ impl Game {
         }
         if o == OBJ_TILL { if self.till_at(c) { self.save(); } return; }
         let pc = &PIECES[sel];
-        if self.can_place_at(c.0, c.1) && can_pay(&self.p, pc.cost) {
+        if self.can_build_at(c.0, c.1) && can_pay(&self.p, pc.cost) {
             for &(it, n) in pc.cost { self.p.inv[it] -= n; }
+            self.cut_for_build(c);
             self.w.placed.insert(c, o);
             self.obj_dmg.remove(&c);
             self.room_t = 0.;

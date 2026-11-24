@@ -75,7 +75,7 @@ mod v34;
 use v34::{draw_bad_doors, draw_pix_axe, TOOL_AXE, TOOL_PICK};
 mod v35;
 /// เลขเวอร์ชันที่โชว์ในหน้าตั้งค่า (ตรงกับ versionName ของ APK)
-pub const GAME_VER: &str = "v39";
+pub const GAME_VER: &str = "v40";
 mod v36;
 mod arch;
 use v35::{draw_forage, J_CRAFT, J_CURE, J_FORAGE, SELF_HOME, SELF_PROJ};
@@ -2104,7 +2104,7 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
         } else {
         let till = po == OBJ_TILL;
         let floor = po == OBJ_FLOOR_W || po == OBJ_FLOOR_S;
-        let ok = if !g.build_reach((tx, ty)) { false } else if till { g.can_till(tx, ty) } else if floor { g.build_reach((tx, ty)) && !SOLIDT[g.w.tile_at(tx, ty) as usize] } else { g.can_place_at(tx, ty) && can_pay(&g.p, PIECES[sel].cost) };
+        let ok = if !g.build_reach((tx, ty)) { false } else if till { g.can_till(tx, ty) } else if floor { g.build_reach((tx, ty)) && !SOLIDT[g.w.tile_at(tx, ty) as usize] } else { g.can_build_at(tx, ty) && can_pay(&g.p, PIECES[sel].cost) };
         let (px, py) = (tx as f32 * 16. - v.cx, ty as f32 * 16. - v.cy);
         let r = if till { sp.tiles[T_SOIL as usize][0] } else if floor { sp.tiles[if po == OBJ_FLOOR_W { T_FLOORW } else { T_FLOORS } as usize][0] } else { sp.obj[po as usize] };
         blit(sp, v, r, px, py + 16. - r.h, false, Color::new(1., 1., 1., 0.6));
