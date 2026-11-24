@@ -15,6 +15,8 @@ pub struct Extras {
     pub flash_slime: [Rect; 4],
     pub flash_skel: Rect,
     pub flash_bat: [Rect; 2],
+    /// v38 กำแพงเมืองแนวตั้ง (มองจากบน: สันกำแพงต่อกันเป็นเส้น)
+    pub cwall_v: Rect,
 }
 
 fn blank(w: u16, h: u16) -> Image {
@@ -505,5 +507,6 @@ pub fn build_extra(at: &mut Atlas, obj: &mut Vec<Rect>, icons: &mut Vec<Rect>) -
         at.add(&orb(7, 0xffffff, 0xfff060, 0xd0a000)),
     ];
     let z = Rect::new(0., 0., 1., 1.);
-    Extras { king: at.add(&king()), golem: [at.add(&golem(false)), at.add(&golem(true))], merchant: merch, proj, comp, flash_slime: [z; 4], flash_skel: z, flash_bat: [z; 2] }
+    let cwall_v = at.add(&spr(&["..kSkkSSSSkkSk..", "..kSSSSSSSSSSk..", "..kSsSSSSSSsSk..", "..kSSSSsSSSSSk..", "..kkSSSSSSSSkk..", "..kSSSSSSSSSSk..", "..kSSsSSSSSSSk..", "..kSSSSSSSsSSk..", "..kSkkSSSSkkSk..", "..kSSSSSSSSSSk..", "..kSsSSSSSSsSk..", "..kSSSSSsSSSSk..", "..kkSSSSSSSSkk..", "..kSSSSSSSSSSk..", "..kSSSsSSSSSSk..", "..kSSSSSSSSsSk.."], &[('k', 0x2a2630), ('S', 0xa8a4b0), ('s', 0x7e7a88)]));
+    Extras { king: at.add(&king()), golem: [at.add(&golem(false)), at.add(&golem(true))], merchant: merch, proj, comp, flash_slime: [z; 4], flash_skel: z, flash_bat: [z; 2], cwall_v }
 }

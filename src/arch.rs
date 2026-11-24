@@ -30,6 +30,8 @@ pub const SIZE_DESC: [&str; 3] = ["ถนนหลัก 1 สาย + ถนน
 pub const WALL_OBJ: [u8; 3] = [10, 11, 38];
 pub const WALL_NAMES: [&str; 3] = ["รั้วไม้", "กำแพงหิน", "กำแพงเมือง"];
 
+/// v38 งานของชาวบ้านที่ไปหาวัสดุมาช่วยสร้างเมือง (ของที่ได้เอาไปส่งที่ลานกลางเมือง)
+pub const ARCH_HELP: u32 = 1 << 28;
 pub const ARCH_FEE: i32 = 30;
 pub const ARCH_FEE_HOUSE: i32 = 4;
 pub const ARCH_FEE_SIZE: i32 = 15;
@@ -113,6 +115,12 @@ pub struct Arch {
     pub dep_cd: f32,
     /// ไม่เซฟ: ขั้นย้ายบ้านที่เคยพักไว้ที่ชั่วคราวแล้ว (พักได้หลังละครั้ง)
     pub unjammed: Vec<usize>,
+    /// v38 ปิดการระดมชาวบ้านช่วยหาวัสดุ (ค่าเริ่มต้น = ช่วย)
+    pub no_help: bool,
+    /// ไม่เซฟ: แผนจากเวอร์ชันเก่า (v36) — ยกเลิกแล้วคืนของตอนเริ่มเล่น
+    pub migrate: bool,
+    /// ไม่เซฟ: วัสดุที่ชาวบ้านหามาส่งช่างแล้วในแผนนี้
+    pub helped: [i32; NI],
 }
 
 #[derive(Clone, Debug)]
@@ -637,6 +645,7 @@ impl Game {
         self.rs.ar.stall = 0;
         self.rs.ar.t = 0.;
         self.rs.ar.unjammed.clear();
+        self.rs.ar.helped = [0; NI];
         self.rs.ar.active = Some(p);
         self.arch_refresh_sf();
         self.news_add(format!("จ้างสถาปนิกวางผังเมือง (ค่าจ้าง {} เหรียญ)", fee));
@@ -857,6 +866,12 @@ impl Game {
     }
     pub fn arch_tick(&mut self, dt: f32) {
         if self.rs.ar.active.is_none() || self.w.dun.is_some() { return; }
+        if self.rs.ar.migrate {
+            self.rs.ar.migrate = false;
+            self.arch_cancel();
+            self.news_add("แผนผังเมืองแบบเก่า (ก่อนอัปเดต) ถูกยกเลิก คืนวัสดุแล้ว — ขอแบบใหม่ได้ที่หน้าสถาปนิก (มีถนน กำแพงเมือง เลือกขนาดเมือง)".to_string());
+            return;
+        }
         if self.rs.ar.active.as_ref().map_or(false, |p| p.overlay.is_empty() && !p.steps.is_empty()) { self.arch_rebuild_overlay(); self.arch_refresh_sf(); }
         // ยืนที่ลานกลางเมืองพร้อมของที่ช่างขาด = ช่างรับไปเอง
         self.rs.ar.dep_cd -= dt;
@@ -930,11 +945,48 @@ impl Game {
         if let Some(a) = self.rs.ar.active.as_mut() { a.overlay = ov; }
     }
 
+    // ---------------------------------------------------------------- v38 ชาวบ้านช่วยหาวัสดุ
+    /// ช่างยังขาดของชิ้นนี้ไหม (และเปิดให้ชาวบ้านช่วย)
+    pub fn arch_wants(&self, it: usize) -> bool {
+        !self.rs.ar.no_help && self.rs.ar.active.is_some() && self.w.dun.is_none() && self.rs.ar.sf.iter().any(|&(i, q)| i == it && q > 0)
+    }
+    /// จุดส่งของ: ลานกลางเมือง (กระจายคนละช่อง)
+    pub fn arch_drop_stand(&self, id: u32) -> Option<(f32, f32)> {
+        let c = self.rs.ar.active.as_ref()?.center;
+        let k = (c.0 - 3 + (id % 7) as i32, c.1 + 3);
+        Some((k.0 as f32 * 16. + 8., k.1 as f32 * 16. + 12.))
+    }
+    pub fn arch_helpers(&self) -> usize { self.rs.work.values().filter(|j| j.other & ARCH_HELP != 0).count() }
+    /// คนว่างงาน: ไปตัดไม้/ขุดหินมาส่งช่าง (ไม่เกินราว 2 ใน 3 ของเมือง ที่เหลือดูแลบ้านตัวเอง)
+    pub fn arch_help_job(&self, id: u32) -> Option<work::Job> {
+        let (wood, stone) = (self.arch_wants(WOOD), self.arch_wants(STONE));
+        if !wood && !stone { return None; }
+        let pop = self.npcs.iter().filter(|n| n.state == ST_HOME && !n.child).count();
+        if self.arch_helpers() >= (pop * 2 / 3).max(2) { return None; }
+        let c = self.rs.ar.active.as_ref()?.center;
+        let chop = if wood && stone { id % 2 == 0 } else { wood };
+        let t = if chop {
+            self.find_obj(c, 34, |g, k, o| is_tree(o) && !is_fruit_tree(o) && o != T_SAPLING && o != 48 && o != 49 && !g.w.placed.contains_key(&k) && g.w.realm.city_at(k.0, k.1).is_none())
+        } else {
+            self.find_obj(c, 34, |g, k, o| matches!(o, 4 | 5) && !g.w.placed.contains_key(&k))
+        }?;
+        let stand = [(0, 1), (-1, 0), (1, 0), (0, -1)].iter().map(|d| (t.0 + d.0, t.1 + d.1)).find(|s| !self.w.solid_at(s.0, s.1)).map(|s| (s.0 as f32 * 16. + 8., s.1 as f32 * 16. + 12.))?;
+        Some(work::Job { kind: if chop { work::J_CHOP } else { work::J_MINE }, tile: t, stand, t: 0., dur: 6., stage: 0, carry: None, other: ARCH_HELP, working: false })
+    }
+    /// ชาวบ้านเอาวัสดุมาส่งถึงลาน
+    pub fn arch_receive(&mut self, it: usize, k: i32) -> bool {
+        let Some(p) = self.rs.ar.active.as_mut() else { return false };
+        p.pool[it] += k;
+        self.rs.ar.helped[it] += k;
+        self.arch_refresh_sf();
+        true
+    }
+
     // ---------------------------------------------------------------- เซฟ
     pub fn arch_save(&self) -> String {
         let a = &self.rs.ar;
         let mut s = String::new();
-        if a.set || a.finished > 0 || a.size != 0 || a.wallk != 0 { s += &format!("arch {} {} {} {} {}\n", a.opts, a.variant, a.finished, a.size, a.wallk); }
+        if a.set || a.finished > 0 || a.size != 0 || a.wallk != 0 || a.no_help { s += &format!("arch {} {} {} {} {} {}\n", a.opts, a.variant, a.finished, a.size, a.wallk, a.no_help as u8); }
         if let Some(p) = &a.active {
             s += &format!("archplan {},{},{},{},{},{},{},{},{}", p.variant, p.opts, p.center.0, p.center.1, p.houses, p.size, p.wallk, p.pave_n, p.gates);
             for (i, &q) in p.pool.iter().enumerate() { if q != 0 { s += &format!(" p{}:{}", i, q); } }
@@ -964,6 +1016,7 @@ impl Game {
             self.rs.ar.finished = n(2);
             self.rs.ar.size = (n(3) as u8).min(2);
             self.rs.ar.wallk = (n(4) as u8).min(2);
+            self.rs.ar.no_help = n(5) != 0;
             return;
         }
         let Some(head) = r.first() else { return };
@@ -992,6 +1045,8 @@ impl Game {
             p.steps.push(st);
             p.done.push(d.clamp(0, 2) as u8);
         }
+        // แผนจาก v36 (ไม่มีกำแพง/ขนาดเมือง และถนนปิดอยู่): ยกเลิกให้ แล้วให้ขอแบบใหม่
+        if h.len() < 9 { self.rs.ar.migrate = true; }
         if !p.steps.is_empty() && !p.finished() { self.rs.ar.active = Some(p); }
     }
 }
@@ -1055,10 +1110,11 @@ pub fn draw_arch_overlay(g: &Game, sp: &Sprites, v: &View, font: &Font, t: f32) 
         if p.done[i] != 0 { continue; }
         match *s {
             Step::Wall { x0, y0, x1, y1, obj, at } => {
+                let vert = x0 == x1 && y1 > y0;
                 for y in y0.max(vy0)..=y1.min(vy1) { for x in x0.max(vx0)..=x1.min(vx1) {
                     let idx = ((y - y0) * (x1 - x0 + 1) + (x - x0)) as u32;
                     if idx < at || g.w.placed.contains_key(&(x, y)) { continue; }
-                    draw_obj(obj, x, y);
+                    if obj == 38 && vert { blit(sp, v, sp.ex.cwall_v, x as f32 * 16. - v.cx, y as f32 * 16. - v.cy, false, ghost); } else { draw_obj(obj, x, y); }
                 } }
             }
             Step::Place { obj, at } => {
@@ -1420,5 +1476,53 @@ mod tests {
         let parts: Vec<&str> = s.trim().split(' ').collect();
         h.arch_load(parts[0], &parts[1..]);
         assert_eq!((h.rs.ar.size, h.rs.ar.wallk, h.arch_opts() & OPT_CITYWALL), (2, 2, OPT_CITYWALL));
+    }
+    #[test]
+    fn v38_villagers_gather_wood_and_stone_for_the_plan() {
+        let (mut g, c) = town();
+        scattered(&mut g, c);
+        let p = g.arch_plan(0, OPT_DEFAULT).unwrap();
+        g.rs.ar.prop = Some(p); g.p.inv[COIN] = 999;
+        assert!(g.arch_accept());
+        // ย้ายบ้านให้เสร็จก่อน (ไม่มีวัสดุ = ถนน/กำแพงเป็นแบบร่าง)
+        for _ in 0..80 { g.arch_tick(STEP_SECS + 0.01); }
+        assert!(g.arch_wants(WOOD) || g.arch_wants(STONE));
+        // ป่ารอบเมือง: คืนต้นไม้/หินธรรมชาติในวงแหวน 18..34 ช่อง
+        for y in c.1 - 34..=c.1 + 34 { for x in c.0 - 34..=c.0 + 34 {
+            let d = (x - c.0).abs().max((y - c.1).abs());
+            if d >= 18 && !g.w.placed.contains_key(&(x, y)) { g.w.removed.remove(&(x, y)); }
+        } }
+        let n_res = (c.1 - 34..=c.1 + 34).flat_map(|y| (c.0 - 34..=c.0 + 34).map(move |x| (x, y))).filter(|k| { let o = g.w.obj_at(k.0, k.1); (is_tree(o) && !is_fruit_tree(o)) || matches!(o, 4 | 5) }).count();
+        assert!(n_res > 5, "มีต้นไม้/หินรอบเมือง {}", n_res);
+        let pc = g.rs.ar.active.as_ref().unwrap().center;
+        g.p.x = pc.0 as f32 * 16. + 8.; g.p.y = (pc.1 + 8) as f32 * 16.;
+        while !work::work_hr(g.hour()) || g.hour() > 9. { g.time += 3.; }
+        g.last_day = day_of(&g);
+        for n in g.npcs.iter_mut() { n.mood = 80; }
+        let dt = 1. / 30.;
+        let mut seen_help = false;
+        for _ in 0..(150 * 30) {
+            g.npc_tick(dt); g.work_tick(dt);
+            if g.arch_helpers() > 0 { seen_help = true; }
+            if g.rs.ar.helped[WOOD] + g.rs.ar.helped[STONE] > 0 { break; }
+        }
+        assert!(seen_help, "ชาวบ้านออกไปช่วยหาวัสดุ");
+        let got = g.rs.ar.helped[WOOD] + g.rs.ar.helped[STONE];
+        assert!(got > 0, "ขนไม้/หินมาส่งช่างที่ลาน");
+        let a = g.rs.ar.active.as_ref().unwrap();
+        assert!(a.pool[WOOD] + a.pool[STONE] >= got);
+        // ปิดการระดม = ไม่มีใครรับงานใหม่
+        g.rs.ar.no_help = true;
+        assert!(g.arch_help_job(g.npcs[0].id).is_none());
+    }
+    #[test]
+    fn v38_old_v36_plan_is_cancelled_and_refunded() {
+        let mut g = Game::new_world_seed(3, Sfx::default());
+        g.arch_load("archplan", &["0,13,5,5,1", "p4:9", "h,1,1,5,5,0,0", "r,0,0,3,0,0"]);
+        assert!(g.rs.ar.active.is_some() && g.rs.ar.migrate);
+        let s0 = g.p.inv[4];
+        g.arch_tick(0.1);
+        assert!(g.rs.ar.active.is_none());
+        assert_eq!(g.p.inv[4], s0 + 9, "คืนวัสดุ");
     }
 }

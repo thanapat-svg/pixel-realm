@@ -784,6 +784,9 @@ fn tab_stats(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect
 fn tab_settings(g: &mut Game, _sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32 {
     let top = c.y - ui.scroll;
     let mut y = top;
+    // v38 เลขเวอร์ชัน: ไว้เช็กว่าอัปเดตทับแล้วได้ตัวใหม่จริง
+    text(font, &format!("Pixel Realm {}", crate::GAME_VER), c.x + 8. * u, y + 16. * u, 12. * u, hx(0x88ccff));
+    y += 22. * u;
     let rh = 50. * u;
     let mut flip = 0;
     let rows: [(&str, &str, bool); 4] = [
@@ -1447,6 +1450,15 @@ fn tab_arch(g: &mut Game, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32
             let have: Vec<(usize, i32)> = sf.iter().map(|&(i, q)| (i, q.min(g.p.inv[i]))).filter(|x| x.1 > 0).collect();
             if !have.is_empty() { para(font, c, &mut y, &format!("ในกระเป๋าใส่ได้ตอนนี้: {}", list(&have)), hx(0x88ccff), u); }
         }
+        // v38 ระดมชาวบ้าน
+        let helpers = g.arch_helpers();
+        let got: Vec<(usize, i32)> = (0..NI).filter(|&i| g.rs.ar.helped[i] > 0).map(|i| (i, g.rs.ar.helped[i])).collect();
+        if visible(y, 30. * u, c) && btn(ui, font, Rect::new(c.x + 8. * u, y, 70. * u, 26. * u), if g.rs.ar.no_help { "ปิด" } else { "เปิด" }, true, u) { g.rs.ar.no_help = !g.rs.ar.no_help; }
+        text(font, &format!("ชาวบ้านช่วยหาไม้/หินมาส่งช่าง{}", if g.rs.ar.no_help { String::new() } else { format!(" — ตอนนี้ช่วยอยู่ {} คน", helpers) }), c.x + 88. * u, y + 18. * u, 12. * u, if g.rs.ar.no_help { hx(0x888899) } else { hx(0xeeeeee) });
+        y += 30. * u;
+        if !g.rs.ar.no_help {
+            para(font, c, &mut y, &format!("คนว่างงานไปตัดไม้/ขุดหินรอบเมือง แล้วขนมาส่งที่ลาน (คนตัดไม้/ขุดหินประจำก็ส่งให้ช่างก่อน) · ทำงานช่วงกลางวันตอนเราอยู่ในเมือง{}", if got.is_empty() { String::new() } else { format!(" · ส่งมาแล้ว: {}", list(&got)) }), hx(0x9aa2b8), u);
+        }
         if visible(y, 32. * u, c) {
             match btn_row(ui, font, c, y, &[("ใส่จากกระเป๋า", !sf.is_empty()), ("ขนจากกล่องในเมือง", !sf.is_empty())], u) {
                 Some(0) => { g.arch_deposit(); }
@@ -1508,7 +1520,7 @@ fn tab_arch(g: &mut Game, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32
         let need = g.arch_need(&p);
         let need_l: Vec<(usize, i32)> = (0..NI).filter(|&i| need[i] > 0).map(|i| (i, need[i])).collect();
         para(font, c, &mut y, &format!("ค่าจ้าง {} เหรียญ (มี {}) · วัสดุทั้งหมดที่ใช้: {}", fee, g.p.inv[COIN] + g.tax_pool, if need_l.is_empty() { "ไม่ต้องใช้".to_string() } else { list(&need_l) }), hx(0xffee99), u);
-        para(font, c, &mut y, "ของไม่ต้องครบตอนนี้ — รับแล้วช่างย้ายบ้านทันที ส่วนถนน/กำแพง/ลานเป็นแบบร่างรอของ", hx(0x9aa2b8), u);
+        para(font, c, &mut y, "ของไม่ต้องครบตอนนี้ — รับแล้วช่างย้ายบ้านทันที ส่วนถนน/กำแพง/ลานเป็นแบบร่างรอของ · ชาวบ้านช่วยกันหาไม้/หินมาส่งด้วย", hx(0x9aa2b8), u);
         para(font, c, &mut y, "บนพื้นเกม: เหลือง = บ้านที่จะย้าย · เขียว = ที่ใหม่ · แดง = เคลียร์/รื้อ · ฟ้า = ลาน/บ่อ · เงาจาง = ถนน/กำแพงที่จะสร้าง", hx(0x9aa2b8), u);
         if visible(y, 32. * u, c) {
             match btn_row(ui, font, c, y, &[("รับแบบนี้", g.p.inv[COIN] + g.tax_pool >= fee), ("ไม่เอา", true), ("ดูแบบบนพื้นเกม", true)], u) {

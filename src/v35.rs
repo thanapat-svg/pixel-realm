@@ -278,6 +278,9 @@ impl Game {
     }
     /// ข้อความบอกว่าเขากำลังทำอะไรเองอยู่ (โชว์ในหน้าของเขา)
     pub fn self_text(&self, j: &Job) -> Option<String> {
+        if j.other & arch::ARCH_HELP != 0 {
+            return Some(match (j.kind, j.stage) { (_, 1) => "ขนวัสดุไปส่งช่างที่ลานกลางเมือง", (J_CHOP, _) => "ตัดไม้ไปช่วยสร้างเมือง", _ => "ขุดหินไปช่วยสร้างเมือง" }.to_string());
+        }
         if j.other & FLAGS == 0 && !matches!(j.kind, J_FORAGE | J_CRAFT | J_CURE) { return None; }
         let proj = j.other & SELF_PROJ != 0;
         Some(match j.kind {

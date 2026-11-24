@@ -24,6 +24,7 @@ jobs:
       - name: Build release APK
         run: |
           set +e
+          sed -i "s/^version_name = .*/&\nversion_code = $((1000 + ${{ github.run_number }}))/" Cargo.toml && grep -n "version_" Cargo.toml
           docker run --rm -v "$PWD":/root/src -w /root/src notfl3/cargo-apk sh -c "rustup toolchain install stable --profile minimal && rustup default stable && rustup target add aarch64-linux-android && rustc --version && cargo quad-apk build --release" 2>&1 | tee build.log
           rc=${PIPESTATUS[0]}
           if [ $rc -ne 0 ]; then

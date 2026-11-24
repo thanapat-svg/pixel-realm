@@ -74,6 +74,8 @@ mod crew;
 mod v34;
 use v34::{draw_bad_doors, draw_pix_axe, TOOL_AXE, TOOL_PICK};
 mod v35;
+/// เลขเวอร์ชันที่โชว์ในหน้าตั้งค่า (ตรงกับ versionName ของ APK)
+pub const GAME_VER: &str = "v38";
 mod v36;
 mod arch;
 use v35::{draw_forage, J_CRAFT, J_CURE, J_FORAGE, SELF_HOME, SELF_PROJ};
@@ -1875,7 +1877,13 @@ fn render_world(g: &Game, sp: &Sprites, v: &View, t_now: f32, font: &Font) {
                 let (px, py) = if matches!(o, 19 | 20 | 21 | 22) { (px, py - (r.h - 16.).max(0.) + (r.h - 16.).max(0.)) } else { (px, py) };
                 let ox = if r.w > 16. { 8. - (r.w / 2.).floor() } else { 0. };
                 let tc = if w.dun.is_some() { WHITE } else { tree_tint(season(g), o) };
-                if !indun && (is_tree(o) || matches!(o, 2 | O_REED | O_DRYGRASS)) && sx == 0. {
+                if o == 38 {
+                    // v38 กำแพงเมืองแนวตั้งต่อกันเป็นเส้น (ไม่เป็นท่อนๆ)
+                    let is38 = |x: i32, y: i32| w.placed.get(&(x, y)) == Some(&38);
+                    let (up, down, side) = (is38(tx, ty - 1), is38(tx, ty + 1), is38(tx - 1, ty) || is38(tx + 1, ty));
+                    if up || (down && !side) { blit(sp, v, sp.ex.cwall_v, px + sx, py, false, tc); }
+                    if !(down && !side) { blit(sp, v, r, px + sx + ox, py + 16. - r.h, false, tc); }
+                } else if !indun && (is_tree(o) || matches!(o, 2 | O_REED | O_DRYGRASS)) && sx == 0. {
                     vfx::blit_sway(sp, v, r, px + ox, py + 16. - r.h, tc, tx as f32 * 0.73 + ty as f32 * 0.41);
                 } else {
                     blit(sp, v, r, px + sx + ox, py + 16. - r.h, false, tc);

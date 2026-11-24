@@ -116,6 +116,8 @@ impl Game {
             // v35 ครัวเรือนไม่มีอาหาร → ออกหาอาหารเองก่อนงานประจำ (ยาม/ชาวไร่/นักล่า/พ่อครัวทำงานของตัวเองอยู่แล้ว)
             if self.sh_urgent(id) { if let Some(j) = self.self_job(id) { self.rs.work.insert(id, j); continue; } }
             if let Some(j) = self.pick_job(id) { self.rs.work.insert(id, j); continue; }
+            // v38 แผนผังเมืองขาดไม้/หิน → คนว่างช่วยกันไปหามาส่งช่าง
+            if let Some(j) = self.arch_help_job(id) { self.rs.work.insert(id, j); continue; }
             // v35 ว่าง → พึ่งตัวเอง: หาอาหาร/ทำเบ็ด/หายา/หาวัสดุสร้างบ้าน (หาไม่เจอพักแป๊บค่อยลองใหม่)
             if let Some(j) = self.self_job(id) { self.rs.work.insert(id, j); continue; }
             self.rs.sh.idle.insert(id, self.time + 20.);
@@ -273,6 +275,11 @@ impl Game {
             let (nx, ny, bed) = (self.npcs[i].x, self.npcs[i].y, self.npcs[i].bed);
             if j.stage == 1 {
                 if let Some((it, k)) = j.carry {
+                    // v38 ของที่หามาช่วยสร้างเมือง → ส่งช่างที่ลาน (แผนเลิกไปแล้ว = เก็บกล่อง)
+                    if j.other & arch::ARCH_HELP != 0 && self.arch_receive(it, k) {
+                        self.add_float(nx, ny - 22., format!("+{} ให้ช่าง", k), hx(0xffd27a), Some(it));
+                        continue;
+                    }
                     self.give_to_chest((tfloor(j.stand.0), tfloor(j.stand.1)), it, k);
                     self.add_float(nx, ny - 22., format!("+{}", k), hx(0xa8f070), Some(it));
                 }
@@ -337,6 +344,13 @@ impl Game {
             }
             // มีของ: ถือไปเก็บในกล่องที่ใกล้ที่สุด (ไม่มีกล่อง = เก็บเข้าคลังเลย)
             if let Some((it, k)) = got {
+                // v38 ช่วยสร้างเมือง (หรือคนตัดไม้/ขุดหินประจำ ตอนที่ช่างยังขาดของนี้) → เดินเอาไปส่งที่ลานกลางเมือง
+                if (j.other & arch::ARCH_HELP != 0 || (matches!(j.kind, J_CHOP | J_MINE) && j.other & (SELF_PROJ | SELF_HOME) == 0)) && self.arch_wants(it) {
+                    if let Some(st) = self.arch_drop_stand(id) {
+                        self.rs.work.insert(id, Job { kind: j.kind, tile: (tfloor(st.0), tfloor(st.1)), stand: st, t: 0., dur: 0., stage: 1, carry: Some((it, k)), other: arch::ARCH_HELP, working: false });
+                        continue;
+                    }
+                }
                 // v35 วัสดุสร้างบ้านตัวเอง → ใส่เข้าโครงการตรงๆ ไม่ต้องเดินไปกล่อง
                 if j.other & SELF_PROJ != 0 && self.sh_to_project(id, it, k) { self.add_float(nx, ny - 22., format!("+{}", k), hx(0xa8f070), Some(it)); self.projects_try_start(); continue; }
                 let chest = self.chests.keys().copied().filter(|c| (c.0 - bed.0).abs() <= 18 && (c.1 - bed.1).abs() <= 18).min_by_key(|c| (c.0 - tfloor(nx)).abs() + (c.1 - tfloor(ny)).abs());
