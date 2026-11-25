@@ -1486,7 +1486,7 @@ fn tab_arch(g: &mut Game, font: &Font, ui: &mut UiState, c: Rect, u: f32) -> f32
     if visible(y, 30. * u, c) { if let Some(i) = pick_row(ui, font, c, y, &arch::SIZE_NAMES, g.rs.ar.size as usize, u) { g.arch_set_size(i as u8); } }
     y += 34. * u;
     let wsel = if opts & arch::OPT_CITYWALL != 0 { g.rs.ar.wallk as usize + 1 } else { 0 };
-    let wcost = ["ไม่สร้าง", "ไม้ 2/ช่อง", "หิน 3/ช่อง", "หิน 8/ช่อง · นับเป็นกำแพงเมืองของอาณาจักร"];
+    let wcost = ["ไม่สร้าง", "ไม้ 1/ช่อง", "หิน 2/ช่อง", "หิน 4/ช่อง (ช่างเหมาถูกกว่าวางเอง) · นับเป็นกำแพงเมืองของอาณาจักร"];
     text(font, &format!("กำแพงรอบเมือง (เว้นประตูเมืองตรงถนน): {}", wcost[wsel]), c.x + 8. * u, y + 14. * u, 12. * u, hx(0xffcc66));
     y += 20. * u;
     if visible(y, 30. * u, c) {

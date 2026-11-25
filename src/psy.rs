@@ -141,7 +141,9 @@ impl Game {
             let fest = if self.festival_today().is_some() { self.fest_spot() } else { None };
             for (id, bed) in ids {
                 let fhere = fest.filter(|f| (f.0 - bed.0).abs().max((f.1 - bed.1).abs()) < 40 && !self.is_sick(id));
-                let Some(f) = fhere.or_else(|| self.w.near_fire(bed.0, bed.1, 14)) else { continue };
+                // v42 บ้านไกลกองไฟ แต่มีลานเมือง (ไม่เกิน 45 ช่อง) = ไปนั่งที่ลานเมือง
+                let plaza = self.plaza_c().filter(|f| (f.0 - bed.0).abs().max((f.1 - bed.1).abs()) <= 45);
+                let Some(f) = fhere.or_else(|| self.w.near_fire(bed.0, bed.1, 14)).or(plaza) else { continue };
                 let p = &self.psy[&id];
                 // อยากไปไหม: เข้าสังคม + แบตเหลือ + สุ่มรายวัน · อินโทรเวิร์ตแบตหมด = ขอตัวกลับ
                 let want = p.t[PE] / 100. * 0.6 + p.bat / 100. * 0.4 + (hash(day, id as i32, 7710) as f32 - 0.5) * 0.35 + if fhere.is_some() { 0.5 } else { 0. };
@@ -160,6 +162,25 @@ impl Game {
                     (fire.0 + a.cos() * 26. * ring, fire.1 + a.sin() * 20. * ring)
                 };
                 plan.insert(id, (pos, fire));
+            }
+        }
+        // ---- v42 ตลาดนัดเย็น: คนอยากเจอผู้คน/คนที่หิว เดินมายืนเลือกของหน้าแผง
+        if !evening && self.market_open() {
+            let stalls = self.market_stalls();
+            let mut n_at: HashMap<(i32, i32), usize> = HashMap::new();
+            let mut ids: Vec<u32> = self.npcs.iter().filter(|n| n.state == ST_HOME && n.soc.anger < 50 && !n.child).map(|n| n.id).collect();
+            ids.sort();
+            for id in ids {
+                if self.is_sick(id) { continue; }
+                let Some(p) = self.psy.get(&id) else { continue };
+                let hungry = self.rs.sh.hungry.get(&id).copied().unwrap_or(0) > 0;
+                let want = p.t[PE] / 100. * 0.6 + (hash(day, id as i32, 7720) as f32 - 0.5) * 0.5 + if hungry { 0.6 } else { 0. };
+                if want < 0.42 { continue; }
+                let k = stalls[(id as usize) % stalls.len()];
+                let i = n_at.entry(k).or_insert(0); *i += 1;
+                let off = [(0., 1.), (-1., 1.2), (1., 1.2), (-1.6, 0.6), (1.6, 0.6), (0., 2.)][(*i - 1) % 6];
+                let pos = (k.0 as f32 * 16. + 8. + off.0 * 14., k.1 as f32 * 16. + 14. + off.1 * 14.);
+                plan.insert(id, (pos, (k.0 as f32 * 16. + 8., k.1 as f32 * 16. + 8.)));
             }
         }
         self.gather = plan;

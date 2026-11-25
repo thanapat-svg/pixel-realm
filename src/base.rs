@@ -11,7 +11,7 @@ pub struct Piece {
 }
 /// v30 จำนวนชิ้นที่โชว์ในเมนูสร้าง (ชิ้นท้ายสุด = เลือกที่ดินให้ชาวบ้าน ซ่อนไว้)
 pub const BUILD_N: usize = 33;
-pub const PIECES: [Piece; 34] = [
+pub const PIECES: [Piece; 35] = [
     Piece { name: "เต็นท์", desc: "ที่หลบภัยเร็วที่สุด! ผ้าใบ+เตียง 3×4 ช่อง · สร้าง 6 วินาที · กันฝน นอนดีกว่ากลางแจ้ง", obj: OBJ_TENT, icon: IC_WWALL, cost: &[(WOOD, 8)] },
     Piece { name: "กระท่อม", desc: "บ้านไม้หลังเล็ก 5×4 ช่อง มีเตียง ท่อนไม้นั่ง หน้าต่าง · สร้าง 15 วินาที", obj: OBJ_HUT, icon: IC_WWALL, cost: &[(WOOD, 22)] },
     Piece { name: "บ้านสำเร็จรูป (เล็ก)", desc: "วางทีเดียวได้ทั้งหลัง! กำแพงไม้ ประตู หน้าต่าง พื้นไม้ เตียง โคมไฟ · ประตูอยู่ช่องที่เลือก ตัวบ้านขึ้นไปด้านบน 5×5 ช่อง", obj: OBJ_HOUSE_S, icon: IC_WWALL, cost: &[(WOOD, 40), (STONE, 4)] },
@@ -43,6 +43,7 @@ pub const PIECES: [Piece; 34] = [
     Piece { name: "กระถางต้นไม้", desc: "ต้นไม้ในบ้าน · +ความน่าอยู่", obj: O_PLANT, icon: IC_WWALL, cost: &[(STONE, 2), (BERRY, 1)] },
     Piece { name: "วงกองไฟ", desc: "กองไฟ + ท่อนไม้นั่ง 4 ท่อน · ตอนเย็นชาวบ้านมานั่งคุยกัน (นั่งด้วยได้!) · สร้าง 8 วินาที", obj: OBJ_FIRERING, icon: IC_WWALL, cost: &[(WOOD, 10), (STONE, 3)] },
     Piece { name: "ท่อนไม้นั่ง", desc: "แตะเพื่อนั่ง · วางใกล้กองไฟให้ชาวบ้านมานั่งคุยกัน", obj: O_LOG, icon: IC_WWALL, cost: &[(WOOD, 2)] },
+    Piece { name: "แผงตลาดนัด", desc: "วางใกล้กองไฟกลางเมือง · ทุกเย็น 15:30–17:30 ชาวบ้านมาเจอกัน คนที่หิวซื้ออาหารจากกล่องในเมือง (ค่าแผงเข้าคลังเมือง)", obj: O_STALL, icon: IC_WWALL, cost: &[(WOOD, 6)] },
     Piece { name: "โคมไฟ", desc: "ไฟสว่างในบ้านตอนกลางคืน (เป็นเขตปลอดภัยเหมือนคบเพลิง) · +ความน่าอยู่", obj: O_LAMP, icon: IC_TORCH, cost: &[(WOOD, 1), (STONE, 2)] },
     Piece { name: "ย้ายของ", desc: "ย้ายของที่สร้างแล้วโดยไม่ต้องรื้อ (ฟรี) · แตะของ 2 ครั้ง = ยก · แตะที่ใหม่ 2 ครั้ง = วาง · แตะผนัง/ประตู/พื้นบ้าน = ย้ายทั้งหลัง (หมุนได้) · ของในกล่องและเจ้าของเตียงตามไปด้วย · ต้นไม้/หินที่ขวางตัดให้เอง · มีเส้นไกด์ดูดเข้าแนวบ้านข้างๆ", obj: OBJ_MOVE, icon: IC_BOX, cost: &[] },
     Piece { name: "ให้ที่ดิน", desc: "เลือกที่ให้ชาวบ้านที่มาขอ (ทำไร่/สร้างบ้าน)", obj: OBJ_PERMIT, icon: IC_BOX, cost: &[] },
@@ -235,6 +236,11 @@ impl Game {
                 self.req = Some(Req::City(city.unwrap(), match o { O_STALL => 0, 37 => 1, O_STABLE => 2, _ => 3 }));
             }
             O_CHAIR | O_LOG => self.sit_on(k),
+            O_STALL => {
+                // v42 แผงตลาดนัดในเมืองเรา
+                let n = self.rs.ar.mkt_seen.len();
+                self.toast(if self.market_open() { format!("ตลาดนัดกำลังเปิด (15:30–17:30) · ชาวบ้านมาแล้ว {} คน — คนที่หิวซื้ออาหารจากกล่องในเมืองได้ ค่าแผงเข้าคลังเมือง", n) } else { "แผงตลาดนัด: ทุกเย็น 15:30–17:30 ชาวบ้านมาเจอกัน แลกซื้ออาหารกันเอง".to_string() });
+            }
             12 => {
                 self.auto_doors.remove(&k);
                 self.w.placed.insert(k, 13);

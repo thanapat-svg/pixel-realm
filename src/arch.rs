@@ -19,7 +19,7 @@ pub const OPT_CITYWALL: u8 = 32;
 pub const OPT_DEFAULT: u8 = OPT_NPC | OPT_MINE | OPT_WALLS | OPT_PLAZA | OPT_ROAD | OPT_CITYWALL;
 pub const OPT_LIST: [(u8, &str); 5] = [
     (OPT_NPC, "ย้ายบ้านชาวบ้านเข้าแถวริมถนน"),
-    (OPT_MINE, "ย้ายบ้านของเรา/บ้านว่างด้วย"),
+    (OPT_MINE, "ย้ายบ้านของเรา/บ้านว่าง/โกดังด้วย"),
     (OPT_WALLS, "รื้อกำแพงสะเปะสะปะ (คืนวัสดุ)"),
     (OPT_PLAZA, "ลานกลางเมือง (กองไฟ ท่อนไม้ บ่อน้ำ คบเพลิง)"),
     (OPT_ROAD, "ปูถนนทุกสาย + ลานปูหิน"),
@@ -40,6 +40,9 @@ pub const SURVEY_R: i32 = 50;
 /// ลานกลางเมือง (พิกัดสัมพัทธ์ u,v): -5..=6 (12×12 ถนน 2 ช่องผ่านกลางพอดี)
 pub const PLAZA_LO: i32 = -5;
 pub const PLAZA_HI: i32 = 6;
+/// v42 ลานตามขนาดเมือง: เล็ก 8×8 · กลาง 10×10 · ใหญ่ 12×12
+pub fn plaza_lo(size: u8) -> i32 { -(3 + size.min(2) as i32) }
+pub fn plaza_hi(size: u8) -> i32 { 4 + size.min(2) as i32 }
 /// ระยะห่างระหว่างถนนขนาน (ช่อง) — บ้านหลังใหญ่หันหลังชนกันได้พอดี
 pub const BLOCK: i32 = 18;
 /// ช่างลงมือหนึ่งอย่างทุกกี่วินาที
@@ -130,6 +133,15 @@ pub struct Arch {
     pub gate_t: f32,
     /// ไม่เซฟ: เวลาสะสมของการหาวัสดุตอนเราไม่อยู่ในเมือง
     pub away_t: f32,
+    /// v42 ใจกลางลานเมืองที่ช่างวางไว้ (เซฟ) — ที่นั่งคุยตอนเย็น ตลาดนัด เทศกาล
+    pub plaza: Option<(i32, i32)>,
+    /// ไม่เซฟ: ตลาดนัดวันนี้ (วัน, คนที่มา, ซื้ออาหารกี่มื้อ, ประกาศแล้ว)
+    pub mkt_day: i32,
+    pub mkt_seen: HashSet<u32>,
+    pub mkt_sold: i32,
+    pub mkt_told: bool,
+    /// ไม่เซฟ: ป้ายชื่อหน้าบ้าน (ประตู, ชื่อ)
+    pub plates: Vec<((i32, i32), String)>,
 }
 
 #[derive(Clone, Debug)]
@@ -218,8 +230,11 @@ impl<'a> Lay<'a> {
 
 pub fn place_cost(obj: u8) -> Vec<(usize, i32)> {
     if obj == 9 { return vec![(WOOD, 3), (STONE, 2)]; }
+    if obj == O_STALL { return vec![(WOOD, 6)]; }
     PIECES.iter().find(|p| p.obj == obj).map(|p| p.cost.to_vec()).unwrap_or_default()
 }
+/// v42 กำแพงรอบเมืองที่ช่างสร้างเป็นแนวยาว (ซื้อวัสดุเหมา ถูกกว่าวางเอง): รั้วไม้ 1 ไม้ · กำแพงหิน 2 หิน · กำแพงเมือง 4 หิน
+pub fn wall_cost(obj: u8) -> Vec<(usize, i32)> { match obj { 10 => vec![(WOOD, 1)], 11 => vec![(STONE, 2)], 38 => vec![(STONE, 4)], o => place_cost(o) } }
 /// รื้อ/โค่นแล้วได้วัสดุคืน
 pub fn clear_refund(o: u8) -> Option<(usize, i32)> {
     match o { 10 => Some((WOOD, 1)), 11 => Some((STONE, 2)), 4 => Some((STONE, 2)), 5 => Some((GEM, 1)), 2 => Some((BERRY, 1)), O_SHROOM => Some((SHROOM, 1)), T_SAPLING => None, o if is_tree(o) => Some((WOOD, 3)), _ => None }
@@ -330,6 +345,19 @@ impl Game {
             let owner = self.npcs.iter().find(|n| n.state == ST_HOME && room.tiles.contains(&n.bed)).map(|n| n.id);
             sv.houses.push(Hs { door, face, carry, mine: owner.is_none(), owner });
         }
+        // v42 อาคารที่ไม่มีเตียง (โกดัง ห้องเก็บของ ครัว) ก็นับเป็นอาคาร — ย้ายเข้าแนวได้ ไม่ค้างกลางถนน
+        let mut doors_all: Vec<(i32, i32)> = self.w.placed.iter().filter(|(k, &o)| near(k) && (o == 12 || o == 13)).map(|(k, _)| *k).collect();
+        doors_all.sort();
+        for door in doors_all {
+            if seen.contains(&door) || sv.houses.iter().any(|h| h.carry.tiles.contains(&door)) { continue; }
+            let Some((room, inn)) = nb4().iter().map(|d| (door.0 + d.0, door.1 + d.1)).find_map(|n| self.w.room_from(n).map(|r| (r, n))) else { continue };
+            if room.tent || room.has_bed { continue; }
+            let Ok(carry) = self.move_select(door) else { continue };
+            if !carry.building || sv.houses.iter().any(|h| h.carry.tiles.iter().any(|t| carry.tiles.contains(t))) { continue; }
+            for d in &room.doors { seen.insert(*d); }
+            let face = face_of((door.0 - inn.0, door.1 - inn.1));
+            sv.houses.push(Hs { door, face, carry, mine: true, owner: None });
+        }
         sv.houses.sort_by_key(|h| h.door);
         let house_tiles: HashSet<(i32, i32)> = sv.houses.iter().flat_map(|h| h.carry.tiles.iter().copied()).collect();
         // กำแพงสะเปะสะปะ: ไม่ได้เป็นส่วนของห้องปิดใดเลย (กำแพงเมือง 38 ไม่นับ — ตั้งใจสร้างเป็นแนวป้องกัน)
@@ -359,6 +387,7 @@ impl Game {
         let sh = shape(size);
         let (bu0, bu1, bv0, bv1) = wall_box(size);
         let ew = variant == 0;
+        let (pl, ph) = (plaza_lo(size), plaza_hi(size));
         let mut lay = Lay::new(self);
         let sel: Vec<&Hs> = sv.houses.iter().filter(|h| if h.mine { opts & OPT_MINE != 0 } else { opts & OPT_NPC != 0 }).collect();
         for h in &sel { lay.gone.extend(h.carry.tiles.iter().copied()); }
@@ -369,7 +398,7 @@ impl Game {
         for oy in -16..=16 { for ox in -16..=16 {
             let pc = (sv.c.0 + ox, sv.c.1 + oy);
             let mut bad = 0;
-            for dv in PLAZA_LO - 1..=PLAZA_HI + 1 { for du in PLAZA_LO - 1..=PLAZA_HI + 1 {
+            for dv in pl - 1..=ph + 1 { for du in pl - 1..=ph + 1 {
                 if lay.cs((pc.0 + du, pc.1 + dv)) == Cs::Blocked { bad += 1; }
             } }
             let sc = bad * 60 + ox.abs() + oy.abs();
@@ -391,13 +420,13 @@ impl Game {
         let wall_on = opts & OPT_CITYWALL != 0;
         let ext = if wall_on { 2 } else { 0 };
         let mut road_rects: Vec<(i32, i32, i32, i32)> = vec![]; // (u0, v0, u1, v1)
-        road_rects.push((PLAZA_LO, PLAZA_LO, PLAZA_HI, PLAZA_HI));
+        road_rects.push((pl, pl, ph, ph));
         for &s in sh.streets { road_rects.push((bu0 - ext, s * BLOCK, bu1 + ext, s * BLOCK + 1)); }
         for &a in sh.avenues { road_rects.push((a, bv0 - ext, a + 1, bv1 + ext)); }
         let mut road_cells: HashSet<(i32, i32)> = HashSet::new();
         for &(u0, v0, u1, v1) in &road_rects { for v in v0..=v1 { for u in u0..=u1 { road_cells.insert(at(u, v)); } } }
         rsv.extend(road_cells.iter().copied());
-        for dv in PLAZA_LO - 1..=PLAZA_HI + 1 { for du in PLAZA_LO - 1..=PLAZA_HI + 1 { rsv.insert(at(du, dv)); } }
+        for dv in pl - 1..=ph + 1 { for du in pl - 1..=ph + 1 { rsv.insert(at(du, dv)); } }
         let inside_box = |k: (i32, i32)| -> bool {
             let (u, v) = if ew { (k.0 - pc.0, k.1 - pc.1) } else { (k.1 - pc.1, k.0 - pc.0) };
             u >= bu0 + 2 && u <= bu1 - 2 && v >= bv0 + 2 && v <= bv1 - 2
@@ -420,7 +449,7 @@ impl Game {
                 for (f, t) in moves { if f != t { plaza_steps.push(Step::MoveOne { from: f, to: t }); lay.gone.insert(f); } }
                 for k in free { plaza_steps.push(Step::Place { obj: O_LOG, at: k }); }
             }
-            let corners = [(-4, -4), (5, -4), (-4, 5), (5, 5)].map(|o| at(o.0, o.1));
+            let corners = [(pl + 1, pl + 1), (ph - 1, pl + 1), (pl + 1, ph - 1), (ph - 1, ph - 1)].map(|o| at(o.0, o.1));
             let want = (sv.wells.len().max((sv.houses.len() + 4) / 5).max(1)).min(4);
             let mut left: Vec<(i32, i32)> = corners.to_vec();
             let mut wells = sv.wells.clone();
@@ -434,7 +463,9 @@ impl Game {
                 n_done += 1;
             }
             while n_done < want && !left.is_empty() { plaza_steps.push(Step::Place { obj: 39, at: left.remove(0) }); n_done += 1; }
-            for o in [(PLAZA_LO, PLAZA_LO), (PLAZA_HI, PLAZA_LO), (PLAZA_LO, PLAZA_HI), (PLAZA_HI, PLAZA_HI)] { plaza_steps.push(Step::Place { obj: 18, at: at(o.0, o.1) }); }
+            for o in [(pl, pl), (ph, pl), (pl, ph), (ph, ph)] { plaza_steps.push(Step::Place { obj: 18, at: at(o.0, o.1) }); }
+            // v42 แผงตลาดนัด 2 แผง ขนาบถนนตัดตรงขอบลาน (ตอนเย็นชาวบ้านมาแลกของกัน)
+            for u in [-1, 2] { plaza_steps.push(Step::Place { obj: O_STALL, at: at(u, ph) }); }
             for s in &plaza_steps {
                 let k = match s { Step::MoveOne { to, .. } => *to, Step::Place { at, .. } => *at, _ => continue };
                 if let Cs::Clear(o) = lay.cs(k) { if cleared.insert(k) { clears.push(Step::Clear { at: k, obj: o }); } }
@@ -600,7 +631,7 @@ impl Game {
                     if matches!(self.cell_road(k, &fields), Cst::Todo | Cst::Clear(_)) { road.insert(k); }
                 },
                 Step::Wall { x0, y0, x1, y1, obj, at } => {
-                    let c = place_cost(*obj);
+                    let c = wall_cost(*obj);
                     for j in *at..rect_len(*x0, *y0, *x1, *y1) {
                         if matches!(self.cell_wall(rect_cell(*x0, *y0, *x1, j), *obj, &fields), Cst::Todo | Cst::Clear(_)) { for &(it, q) in &c { n[it] += q; } }
                     }
@@ -656,6 +687,7 @@ impl Game {
         self.rs.ar.unjammed.clear();
         self.rs.ar.helped = [0; NI];
         for k in &p.gate_cells { if !self.rs.ar.gates_k.contains(k) { self.rs.ar.gates_k.push(*k); } }
+        if p.opts & OPT_PLAZA != 0 { self.rs.ar.plaza = Some(p.center); }
         self.rs.ar.gate_t = 0.;
         self.rs.ar.active = Some(p);
         self.arch_refresh_sf();
@@ -825,7 +857,7 @@ impl Game {
                     }
                     if built >= if wall.is_some() { WALL_BATCH } else { PAVE_BATCH } { break; }
                     // ค่าวัสดุ
-                    let cost: Vec<(usize, i32)> = match wall { Some(o) => place_cost(o), None => if self.rs.ar.active.as_ref().map_or(0, |p| p.pave_n) % 2 == 0 { vec![(STONE, 1)] } else { vec![] } };
+                    let cost: Vec<(usize, i32)> = match wall { Some(o) => wall_cost(o), None => if self.rs.ar.active.as_ref().map_or(0, |p| p.pave_n) % 2 == 0 { vec![(STONE, 1)] } else { vec![] } };
                     if wall.is_some() && self.someone_on(k) { break; }
                     let pool_ok = self.rs.ar.active.as_ref().map_or(false, |p| cost.iter().all(|&(it, q)| p.pool[it] >= q));
                     if !pool_ok { break; }
@@ -1014,6 +1046,69 @@ impl Game {
         true
     }
 
+    // ---------------------------------------------------------------- v42 ลานเมืองมีชีวิต: ตลาดนัด + ป้ายชื่อบ้าน
+    /// ใจกลางลานเมือง: ที่ช่างวางไว้ หรือกองไฟใกล้กลางเมือง (เมืองที่วางเอง)
+    pub fn plaza_c(&self) -> Option<(i32, i32)> {
+        if let Some(p) = self.rs.ar.plaza { if self.w.placed.get(&p) == Some(&9) { return Some(p); } }
+        let c = self.town_center()?;
+        self.w.near_fire(c.0, c.1, 10)
+    }
+    /// แผงตลาดนัดรอบลาน (แผงที่เราวาง/ช่างวาง ไม่ใช่ของเมืองอาณาจักรอื่น)
+    pub fn market_stalls(&self) -> Vec<(i32, i32)> {
+        let Some(c) = self.plaza_c() else { return vec![] };
+        let mut v: Vec<(i32, i32)> = self.w.placed.iter().filter(|(k, &o)| o == O_STALL && (k.0 - c.0).abs() <= 9 && (k.1 - c.1).abs() <= 9 && self.w.realm.city_at(k.0, k.1).is_none()).map(|(k, _)| *k).collect();
+        v.sort();
+        v
+    }
+    /// ตลาดนัดเย็น 15:30–17:30 (ต้องมีแผง และชาวบ้าน ≥ 2)
+    pub fn market_open(&self) -> bool {
+        let h = self.hour();
+        self.w.dun.is_none() && (15.5..17.5).contains(&h) && self.pop() >= 2 && !self.market_stalls().is_empty()
+    }
+    /// ทุก 5 วิ: คนที่มาถึงแผง = ได้คุยกัน (อารมณ์ดีขึ้น) · คนที่หิว ซื้ออาหารจากกล่องในเมือง (จ่ายค่าแผงเข้าคลังเมือง)
+    fn market_tick(&mut self) {
+        let day = day_of(self);
+        if self.rs.ar.mkt_day != day { self.rs.ar.mkt_day = day; self.rs.ar.mkt_seen.clear(); self.rs.ar.mkt_sold = 0; self.rs.ar.mkt_told = false; }
+        if !self.market_open() {
+            if !self.rs.ar.mkt_told && !self.rs.ar.mkt_seen.is_empty() && self.hour() >= 17.5 {
+                self.rs.ar.mkt_told = true;
+                let (n, m) = (self.rs.ar.mkt_seen.len(), self.rs.ar.mkt_sold);
+                self.news_add(format!("ตลาดนัดเย็นนี้: ชาวบ้านมา {} คน{}", n, if m > 0 { format!(" · ซื้ออาหารกัน {} มื้อ (ค่าแผงเข้าคลังเมือง {} เหรียญ)", m, m * 2) } else { String::new() }));
+            }
+            return;
+        }
+        let stalls = self.market_stalls();
+        let Some(pc) = self.plaza_c() else { return };
+        let here: Vec<(usize, u32)> = self.npcs.iter().enumerate().filter(|(_, n)| n.state == ST_HOME && stalls.iter().any(|k| (k.0 as f32 * 16. + 8. - n.x).hypot(k.1 as f32 * 16. + 16. - n.y) < 40.)).map(|(i, n)| (i, n.id)).collect();
+        for (i, id) in here {
+            if !self.rs.ar.mkt_seen.insert(id) { continue; }
+            self.npcs[i].mood = (self.npcs[i].mood + 1).min(100);
+            let hungry = self.rs.sh.hungry.get(&id).copied().unwrap_or(0) > 0 && !self.rs.sh.snack.contains(&id);
+            if !hungry { continue; }
+            let keys: Vec<(i32, i32)> = self.chests.keys().copied().filter(|k| (k.0 - pc.0).abs() <= 40 && (k.1 - pc.1).abs() <= 40).collect();
+            let got = keys.iter().find_map(|k| FOODS.iter().copied().find(|&f| self.chests[k][f] > 0).map(|f| (*k, f)));
+            if let Some((k, f)) = got {
+                if let Some(c) = self.chests.get_mut(&k) { c[f] -= 1; }
+                self.rs.sh.snack.insert(id);
+                self.tax_pool += 2;
+                self.rs.ar.mkt_sold += 1;
+                let (x, y) = (self.npcs[i].x, self.npcs[i].y);
+                self.add_float(x, y - 22., format!("ซื้อ{}", INAME[f]), hx(0xffd27a), Some(f));
+            }
+        }
+    }
+    /// ป้ายชื่อหน้าบ้านชาวบ้าน (อัปเดตทุก 5 วิ รอบตัวเรา)
+    fn plates_refresh(&mut self) {
+        let (px, py) = (tfloor(self.p.x), tfloor(self.p.y));
+        let mut v = vec![];
+        for n in self.npcs.iter().filter(|n| n.state == ST_HOME && (n.bed.0 - px).abs() <= 24 && (n.bed.1 - py).abs() <= 18) {
+            let Some(r) = self.w.room_from(n.bed) else { continue };
+            let Some(&d) = r.doors.iter().min() else { continue };
+            v.push((d, format!("บ้าน{}", NPC_NAMES[n.name as usize])));
+        }
+        self.rs.ar.plates = v;
+    }
+
     // ---------------------------------------------------------------- v41 ประตูเมือง + หาวัสดุตอนเราไม่อยู่
     /// ช่องประตูเมือง: จากแผนช่าง + ช่องถนนที่ผ่านแนวกำแพงเมือง (กำแพงเมืองทั้งสองฝั่ง ห่างไม่เกิน 3 ช่อง)
     pub fn gates_refresh(&mut self) {
@@ -1041,7 +1136,10 @@ impl Game {
         self.rs.ar.gate_t -= dt;
         if self.rs.ar.gate_t > 0. { return; }
         self.rs.ar.gate_t = 5.;
+        if self.w.dun.is_some() { return; }
         self.gates_refresh();
+        self.market_tick();
+        self.plates_refresh();
     }
     /// เราไม่อยู่ในเมือง (ชาวบ้านไม่ได้ทำงานให้เห็น): ช่วงกลางวัน ชาวบ้านยังหาไม้/หินมาส่งช่างเรื่อยๆ (ทุก 20 วินาที คนละ 2)
     fn arch_away_help(&mut self, dt: f32) {
@@ -1103,7 +1201,10 @@ impl Game {
     pub fn arch_save(&self) -> String {
         let a = &self.rs.ar;
         let mut s = String::new();
-        if a.set || a.finished > 0 || a.size != 0 || a.wallk != 0 || a.no_help { s += &format!("arch {} {} {} {} {} {}\n", a.opts, a.variant, a.finished, a.size, a.wallk, a.no_help as u8); }
+        if a.set || a.finished > 0 || a.size != 0 || a.wallk != 0 || a.no_help || a.plaza.is_some() {
+            let (px, py, hp) = a.plaza.map_or((0, 0, 0), |p| (p.0, p.1, 1));
+            s += &format!("arch {} {} {} {} {} {} {} {} {}\n", a.opts, a.variant, a.finished, a.size, a.wallk, a.no_help as u8, hp, px, py);
+        }
         if !a.gates_k.is_empty() { s += "archgate"; for k in &a.gates_k { s += &format!(" {},{}", k.0, k.1); } s += "\n"; }
         if let Some(p) = &a.active {
             s += &format!("archplan {},{},{},{},{},{},{},{},{}", p.variant, p.opts, p.center.0, p.center.1, p.houses, p.size, p.wallk, p.pave_n, p.gates);
@@ -1135,6 +1236,7 @@ impl Game {
             self.rs.ar.size = (n(3) as u8).min(2);
             self.rs.ar.wallk = (n(4) as u8).min(2);
             self.rs.ar.no_help = n(5) != 0;
+            if n(6) == 1 { self.rs.ar.plaza = Some((n(7), n(8))); }
             return;
         }
         if tag == "archgate" {
@@ -1201,8 +1303,33 @@ pub fn draw_arch_ground(g: &Game, sp: &Sprites, v: &View, t: f32) {
     }
 }
 
+/// v42 ประตูเมือง (ซุ้มเหล็กยกขึ้น: มอนผ่านไม่ได้) + ป้ายชื่อหน้าบ้านเมื่อเดินผ่านใกล้ๆ
+fn draw_town_marks(g: &Game, v: &View, font: &Font) {
+    if g.w.dun.is_some() { return; }
+    let (vx0, vy0, vx1, vy1) = view_tiles(v);
+    for &(x, y) in &g.rs.ar.gate_set {
+        if x < vx0 || x > vx1 || y < vy0 || y > vy1 { continue; }
+        let (px, py, s) = ((x as f32 * 16. - v.cx) * v.s, (y as f32 * 16. - v.cy) * v.s, v.s);
+        // คานบน + ซี่เหล็กสั้นๆ ห้อยลงมา (ประตูชักยกขึ้นแล้ว)
+        draw_rectangle(px, py - 3. * s, 16. * s, 3. * s, Color::new(0.22, 0.2, 0.24, 0.9));
+        for i in 0..4 { draw_rectangle(px + (2. + i as f32 * 4.) * s, py, 1.5 * s, 3. * s, Color::new(0.35, 0.33, 0.38, 0.85)); }
+        draw_rectangle(px, py - 3. * s, 16. * s, 1. * s, Color::new(0.55, 0.52, 0.6, 0.9));
+    }
+    let (pxp, pyp) = (g.p.x, g.p.y);
+    let fs = (5. * v.s).max(10.);
+    for (d, name) in &g.rs.ar.plates {
+        let (wx, wy) = (d.0 as f32 * 16. + 8., d.1 as f32 * 16.);
+        if (wx - pxp).hypot(wy - pyp) > 7. * 16. { continue; }
+        let (sx, sy) = ((wx - v.cx) * v.s, (wy - v.cy) * v.s - 4. * v.s);
+        let m = measure_text(name, Some(font), fs as u16, 1.);
+        draw_rectangle(sx - m.width / 2. - 4., sy - fs - 2., m.width + 8., fs + 6., Color::new(0.32, 0.2, 0.1, 0.85));
+        draw_rectangle_lines(sx - m.width / 2. - 4., sy - fs - 2., m.width + 8., fs + 6., 1., hx(0xc8a070));
+        draw_text_ex(name, sx - m.width / 2., sy, TextParams { font: Some(font), font_size: fs as u16, color: hx(0xffe9c0), ..Default::default() });
+    }
+}
 /// แผนที่ซ้อนในโลก + เงาสิ่งก่อสร้างที่ยังไม่ได้สร้าง (แบบร่าง) + ป้ายกลางลาน
 pub fn draw_arch_overlay(g: &Game, sp: &Sprites, v: &View, font: &Font, t: f32) {
+    draw_town_marks(g, v, font);
     let Some((p, active)) = plan_to_draw(g) else { return };
     let (vx0, vy0, vx1, vy1) = view_tiles(v);
     let pul = 0.5 + 0.2 * (t * 3.).sin();
@@ -1544,7 +1671,7 @@ mod tests {
         // ถนนหลักปูจริงตลอดแนว · ทะลุประตูเมืองออกไปข้างนอก
         for &s in shape(1).streets { for u in [u0 - 1, u0, -12, 3, 15, u1, u1 + 1] { let k = w(u, s * BLOCK); assert_eq!(g.w.tile_at(k.0, k.1), T_ROAD, "ถนน s={} u={}", s, u); } }
         // ลานปูหิน มีกองไฟกลางลาน
-        let k = w(PLAZA_LO, PLAZA_LO + 1); assert_eq!(g.w.tile_at(k.0, k.1), T_ROAD, "ลานปูหิน");
+        let k = w(plaza_lo(1), plaza_lo(1) + 1); assert_eq!(g.w.tile_at(k.0, k.1), T_ROAD, "ลานปูหิน");
         let k = w(0, 0); assert_eq!(g.w.placed.get(&k), Some(&9));
         // กำแพงหินรอบเมือง · เว้นช่องประตูตรงถนน · คบเพลิงหน้าประตู
         let k = w(u0, 6); assert_eq!(g.w.placed.get(&k), Some(&11), "กำแพงหินด้านข้าง");
@@ -1709,5 +1836,56 @@ mod tests {
         for _ in 0..200 { g.arch_tick(0.5); }
         assert!(g.rs.ar.helped[WOOD] + g.rs.ar.helped[STONE] > 0, "ชาวบ้านยังหาวัสดุมาส่ง");
     }
+    #[test]
+    fn v42_small_plaza_market_stalls_cheap_walls_and_bedless_buildings() {
+        let (mut g, c) = town();
+        scattered(&mut g, c);
+        // โกดังไม่มีเตียง
+        let store = (c.0 + 16, c.1 - 14);
+        for (p, st) in prefab_steps(OBJ_HUT, store, 0) {
+            match st { crate::house::Step::Tile(t) => { g.w.tmod.insert(p, t); } crate::house::Step::Obj(o) => { if o != 33 { g.w.placed.insert(p, o); } } }
+        }
+        let sv = g.arch_survey().unwrap();
+        assert!(sv.houses.iter().any(|h| h.owner.is_none() && h.carry.tiles.contains(&store)), "โกดังนับเป็นอาคาร");
+        g.rs.ar.size = 0;
+        let p = g.arch_plan(0, OPT_DEFAULT).unwrap();
+        let stalls: Vec<(i32, i32)> = p.steps.iter().filter_map(|s| if let Step::Place { obj: O_STALL, at } = s { Some(*at) } else { None }).collect();
+        assert_eq!(stalls.len(), 2, "แผงตลาด 2 แผง");
+        let pave = p.steps.iter().find_map(|s| if let Step::Pave { x0, x1, .. } = s { Some(x1 - x0 + 1) } else { None }).unwrap();
+        assert_eq!(pave, plaza_hi(0) - plaza_lo(0) + 1, "ลานเมืองเล็ก 8×8");
+        assert_eq!(wall_cost(38), vec![(STONE, 4)]);
+        g.rs.ar.prop = Some(p); g.p.inv[COIN] = 999;
+        assert!(g.arch_accept());
+        g.p.inv[WOOD] = 5000; g.p.inv[STONE] = 5000;
+        g.arch_deposit();
+        for _ in 0..1500 { g.arch_tick(STEP_SECS + 0.01); if g.rs.ar.active.is_none() { break; } }
+        assert!(g.rs.ar.active.is_none());
+        assert!(g.rs.ar.plaza.is_some() && g.plaza_c() == g.rs.ar.plaza);
+        assert_eq!(g.market_stalls().len(), 2);
+        // ตลาดนัด: คนหิวยืนหน้าแผง → ซื้ออาหารจากกล่อง
+        while !(15.5..17.0).contains(&g.hour()) { g.time += 1.; }
+        assert!(g.market_open());
+        let k = g.market_stalls()[0];
+        let pc = g.plaza_c().unwrap();
+        let mut inv = [0; NI]; inv[BERRY] = 5;
+        g.chests.insert((pc.0 + 3, pc.1 - 9), inv);
+        let id = g.npcs[0].id;
+        g.rs.sh.hungry.insert(id, 1);
+        g.npcs[0].x = k.0 as f32 * 16. + 8.; g.npcs[0].y = k.1 as f32 * 16. + 26.;
+        let t0 = g.tax_pool;
+        g.rs.ar.gate_t = 0.; g.gates_tick(0.1);
+        assert!(g.rs.ar.mkt_seen.contains(&id));
+        assert!(g.rs.sh.snack.contains(&id), "ซื้ออาหารกินแล้ว");
+        assert_eq!(g.tax_pool, t0 + 2);
+        assert_eq!(g.chests[&(pc.0 + 3, pc.1 - 9)][BERRY], 4);
+        // ป้ายชื่อหน้าบ้าน
+        g.p.x = g.npcs[0].bed.0 as f32 * 16.; g.p.y = g.npcs[0].bed.1 as f32 * 16.;
+        g.rs.ar.gate_t = 0.; g.gates_tick(0.1);
+        assert!(g.rs.ar.plates.iter().any(|(_, n)| n.starts_with("บ้าน")));
+        // เซฟ/โหลดลาน
+        let s = g.arch_save();
+        let mut h = Game::new_world_seed(278, Sfx::default());
+        for line in s.lines() { let v: Vec<&str> = line.split(' ').collect(); h.arch_load(v[0], &v[1..]); }
+        assert_eq!(h.rs.ar.plaza, g.rs.ar.plaza);
+    }
 }
-

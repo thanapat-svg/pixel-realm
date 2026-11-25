@@ -168,7 +168,7 @@ impl Game {
     pub fn fest_spot(&self) -> Option<(i32, i32)> {
         if self.pop() < 2 || self.w.dun.is_some() { return None; }
         let c = self.town_center()?;
-        Some(self.w.near_fire(c.0, c.1, 10).unwrap_or(c))
+        Some(self.plaza_c().or_else(|| self.w.near_fire(c.0, c.1, 10)).unwrap_or(c))
     }
     pub fn is_sick(&self, id: u32) -> bool { self.rs.lv.sick.contains_key(&id) }
     pub fn bumper_today(&self) -> bool { self.rs.lv.bumper == day_of(self) && day_of(self) > 0 }
