@@ -310,6 +310,14 @@ public class MainActivity extends Activity {
         //% MAIN_ACTIVITY_ON_RESUME
     }
 
+    // Pixel Realm: แถบสถานะ/แถบปัดที่โผล่มา (ปัดขอบจอ ดึงแจ้งเตือน แคปจอ) ซ่อนกลับเมื่อกลับมาเล่น
+    private boolean prFullscreen = false;
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus && prFullscreen) { setFullScreen(true); }
+    }
+
     @Override
     public void onBackPressed() {
         Log.w("SAPP", "onBackPressed");
@@ -345,6 +353,7 @@ public class MainActivity extends Activity {
     }
 
     public void setFullScreen(final boolean fullscreen) {
+        prFullscreen = fullscreen;
         runOnUiThread(new Runnable() {
                 @Override
                 public void run() {

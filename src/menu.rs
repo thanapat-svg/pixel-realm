@@ -301,7 +301,7 @@ fn tab_build(g: &mut Game, sp: &Sprites, font: &Font, ui: &mut UiState, c: Rect,
         let mi = PIECES.iter().position(|p| p.obj == OBJ_MOVE).unwrap();
         let on = g.build_sel == Some(mi);
         if btn(ui, font, Rect::new(c.x + 8. * u, y + 4. * u, c.w - 16. * u, 38. * u), if on { "กำลังใช้: ย้ายของ (แตะเพื่อเลิก)" } else { "ย้ายของที่สร้างแล้ว — กดที่ของแล้วลากไปวางได้เลย" }, true, u) {
-            if on { g.move_cancel(); g.build_sel = None; } else { g.build_sel = Some(mi); g.build_cur = None; g.rs.carry = None; g.toast("ย้ายของ: กดที่ของค้างไว้แล้วลากไปวาง"); ui.close = true; }
+            if on { g.move_cancel(); g.build_sel = None; } else { g.build_sel = Some(mi); g.build_cur = None; g.rs.carry = None; g.toast("ย้ายของ: แตะของ แล้วแตะ/ลากไปที่ใหม่"); ui.close = true; }
         }
     }
     y += 50. * u;

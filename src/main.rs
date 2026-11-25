@@ -75,7 +75,7 @@ mod v34;
 use v34::{draw_bad_doors, draw_pix_axe, TOOL_AXE, TOOL_PICK};
 mod v35;
 /// เลขเวอร์ชันที่โชว์ในหน้าตั้งค่า (ตรงกับ versionName ของ APK)
-pub const GAME_VER: &str = "v40";
+pub const GAME_VER: &str = "v41";
 mod v36;
 mod arch;
 use v35::{draw_forage, J_CRAFT, J_CURE, J_FORAGE, SELF_HOME, SELF_PROJ};
@@ -924,7 +924,7 @@ impl Game {
                 "living" => g.living_load(&rest),
                 "shelp" => g.sh_load(&rest),
                 "charter" => g.ch_load(&rest),
-                "arch" | "archplan" => g.arch_load(tag, &rest),
+                "arch" | "archplan" | "archgate" => g.arch_load(tag, &rest),
                 "permit" => g.permit_load(&rest),
                 "crewrel" => g.crew_load_rel(&rest),
                 "crewst" => g.crew_load_st(&rest),
@@ -1350,7 +1350,7 @@ impl Game {
                 let sp = e.spd * 1.3 * dt;
                 for (ax, ay) in [(ux, uy), (ux - uy * 0.8, uy + ux * 0.8), (ux + uy * 0.8, uy - ux * 0.8)] {
                     let (nx, ny) = (e.x + ax * sp, e.y + ay * sp);
-                    if !collide(&self.w, nx, ny) { e.x = nx; e.y = ny; if ax.abs() > 0.1 { e.vx = ax; } break; }
+                    if !collide(&self.w, nx, ny) && !self.mob_block(nx, ny) { e.x = nx; e.y = ny; if ax.abs() > 0.1 { e.vx = ax; } break; }
                 }
                 e.anim += dt;
                 e.flash = (e.flash - dt).max(0.);
@@ -1428,8 +1428,10 @@ impl Game {
                 e.y += my * dt;
             } else {
                 let (ox, oy) = (e.x, e.y);
-                if !collide(&self.w, e.x + mx * dt, e.y) { e.x += mx * dt; }
-                if !collide(&self.w, e.x, e.y + my * dt) { e.y += my * dt; }
+                // v41 ประตูเมือง: มอนสเตอร์ผ่านไม่ได้ (ทหารฝ่ายศึกผ่านได้ — ไม่งั้นติดค้างหน้าประตู)
+                let gate = |g: &Game, x: f32, y: f32| e.k != EK::Soldier && g.mob_block(x, y);
+                if !collide(&self.w, e.x + mx * dt, e.y) && !gate(self, e.x + mx * dt, e.y) { e.x += mx * dt; }
+                if !collide(&self.w, e.x, e.y + my * dt) && !gate(self, e.x, e.y + my * dt) { e.y += my * dt; }
                 // ทหารติดกำแพง/ประตูของเรา → ทุบ
                 if e.k == EK::Soldier && siege_c.is_some() && (e.x - ox).abs() + (e.y - oy).abs() < 0.01 && (mx != 0. || my != 0.) {
                     e.wt -= dt;
@@ -1468,7 +1470,7 @@ impl Game {
                 let k = (dt * 10.).min(1.);
                 for (j, &i) in ids.iter().enumerate() {
                     let (nx, ny) = (en[i].x + dd[j].0 * k, en[i].y + dd[j].1 * k);
-                    if !collide(&self.w, nx, ny) { en[i].x = nx; en[i].y = ny; }
+                    if !collide(&self.w, nx, ny) && (en[i].k == EK::Soldier || !self.mob_block(nx, ny)) { en[i].x = nx; en[i].y = ny; }
                 }
             }
         }
@@ -1634,6 +1636,7 @@ impl Game {
         prof::t("v19_tick", || self.v19_tick(dt));
         prof::t("work_tick", || self.work_tick(dt));
         self.arch_tick(dt);
+        self.gates_tick(dt);
         prof::t("advisor", || self.advisor_tick(dt));
         self.rs.saga_t -= dt;
         if self.rs.saga_t <= 0. { self.rs.saga_t = 2.; prof::t("saga", || self.saga_tick()); }
@@ -2353,7 +2356,7 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
     if let Some((s, ok)) = permit::pick_line(g, touch) {
         build_line(font, &s, hint_y - 34. * u, u, if ok { hx(0xffd84a) } else { hx(0xff8a8a) });
     } else if g.moving_on() {
-        let s = match &g.rs.carry { None => format!("ย้ายของ: กดที่ของค้างไว้แล้วลากไปวาง หรือแตะของแล้วแตะที่ใหม่ (ผนัง/ประตู/พื้นบ้าน = ทั้งหลัง) · {}", if touch { "ปุ่มแดง = เลิก" } else { "T = เลิก" }), Some(c) => format!("กำลังย้าย: {} · แตะ/ลากไปที่ใหม่ = วาง{} · {}", c.name, if c.building { " · หมุน = หันบ้าน" } else { "" }, if touch { "ปุ่มแดง = วางคืนที่เดิม" } else { "T = วางคืนที่เดิม" }) };
+        let s = match &g.rs.carry { None => format!("ย้ายของ: แตะของ แล้วแตะ/ลากไปที่ใหม่ · แตะผนัง/พื้นบ้าน = ทั้งหลัง · แตะดินไถ = ทั้งแปลง · {}", if touch { "ปุ่มแดง = เลิก" } else { "T = เลิก" }), Some(c) => format!("กำลังย้าย: {} · แตะ/ลากไปที่ใหม่ = วาง{} · {}", c.name, if c.building { " · หมุน = หันบ้าน" } else { "" }, if touch { "ปุ่มแดง = วางคืน" } else { "T = วางคืน" }) };
         build_line(font, &s, hint_y - 34. * u, u, hx(0x9adcff));
     } else if let Some(sel) = g.build_sel {
         let k = if touch { "ปุ่มสร้าง" } else { "R" };
@@ -2362,12 +2365,25 @@ fn draw_hud(g: &Game, sp: &Sprites, font: &Font, touch: bool) {
     let _ = x;
 }
 /// v28 บรรทัดบอกโหมดสร้าง: กลางจอเหนือคำใบ้ "ใช้" (เดิมอยู่ชิดล่างซ้าย ทับแถบไอเทม)
+/// v41 ยาวเกินแถบกลางจอ (ระหว่างจอยกับปุ่มขวา) → ตัดขึ้นบรรทัดใหม่ตรง " · " ไม่ให้ทะลุใต้ปุ่ม
 fn build_line(font: &Font, s: &str, y: f32, u: f32, c: Color) {
     let fs = 13. * u;
-    let d = measure_text(s, Some(font), fs as u16, 1.);
-    let cx = screen_width() / 2.;
-    draw_rectangle(cx - d.width / 2. - 10. * u, y, d.width + 20. * u, 24. * u, Color::new(0., 0., 0., 0.6));
-    text_c(font, s, cx, y + 17. * u, fs, c);
+    let sw = screen_width();
+    let maxw = (sw * 0.46).max(260. * u);
+    let w_of = |t: &str| measure_text(t, Some(font), fs as u16, 1.).width;
+    let mut lines: Vec<String> = vec![];
+    let mut cur = String::new();
+    for part in s.split(" · ") {
+        let cand = if cur.is_empty() { part.to_string() } else { format!("{} · {}", cur, part) };
+        if !cur.is_empty() && w_of(&cand) > maxw { lines.push(std::mem::take(&mut cur)); cur = part.to_string(); } else { cur = cand; }
+    }
+    if !cur.is_empty() { lines.push(cur); }
+    let lh = 20. * u;
+    let wmax = lines.iter().map(|l| w_of(l)).fold(0., f32::max);
+    let cx = sw / 2.;
+    let top = y + 24. * u - lh * lines.len() as f32 - 4. * u;
+    draw_rectangle(cx - wmax / 2. - 10. * u, top, wmax + 20. * u, lh * lines.len() as f32 + 4. * u, Color::new(0., 0., 0., 0.6));
+    for (i, l) in lines.iter().enumerate() { text_c(font, l, cx, top + lh * (i as f32 + 1.) - 3. * u, fs, c); }
 }
 
 fn minimap_rect(big: bool) -> Rect {

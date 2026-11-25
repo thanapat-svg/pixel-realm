@@ -84,6 +84,8 @@ pub struct Plan {
     /// ปูถนนไปแล้วกี่ช่อง (หิน 1 ก้อนทุก 2 ช่อง)
     pub pave_n: u32,
     pub gates: u8,
+    /// v41 ช่องถนนที่ผ่านแนวกำแพง (ประตูเมือง)
+    pub gate_cells: Vec<(i32, i32)>,
     pub notes: Vec<String>,
     /// ไม่เซฟ: ช่องที่ใช้วาดแผนที่ (x, y, ชนิด: 0 บ้านเดิม · 1 บ้านใหม่ · 2 เคลียร์ · 3 ลาน/บ่อ/กองไฟ)
     pub overlay: Vec<(i32, i32, u8)>,
@@ -121,6 +123,13 @@ pub struct Arch {
     pub migrate: bool,
     /// ไม่เซฟ: วัสดุที่ชาวบ้านหามาส่งช่างแล้วในแผนนี้
     pub helped: [i32; NI],
+    /// v41 ช่องประตูเมือง (ถนนที่ผ่านแนวกำแพง) จากแผนของช่าง — เซฟ
+    pub gates_k: Vec<(i32, i32)>,
+    /// ไม่เซฟ: ประตูเมืองทั้งหมด (จากแผน + ช่องถนนที่ผ่านกำแพงเมือง) — มอนสเตอร์ผ่านไม่ได้
+    pub gate_set: HashSet<(i32, i32)>,
+    pub gate_t: f32,
+    /// ไม่เซฟ: เวลาสะสมของการหาวัสดุตอนเราไม่อยู่ในเมือง
+    pub away_t: f32,
 }
 
 #[derive(Clone, Debug)]
@@ -514,7 +523,7 @@ impl Game {
                 };
                 for (u, v) in side {
                     let k = at(u, v);
-                    if road_cells.contains(&k) { flush(&mut run, &mut walls); } else { run.push(k); }
+                    if road_cells.contains(&k) { flush(&mut run, &mut walls); plan.gate_cells.push(k); } else { run.push(k); }
                 }
                 flush(&mut run, &mut walls);
             }
@@ -646,6 +655,8 @@ impl Game {
         self.rs.ar.t = 0.;
         self.rs.ar.unjammed.clear();
         self.rs.ar.helped = [0; NI];
+        for k in &p.gate_cells { if !self.rs.ar.gates_k.contains(k) { self.rs.ar.gates_k.push(*k); } }
+        self.rs.ar.gate_t = 0.;
         self.rs.ar.active = Some(p);
         self.arch_refresh_sf();
         self.news_add(format!("จ้างสถาปนิกวางผังเมือง (ค่าจ้าง {} เหรียญ)", fee));
@@ -881,6 +892,7 @@ impl Game {
             let (px, py) = (tfloor(self.p.x), tfloor(self.p.y - 3.));
             if (px - c.0).abs() <= 6 && (py - c.1).abs() <= 6 && self.rs.ar.sf.iter().any(|&(it, _)| self.p.inv[it] > 0) { self.arch_deposit(); }
         }
+        self.arch_away_help(dt);
         self.rs.ar.t -= dt;
         if self.rs.ar.t > 0. { return; }
         self.rs.ar.t = STEP_SECS;
@@ -1002,6 +1014,54 @@ impl Game {
         true
     }
 
+    // ---------------------------------------------------------------- v41 ประตูเมือง + หาวัสดุตอนเราไม่อยู่
+    /// ช่องประตูเมือง: จากแผนช่าง + ช่องถนนที่ผ่านแนวกำแพงเมือง (กำแพงเมืองทั้งสองฝั่ง ห่างไม่เกิน 3 ช่อง)
+    pub fn gates_refresh(&mut self) {
+        let mut set: HashSet<(i32, i32)> = self.rs.ar.gates_k.iter().copied().filter(|k| self.w.tile_at(k.0, k.1) == T_ROAD && !self.w.placed.contains_key(k)).collect();
+        let roads: Vec<(i32, i32)> = self.w.tmod.iter().filter(|(_, &t)| t == T_ROAD).map(|(k, _)| *k).collect();
+        let is_cw = |k: (i32, i32)| self.w.placed.get(&k) == Some(&38);
+        let is_road = |k: (i32, i32)| self.w.tile_at(k.0, k.1) == T_ROAD && !self.w.placed.contains_key(&k);
+        for r in roads {
+            for d in [(1, 0), (0, 1)] {
+                let walk = |sgn: i32| -> bool {
+                    let mut k = r;
+                    for _ in 0..3 { k = (k.0 + d.0 * sgn, k.1 + d.1 * sgn); if is_cw(k) { return true; } if !is_road(k) { return false; } }
+                    false
+                };
+                if walk(1) && walk(-1) { set.insert(r); }
+            }
+        }
+        self.rs.ar.gate_set = set;
+    }
+    /// มอนสเตอร์ผ่านประตูเมืองไม่ได้ (เราและชาวบ้านผ่านได้)
+    pub fn mob_block(&self, x: f32, y: f32) -> bool {
+        !self.rs.ar.gate_set.is_empty() && self.w.dun.is_none() && self.rs.ar.gate_set.contains(&(tfloor(x), tfloor(y - 3.)))
+    }
+    pub fn gates_tick(&mut self, dt: f32) {
+        self.rs.ar.gate_t -= dt;
+        if self.rs.ar.gate_t > 0. { return; }
+        self.rs.ar.gate_t = 5.;
+        self.gates_refresh();
+    }
+    /// เราไม่อยู่ในเมือง (ชาวบ้านไม่ได้ทำงานให้เห็น): ช่วงกลางวัน ชาวบ้านยังหาไม้/หินมาส่งช่างเรื่อยๆ (ทุก 20 วินาที คนละ 2)
+    fn arch_away_help(&mut self, dt: f32) {
+        if self.rs.ar.no_help || self.work_active() || !work::work_hr(self.hour()) || self.rest_day() { return; }
+        let (w, s) = (self.arch_wants(WOOD), self.arch_wants(STONE));
+        if !w && !s { return; }
+        self.rs.ar.away_t += dt;
+        if self.rs.ar.away_t < 20. { return; }
+        self.rs.ar.away_t = 0.;
+        let pop = self.npcs.iter().filter(|n| n.state == ST_HOME && !n.child).count();
+        let n = (pop * 2 / 3).max(if pop > 0 { 1 } else { 0 }) as i32;
+        if n == 0 { return; }
+        for (it, on) in [(WOOD, w), (STONE, s)] {
+            if !on { continue; }
+            let need = self.rs.ar.sf.iter().find(|x| x.0 == it).map_or(0, |x| x.1);
+            let k = (n * 2 / if w && s { 2 } else { 1 }).max(1).min(need);
+            if k > 0 { self.arch_receive(it, k); }
+        }
+    }
+
     // ---------------------------------------------------------------- v38 ชาวบ้านช่วยหาวัสดุ
     /// ช่างยังขาดของชิ้นนี้ไหม (และเปิดให้ชาวบ้านช่วย)
     pub fn arch_wants(&self, it: usize) -> bool {
@@ -1044,6 +1104,7 @@ impl Game {
         let a = &self.rs.ar;
         let mut s = String::new();
         if a.set || a.finished > 0 || a.size != 0 || a.wallk != 0 || a.no_help { s += &format!("arch {} {} {} {} {} {}\n", a.opts, a.variant, a.finished, a.size, a.wallk, a.no_help as u8); }
+        if !a.gates_k.is_empty() { s += "archgate"; for k in &a.gates_k { s += &format!(" {},{}", k.0, k.1); } s += "\n"; }
         if let Some(p) = &a.active {
             s += &format!("archplan {},{},{},{},{},{},{},{},{}", p.variant, p.opts, p.center.0, p.center.1, p.houses, p.size, p.wallk, p.pave_n, p.gates);
             for (i, &q) in p.pool.iter().enumerate() { if q != 0 { s += &format!(" p{}:{}", i, q); } }
@@ -1074,6 +1135,10 @@ impl Game {
             self.rs.ar.size = (n(3) as u8).min(2);
             self.rs.ar.wallk = (n(4) as u8).min(2);
             self.rs.ar.no_help = n(5) != 0;
+            return;
+        }
+        if tag == "archgate" {
+            for t in r { let v: Vec<i32> = t.split(',').filter_map(|x| x.parse().ok()).collect(); if v.len() == 2 { self.rs.ar.gates_k.push((v[0], v[1])); } }
             return;
         }
         let Some(head) = r.first() else { return };
@@ -1607,6 +1672,42 @@ mod tests {
         assert_eq!(g.w.placed.get(&(c.0 - 5, y)), Some(&38));
         assert_eq!(g.w.tile_at(c.0 + 3, y + 4), T_ROAD);
         assert!(g.rs.ar.active.is_none());
+    }
+    #[test]
+    fn v41_city_gate_blocks_monsters_and_is_found_in_old_towns() {
+        let (mut g, c) = town();
+        let y = c.1 + 20;
+        for x in c.0 - 8..=c.0 + 8 { if x != c.0 && x != c.0 + 1 { g.w.placed.insert((x, y), 38); } }
+        for yy in y - 3..=y + 3 { g.w.tmod.insert((c.0, yy), T_ROAD); g.w.tmod.insert((c.0 + 1, yy), T_ROAD); }
+        g.gates_refresh();
+        assert!(g.rs.ar.gate_set.contains(&(c.0, y)) && g.rs.ar.gate_set.contains(&(c.0 + 1, y)), "เจอประตูเมืองจากกำแพงเมืองเดิม");
+        assert!(!g.rs.ar.gate_set.contains(&(c.0, y - 2)), "ถนนนอกแนวกำแพงไม่ใช่ประตู");
+        assert!(g.mob_block(c.0 as f32 * 16. + 8., y as f32 * 16. + 10.));
+        assert!(!g.mob_block(c.0 as f32 * 16. + 8., (y - 2) as f32 * 16. + 10.));
+        // แผนใหม่: ประตูเมืองเซฟไว้
+        scattered(&mut g, c);
+        let p = g.arch_plan(0, OPT_DEFAULT).unwrap();
+        assert!(!p.gate_cells.is_empty());
+        g.rs.ar.prop = Some(p); g.p.inv[COIN] = 999;
+        assert!(g.arch_accept());
+        assert!(!g.rs.ar.gates_k.is_empty());
+        let s = g.arch_save();
+        assert!(s.contains("archgate "));
+    }
+    #[test]
+    fn v41_villagers_keep_gathering_while_player_is_away() {
+        let (mut g, c) = town();
+        scattered(&mut g, c);
+        let p = g.arch_plan(0, OPT_DEFAULT).unwrap();
+        g.rs.ar.prop = Some(p); g.p.inv[COIN] = 999;
+        assert!(g.arch_accept());
+        for _ in 0..80 { g.arch_tick(STEP_SECS + 0.01); }
+        // เราออกไปไกล ช่วงกลางวัน
+        g.p.x += 200. * 16.;
+        while !work::work_hr(g.hour()) { g.time += 3.; }
+        assert!(!g.work_active());
+        for _ in 0..200 { g.arch_tick(0.5); }
+        assert!(g.rs.ar.helped[WOOD] + g.rs.ar.helped[STONE] > 0, "ชาวบ้านยังหาวัสดุมาส่ง");
     }
 }
 

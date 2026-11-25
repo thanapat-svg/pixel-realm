@@ -112,6 +112,20 @@ pub fn draw_adv(g: &Game, font: &Font, u: f32) {
         TopGoal::Adv(k) => (hx(0x7ee83a), format!("เป้าหมาย {}/{}", g.adv_done.count_ones() + 1, ADV.len()), ADV[k].0.to_string(), ADV[k].1.to_string()),
         TopGoal::Saga(i) => (hx(0xffcc66), CHAPTERS[MISSIONS[i].0 as usize].0.to_string(), g.mission_name(i), MISSIONS[i].2.to_string()),
     };
+    // v41 เป้าหมายใหม่โชว์แผงเต็ม 8 วินาที แล้วพับเหลือป้ายเล็กบรรทัดเดียว (ไม่บังกลางจอด้านบน)
+    thread_local! { static SEEN: std::cell::RefCell<(String, f64)> = std::cell::RefCell::new((String::new(), 0.)); }
+    let now = get_time();
+    let fresh = SEEN.with(|c| { let mut c = c.borrow_mut(); if c.0 != name { *c = (name.clone(), now); } now - c.1 < 8. });
+    if !fresh {
+        let short = format!("{} · {}", label.split(" · ").next().unwrap_or(&label), name);
+        let fs = 11. * u;
+        let d = measure_text(&short, Some(font), fs as u16, 1.);
+        let pw = (d.width + 16. * u).min(w);
+        draw_rectangle(cx - pw / 2., y, pw, 20. * u, Color::new(0.05, 0.07, 0.12, 0.6));
+        draw_rectangle(cx - pw / 2., y + 18. * u, pw, 2. * u, col);
+        text_c(font, &short, cx, y + 14. * u, fs, Color::new(1., 1., 1., 0.85));
+        return;
+    }
     draw_rectangle(x, y, w, h, Color::new(0.05, 0.07, 0.12, 0.72));
     draw_rectangle_lines(x, y, w, h, 2., col);
     text(font, &label, x + 8. * u, y + 13. * u, 10. * u, col);
